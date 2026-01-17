@@ -30,6 +30,10 @@ const CommonSchedule = React.lazy(() => import('./views/lms/CommonSchedule'))
 const LectureSchedule = React.lazy(() => import('./views/lms/LectureSchedule'))
 const Attendance = React.lazy(() => import('./views/lms/Attendance'))
 const LearningActivities = React.lazy(() => import('./views/lms/LearningActivities'))
+const LearnerActivities = React.lazy(() => import('./views/lms/learner-activities'))
+const Assignments = React.lazy(() => import('./views/lms/Assignments'))
+const InternalAssessment = React.lazy(() => import('./views/lms/InternalAssessment'))
+
 
 // ===== Phase 3+ : Migrated ARP modules =====
 const AddManual = React.lazy(() => import('./views/accreditation/AddManual'))
@@ -46,6 +50,7 @@ const GradeSetup = React.lazy(() => import('./views/accreditation/GradeSetup'))
 const DocumentsSetup = React.lazy(() => import('./views/accreditation/DocumentsSetup'))
 const ExpertPanelSetup = React.lazy(() => import('./views/accreditation/ExpertPanelSetup'))
 
+// Academics components
 const TutorWard = React.lazy(() => import('./views/academics/TutorWard'))
 const WardEnrollment = React.lazy(() => import('./views/academics/WardEnrollment'))
 const WardProfile = React.lazy(() => import('./views/academics/WardProfile'))
@@ -54,6 +59,7 @@ const AcademicEvents = React.lazy(() => import('./views/academics/AcademicEvents
 const StudentProfile = React.lazy(() => import('./views/academics/StudentProfile'))
 const FacultyProfile = React.lazy(() => import('./views/academics/FacultyProfile'))
 
+// OBE components
 const ObeConfiguration = React.lazy(() => import('./views/obe/ObeConfiguration'))
 const CourseOutcomes = React.lazy(() => import('./views/obe/CourseOutcomes'))
 const ObeMarkEntry = React.lazy(() => import('./views/obe/ObeMarkEntry'))
@@ -61,12 +67,22 @@ const ObeAttainment = React.lazy(() => import('./views/obe/ObeAttainment'))
 const AttainmentReport = React.lazy(() => import('./views/obe/AttainmentReport'))
 const ArticulationMatrix = React.lazy(() => import('./views/obe/ArticulationMatrix'))
 
+// Examination & Evaluation components
 const QuestionBank = React.lazy(() => import('./views/evaluation/QuestionBank'))
 const QuestionPaper = React.lazy(() => import('./views/evaluation/QuestionPaper'))
 const ScheduleExamination = React.lazy(() => import('./views/evaluation/ScheduleExamination'))
 const OnlineExamination = React.lazy(() => import('./views/evaluation/OnlineExamination'))
 const MarkEntry = React.lazy(() => import('./views/evaluation/MarkEntry'))
 const ResultAnalysis = React.lazy(() => import('./views/evaluation/ResultAnalysis'))
+
+// RESEARCH ACTIVITIES, INNOVATION, EXTENSION, OUTREACH, COLLABORATION, MOUS
+const ResearchActivities = React.lazy(() => import('./views/research/ResearchActivities'))
+const ResearchInnovation = React.lazy(() => import('./views/research/ResearchInnovation'))
+const ResearchExtension = React.lazy(() => import('./views/research/ResearchExtension'))
+const ResearchOutreach = React.lazy(() => import('./views/research/ResearchOutreach'))
+const ResearchCollaboration = React.lazy(() => import('./views/research/ResearchCollaboration'))
+const ResearchMoU = React.lazy(() => import('./views/research/ResearchMoU'))
+
 
 const Page = (name) => () => <div className="p-4">{name}</div>
 
@@ -151,6 +167,7 @@ const routes = [
   { path: '/lms/common-schedule', name: 'Common Schedule', element: CommonSchedule },
   { path: '/lms/lecture-schedule', name: 'Lecture Schedule', element: LectureSchedule },
   { path: '/lms/attendance', name: 'Attendance', element: Attendance },
+  { path: '/lms/assignments', name: 'Assignments', element: Assignments },
 
   {
     path: '/lms/syllabus-completion',
@@ -160,16 +177,15 @@ const routes = [
   { path: '/lms/online-classes', name: 'Online Classes', element: Page('Online Classes') },
 
   { path: '/lms/activities', name: 'Activities', element: LearningActivities },
-  {
-    path: '/lms/learner-activities',
-    name: 'Learner Activities',
-    element: Page('Learner Activities'),
-  },
-  { path: '/lms/assignments', name: 'Assignments', element: Page('Assignments') },
+  { path: '/lms/learner-activities', name: 'Learner Activities', element: LearnerActivities },
+  
+
+  
+
   {
     path: '/lms/internal-assessment',
     name: 'Internal Assessment',
-    element: Page('Internal Assessment'),
+    element: InternalAssessment,
   },
 
   // ===== Phase 4 : Academic Events =====
@@ -211,16 +227,12 @@ const routes = [
   },
 
   // ===== Phase 7 : Research & Innovation =====
-  {
-    path: '/research/activities',
-    name: 'Research Activities',
-    element: Page('Research Activities'),
-  },
-  { path: '/research/innovation', name: 'Innovation', element: Page('Innovation') },
-  { path: '/research/extension', name: 'Extension', element: Page('Extension') },
-  { path: '/research/outreach', name: 'Outreach', element: Page('Outreach') },
-  { path: '/research/collaboration', name: 'Collaboration', element: Page('Collaboration') },
-  { path: '/research/mous', name: 'MoUs', element: Page('MoUs') },
+  { path: '/research/activities', name: 'Research Activities', element: ResearchActivities },
+  { path: '/research/innovation', name: 'Innovation', element: ResearchInnovation },
+  { path: '/research/extension', name: 'Extension', element: ResearchExtension },
+  { path: '/research/outreach', name: 'Outreach', element: ResearchOutreach },
+  { path: '/research/collaboration', name: 'Collaboration', element: ResearchCollaboration },
+  { path: '/research/mous', name: 'MoUs', element: ResearchMoU },
 
   // ===== Phase 8 : Student Support System =====
   {

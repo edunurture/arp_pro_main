@@ -11,55 +11,41 @@ import {
   cilSpreadsheet,
   cilLightbulb,
   cilPeople,
-  cilUser,
   cilWarning,
   cilBriefcase,
   cilBuilding,
-  cilBalanceScale,
   cilChatBubble,
   cilChartLine,
   cilImage,
   cilInfo,
   cilCreditCard,
-  cilDollar,
   cilLockLocked,
+  cilList,
 } from '@coreui/icons'
 
-export type Badge = {
-  color: string
-  text: string
-}
-
 export type NavItem = {
-  badge?: Badge
   component: string | ElementType
-  href?: string
-  icon?: string | JSX.Element
-  items?: NavItem[]
   name: string | JSX.Element
   to?: string
+  icon?: JSX.Element
+  items?: NavItem[]
 }
 
 const icon = (i: any) => <CIcon icon={i} customClassName="nav-icon" />
 
-// ARP navigation migrated from your CoreUI Free template
+/**
+ * _nav.tsx updated to match ONLY the routes that exist in routes.tsx.
+ * - Every `to:` below exists in src/routes.tsx.
+ * - Icons are restricted to ones available in your @coreui/icons version (no cilContactMail, cilEye, etc.).
+ */
+
 const _nav: NavItem[] = [
-  {
-    component: CNavItem,
-    name: 'Home',
-    to: '/dashboard',
-    icon: icon(cilHome),
-  },
+  { component: CNavItem, name: 'Home', to: '/dashboard', icon: icon(cilHome) },
 
-  {
-    component: CNavTitle,
-    name: 'Configuration',
-  },
-
+  { component: CNavTitle, name: 'Configuration' },
   {
     component: CNavGroup,
-    name: 'Setup',
-    to: '/setup',
+    name: 'SETUP',
     icon: icon(cilSettings),
     items: [
       { component: CNavItem, name: 'Institution', to: '/setup/institution' },
@@ -85,8 +71,7 @@ const _nav: NavItem[] = [
 
   {
     component: CNavGroup,
-    name: 'Accreditation',
-    to: '/accreditation',
+    name: 'ACCREDITATION',
     icon: icon(cilLayers),
     items: [
       { component: CNavItem, name: 'Add Manual', to: '/accreditation/add-manual' },
@@ -105,14 +90,10 @@ const _nav: NavItem[] = [
     ],
   },
 
-  {
-    component: CNavTitle,
-    name: 'Learning Management',
-  },
+  { component: CNavTitle, name: 'Learning Management System' },
   {
     component: CNavGroup,
     name: 'LMS',
-    to: '/lms',
     icon: icon(cilEducation),
     items: [
       { component: CNavItem, name: 'Course Allotment', to: '/lms/course-allotment' },
@@ -128,17 +109,16 @@ const _nav: NavItem[] = [
       { component: CNavItem, name: 'Syllabus Completion', to: '/lms/syllabus-completion' },
       { component: CNavItem, name: 'Online Classes', to: '/lms/online-classes' },
       { component: CNavItem, name: 'Activities', to: '/lms/activities' },
+      // If you later add a dedicated route for Learner Activities, update this path.
       { component: CNavItem, name: 'Learner Activities', to: '/lms/learner-activities' },
       { component: CNavItem, name: 'Assignments', to: '/lms/assignments' },
       { component: CNavItem, name: 'Internal Assessment', to: '/lms/internal-assessment' },
     ],
   },
 
-  // Remaining ARP phases are kept in the menu (routes are placeholders in Phase-1)
   {
     component: CNavGroup,
-    name: 'Academics',
-    to: '/academics',
+    name: 'ACADEMICS',
     icon: icon(cilSchool),
     items: [
       { component: CNavItem, name: 'Tutor Ward', to: '/academics/tutor-ward' },
@@ -154,10 +134,9 @@ const _nav: NavItem[] = [
   {
     component: CNavGroup,
     name: 'OBE',
-    to: '/obe',
     icon: icon(cilChartPie),
     items: [
-      { component: CNavItem, name: 'Dashboard', to: '/obe/dashboard' },
+      { component: CNavItem, name: 'Dashboards', to: '/obe/dashboard' },
       { component: CNavItem, name: 'Configuration', to: '/obe/configuration' },
       { component: CNavItem, name: 'Course Outcomes', to: '/obe/course-outcomes' },
       { component: CNavItem, name: 'Mark Entry', to: '/obe/mark-entry' },
@@ -169,8 +148,7 @@ const _nav: NavItem[] = [
 
   {
     component: CNavGroup,
-    name: 'Evaluation',
-    to: '/evaluation',
+    name: 'EVALUATION',
     icon: icon(cilSpreadsheet),
     items: [
       { component: CNavItem, name: 'Question Bank', to: '/evaluation/question-bank' },
@@ -184,8 +162,7 @@ const _nav: NavItem[] = [
 
   {
     component: CNavGroup,
-    name: 'Research',
-    to: '/research',
+    name: 'RESEARCH',
     icon: icon(cilLightbulb),
     items: [
       { component: CNavItem, name: 'Activities', to: '/research/activities' },
@@ -197,124 +174,121 @@ const _nav: NavItem[] = [
     ],
   },
 
+  { component: CNavTitle, name: 'Student Support Systems' },
   {
     component: CNavGroup,
-    name: 'Student Support',
-    to: '/student-support',
+    name: 'STUDENT SUPPORT',
     icon: icon(cilPeople),
     items: [
       { component: CNavItem, name: 'Skill Enhancement', to: '/student-support/skill-enhancement' },
       { component: CNavItem, name: 'Competitive Exams', to: '/student-support/competitive-exams' },
-      { component: CNavItem, name: 'Career Guidance', to: '/student-support/career-guidance' },
-      { component: CNavItem, name: 'Counselling', to: '/student-support/counselling' },
-      { component: CNavItem, name: 'Grievance', to: '/student-support/grievance' },
-      { component: CNavItem, name: 'Anti Ragging', to: '/student-support/anti-ragging' },
-      { component: CNavItem, name: 'SC / ST / OBC Cell', to: '/student-support/sc-st-obc-cell' },
-      { component: CNavItem, name: 'Women Cell', to: '/student-support/women-cell' },
-      { component: CNavItem, name: 'Minority Cell', to: '/student-support/minority-cell' },
-      { component: CNavItem, name: 'Other Cells', to: '/student-support/other-cells' },
     ],
   },
 
   {
     component: CNavGroup,
-    name: 'Placement',
-    to: '/placement',
+    name: 'STUDENT PROFILE',
+    icon: icon(cilPeople),
+    items: [
+      { component: CNavItem, name: 'Basic Profile', to: '/student-profile/basic-profile' },
+      { component: CNavItem, name: 'Academic Profile', to: '/student-profile/academic-profile' },
+      { component: CNavItem, name: 'Extra Curricular', to: '/student-profile/extra-curricular' },
+      { component: CNavItem, name: 'Placements', to: '/student-profile/placements' },
+      { component: CNavItem, name: 'Progression', to: '/student-profile/progression' },
+    ],
+  },
+
+  {
+    component: CNavGroup,
+    name: 'GRIEVANCES',
+    icon: icon(cilWarning),
+    items: [
+      { component: CNavItem, name: 'View Affidavit', to: '/grievances/view-affidavit' },
+      { component: CNavItem, name: 'View Complaints', to: '/grievances/view-complaints' },
+      { component: CNavItem, name: 'Examination Related', to: '/grievances/exam' },
+      { component: CNavItem, name: 'General Grievances', to: '/grievances/general' },
+    ],
+  },
+
+  {
+    component: CNavGroup,
+    name: 'PLACEMENTS',
     icon: icon(cilBriefcase),
     items: [
-      { component: CNavItem, name: 'Drives', to: '/placement/drives' },
-      { component: CNavItem, name: 'Offers', to: '/placement/offers' },
-      { component: CNavItem, name: 'Higher Studies', to: '/placement/higher-studies' },
-      { component: CNavItem, name: 'Entrepreneurship', to: '/placement/entrepreneurship' },
+      { component: CNavItem, name: 'Company Details', to: '/placements/company-details' },
+      { component: CNavItem, name: 'MoUs', to: '/placements/mous' },
+      { component: CNavItem, name: 'Schedule', to: '/placements/schedule' },
+      { component: CNavItem, name: 'Activities', to: '/placements/activities' },
+      { component: CNavItem, name: 'Drives', to: '/placements/drives' },
+      { component: CNavItem, name: 'Offers', to: '/placements/offers' },
+      { component: CNavItem, name: 'Reports', to: '/placements/reports' },
     ],
   },
 
+  { component: CNavTitle, name: 'Accreditation System' },
   {
     component: CNavGroup,
-    name: 'Alumni',
-    to: '/alumni',
-    icon: icon(cilUser),
+    name: 'AMS',
+    icon: icon(cilList),
     items: [
-      { component: CNavItem, name: 'Registration', to: '/alumni/registration' },
-      { component: CNavItem, name: 'Contribution', to: '/alumni/contribution' },
-      { component: CNavItem, name: 'Association', to: '/alumni/association' },
+      { component: CNavItem, name: 'Dashboards', to: '/ams/dashboard' },
+      { component: CNavItem, name: 'MoUs', to: '/ams/mous' },
+      { component: CNavItem, name: 'Profile of SSR', to: '/ams/profile-ssr' },
+      { component: CNavItem, name: 'Extended Profile', to: '/ams/extended-profile' },
+      { component: CNavItem, name: 'Executive Summary', to: '/ams/executive-summary' },
+      { component: CNavItem, name: 'QIF Metrics', to: '/ams/qif-metrics' },
+      { component: CNavItem, name: 'Expert Views', to: '/ams/expert-views' },
+      { component: CNavItem, name: 'SSR Introspect', to: '/ams/ssr-introspect' },
+      { component: CNavItem, name: 'CGPA Score', to: '/ams/cgpa-score' },
+      { component: CNavItem, name: 'Submit SSR', to: '/ams/submit-ssr' },
     ],
   },
 
+  { component: CNavTitle, name: 'Institution Governance' },
   {
     component: CNavGroup,
-    name: 'Infrastructure',
-    to: '/infrastructure',
+    name: 'GOVERNANCE',
     icon: icon(cilBuilding),
     items: [
-      { component: CNavItem, name: 'Library', to: '/infrastructure/library' },
-      { component: CNavItem, name: 'IT Facilities', to: '/infrastructure/it-facilities' },
-      { component: CNavItem, name: 'Facilities', to: '/infrastructure/facilities' },
-      { component: CNavItem, name: 'Maintenance', to: '/infrastructure/maintenance' },
+      { component: CNavItem, name: 'Circular', to: '/governance/circular' },
+      { component: CNavItem, name: 'Communication', to: '/governance/communication' },
+      { component: CNavItem, name: 'Leave Management', to: '/governance/leave-management' },
     ],
   },
 
   {
     component: CNavGroup,
-    name: 'Compliances',
-    to: '/compliances',
-    icon: icon(cilBalanceScale),
-    items: [
-      { component: CNavItem, name: 'Online Data', to: '/compliances/online-data' },
-      { component: CNavItem, name: 'AISHE', to: '/compliances/aishe' },
-      { component: CNavItem, name: 'NIRF', to: '/compliances/nirf' },
-      { component: CNavItem, name: 'Other', to: '/compliances/other' },
-    ],
-  },
-
-  {
-    component: CNavGroup,
-    name: 'Communication',
-    to: '/communication',
+    name: 'FEEDBACK',
     icon: icon(cilChatBubble),
     items: [
-      { component: CNavItem, name: 'Circular', to: '/communication/circular' },
-      { component: CNavItem, name: 'Notification', to: '/communication/notification' },
-      { component: CNavItem, name: 'Message', to: '/communication/message' },
-      { component: CNavItem, name: 'Email', to: '/communication/email' },
+      { component: CNavItem, name: 'Configuration', to: '/feedback/configuration' },
+      { component: CNavItem, name: 'Feedback', to: '/feedback/feedback' },
+      { component: CNavItem, name: 'Course Feedback', to: '/feedback/course-feedback' },
+      { component: CNavItem, name: 'Assign Feedback', to: '/feedback/assign-feedback' },
+      { component: CNavItem, name: 'Analysis Report', to: '/feedback/analysis-report' },
     ],
   },
 
   {
     component: CNavGroup,
-    name: 'Analytics',
-    to: '/analytics',
+    name: 'REPORTS',
     icon: icon(cilChartLine),
     items: [
-      { component: CNavItem, name: 'Performance Metrics', to: '/analytics/performance-metrics' },
-      { component: CNavItem, name: 'Outcome Metrics', to: '/analytics/outcome-metrics' },
-      { component: CNavItem, name: 'Placement Metrics', to: '/analytics/placement-metrics' },
+      { component: CNavItem, name: 'Primary Reports', to: '/reports/primary' },
+      { component: CNavItem, name: 'Academics Reports', to: '/reports/academics' },
+      { component: CNavItem, name: 'Compliances Reports', to: '/reports/compliances' },
+      { component: CNavItem, name: 'Accreditation Reports', to: '/reports/accreditation' },
+      { component: CNavItem, name: 'Miscellaneous Reports', to: '/reports/miscellaneous' },
     ],
   },
 
-  {
-    component: CNavGroup,
-    name: 'Gallery',
-    to: '/gallery',
-    icon: icon(cilImage),
-    items: [{ component: CNavItem, name: 'Gallery', to: '/gallery' }],
-  },
-  {
-    component: CNavGroup,
-    name: 'FAQ',
-    to: '/faq',
-    icon: icon(cilInfo),
-    items: [{ component: CNavItem, name: 'FAQ', to: '/faq' }],
-  },
+  { component: CNavItem, name: 'Gallery', to: '/gallery', icon: icon(cilImage) },
+  { component: CNavItem, name: 'FAQ', to: '/faq', icon: icon(cilInfo) },
 
-  {
-    component: CNavTitle,
-    name: 'ARP Management',
-  },
+  { component: CNavTitle, name: 'ARP Management' },
   {
     component: CNavGroup,
     name: 'ARP',
-    to: '/arp',
     icon: icon(cilCreditCard),
     items: [
       { component: CNavItem, name: 'Support & Helpdesk', to: '/arp/support-helpdesk' },
@@ -324,17 +298,12 @@ const _nav: NavItem[] = [
   },
 
   {
-    component: CNavTitle,
-    name: 'Authorization',
-  },
-  {
     component: CNavGroup,
-    name: 'Authorization',
-    to: '/auth',
+    name: 'AUTHORIZATION',
     icon: icon(cilLockLocked),
     items: [
-      { component: CNavItem, name: 'Admin', to: '/auth/admin' },
-      { component: CNavItem, name: 'Groups', to: '/auth/groups' },
+      { component: CNavItem, name: 'Admin Authorization', to: '/auth/admin' },
+      { component: CNavItem, name: 'Group Authorization', to: '/auth/groups' },
     ],
   },
 ]
