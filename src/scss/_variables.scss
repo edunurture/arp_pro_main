@@ -1,0 +1,109 @@
+/* ======================================================
+   ARP Typography Overrides – CoreUI Pro (Modern / v5.x)
+   File: src/scss/_variables.scss
+   ====================================================== */
+
+/* -----------------------------
+   1) SCSS variables (build-time)
+   ----------------------------- */
+
+/* Buttons */
+$btn-font-size: 0.95rem;        // ~15.2px (ARP recommended)
+$btn-font-size-sm: 0.875rem;    // ~14px (toolbars/tables)
+$btn-font-size-lg: 1rem;        // ~16px (primary submit)
+
+/* Button paddings (keep proportions) */
+$btn-padding-y: 0.45rem;
+$btn-padding-x: 0.9rem;
+
+$btn-padding-y-sm: 0.3rem;
+$btn-padding-x-sm: 0.65rem;
+
+$btn-padding-y-lg: 0.6rem;
+$btn-padding-x-lg: 1.25rem;
+
+/* Forms */
+$form-label-font-size: 0.9rem;  // labels slightly smaller than button text
+$input-font-size: 0.95rem;      // match buttons for readability
+$input-padding-y: 0.45rem;
+$input-padding-x: 0.75rem;
+
+/* Tables */
+$table-font-size: 0.9rem;       // readable + compact
+$table-cell-padding-y: 0.5rem;
+$table-cell-padding-x: 0.75rem;
+
+/* Card headings */
+$card-title-font-size: 1rem;
+$card-title-font-weight: 600;   // ✅ ARP: readable semi-bold header text
+
+/* Card header (cap) padding */
+$card-cap-padding-y: 0.6rem;    // ✅ ARP: comfortable header height
+$card-cap-padding-x: 1rem;
+
+
+/* --------------------------------
+   2) CSS variables (runtime theme)
+   CoreUI Pro uses CSS vars heavily,
+   so we override them too.
+   -------------------------------- */
+
+:root,
+[data-coreui-theme="light"],
+[data-bs-theme="light"] {
+  /* Buttons */
+  --cui-btn-font-size: 0.95rem;
+  --cui-btn-padding-y: 0.45rem;
+  --cui-btn-padding-x: 0.9rem;
+
+  /* Forms */
+  --cui-form-label-font-size: 0.9rem;
+  --cui-input-font-size: 0.95rem;
+  --cui-input-padding-y: 0.45rem;
+  --cui-input-padding-x: 0.75rem;
+
+  /* Tables */
+  --cui-table-font-size: 0.9rem;
+  --cui-table-cell-padding-y: 0.5rem;
+  --cui-table-cell-padding-x: 0.75rem;
+
+  /* ✅ Card Header (CCardHeader) */
+  --cui-card-title-font-size: 1rem;
+  --cui-card-title-font-weight: 600;
+
+  --cui-card-cap-padding-y: 0.6rem;
+  --cui-card-cap-padding-x: 1rem;
+
+  /* Clean modern header (no heavy grey block) */
+  --cui-card-cap-bg: var(--cui-body-bg);
+  --cui-card-cap-color: var(--cui-body-color);
+  --cui-card-cap-border-color: var(--cui-border-color);
+}
+
+[data-coreui-theme="dark"],
+[data-bs-theme="dark"] {
+  /* Keep same sizes in dark mode */
+  --cui-btn-font-size: 0.95rem;
+  --cui-btn-padding-y: 0.45rem;
+  --cui-btn-padding-x: 0.9rem;
+
+  --cui-form-label-font-size: 0.9rem;
+  --cui-input-font-size: 0.95rem;
+  --cui-input-padding-y: 0.45rem;
+  --cui-input-padding-x: 0.75rem;
+
+  --cui-table-font-size: 0.9rem;
+  --cui-table-cell-padding-y: 0.5rem;
+  --cui-table-cell-padding-x: 0.75rem;
+
+  /* ✅ Card Header (CCardHeader) */
+  --cui-card-title-font-size: 1rem;
+  --cui-card-title-font-weight: 600;
+
+  --cui-card-cap-padding-y: 0.6rem;
+  --cui-card-cap-padding-x: 1rem;
+
+  --cui-card-cap-bg: var(--cui-body-bg);
+  --cui-card-cap-color: var(--cui-body-color);
+  --cui-card-cap-border-color: var(--cui-border-color);
+}
