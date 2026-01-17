@@ -18,15 +18,12 @@ import {
   CTableHeaderCell,
   CTableBody,
   CTableDataCell,
-  CPagination,
-  CPaginationItem,
   CSpinner,
 } from '@coreui/react-pro'
 import CIcon from '@coreui/icons-react'
 import { cilSearch } from '@coreui/icons'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
-
+import { ArpButton, ArpIconButton, ArpPagination } from '../../components/common'
 const initialForm = {
   deptCode: '',
   deptName: '',
@@ -429,44 +426,17 @@ const Department = () => {
               </CTableBody>
             </CTable>
 
-            {/* ✅ CoursesConfiguration-style pagination */}
-            <div className="d-flex justify-content-end mt-2">
-              <CPagination size="sm" className="mb-0">
-                <CPaginationItem disabled={safePage <= 1} onClick={() => setPage(1)}>
-                  «
-                </CPaginationItem>
-                <CPaginationItem disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                  ‹
-                </CPaginationItem>
-
-                {Array.from({ length: totalPages })
-                  .slice(Math.max(0, safePage - 3), Math.min(totalPages, safePage + 2))
-                  .map((_, i) => {
-                    const pageNumber = Math.max(1, safePage - 2) + i
-                    if (pageNumber > totalPages) return null
-                    return (
-                      <CPaginationItem
-                        key={pageNumber}
-                        active={pageNumber === safePage}
-                        onClick={() => setPage(pageNumber)}
-                      >
-                        {pageNumber}
-                      </CPaginationItem>
-                    )
-                  })}
-
-                <CPaginationItem
-                  disabled={safePage >= totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                >
-                  ›
-                </CPaginationItem>
-                <CPaginationItem disabled={safePage >= totalPages} onClick={() => setPage(totalPages)}>
-                  »
-                </CPaginationItem>
-              </CPagination>
-            </div>
-          </CCardBody>
+            {/* ✅ ARP Pagination (Reusable Component) */}
+            <ArpPagination
+              page={safePage}
+              totalPages={totalPages}
+              onChange={setPage}
+              size="sm"
+              align="end"
+              prevText="Previous"
+              nextText="Next"
+            />
+</CCardBody>
         </CCard>
       </CCol>
     </CRow>
