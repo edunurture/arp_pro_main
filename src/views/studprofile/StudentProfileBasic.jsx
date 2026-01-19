@@ -24,14 +24,13 @@ import CIcon from '@coreui/icons-react'
 import {
   cilSearch,
   cilUser,
-  cilPencil,
-  cilCloudDownload,
-  cilPrint,
-  cilSave,
-  cilX,
-  cilEye,
+  cilZoom,
 } from '@coreui/icons'
-
+const ARP_ICONS = {
+  SEARCH: cilSearch,
+  USER: cilUser,
+  VIEW: cilZoom,
+}
 import { ArpButton, ArpPagination } from '../../components/common'
 
 /**
@@ -470,7 +469,7 @@ const StudentProfile = () => {
               <div className="d-flex align-items-center gap-2 flex-nowrap" style={{ overflowX: 'auto' }}>
                 <CInputGroup size="sm" style={{ width: 260, flex: '0 0 auto' }}>
                   <CInputGroupText>
-                    <CIcon icon={cilSearch} />
+                    <CIcon icon={ARP_ICONS.SEARCH} />
                   </CInputGroupText>
                   <CFormInput
                     value={searchReg}
@@ -506,7 +505,7 @@ const StudentProfile = () => {
                   onClick={onViewProfile}
                   title="View Profile"
                 >
-                  <CIcon icon={cilUser} className="me-2" />
+                  <CIcon icon={ARP_ICONS.USER} className="me-2" />
                   View Profile
                 </CButton>
               </div>
@@ -604,49 +603,7 @@ const StudentProfile = () => {
 
                     <CTableDataCell colSpan={5} className="text-end">
                       <div className="d-flex justify-content-end gap-2 flex-wrap">
-                        <CButton
-                          color="primary"
-                          variant="solid"
-                          size="sm"
-                          style={circleBtnStyle}
-                          title="Edit"
-                          onClick={onEdit}
-                        >
-                          <CIcon icon={cilPencil} />
-                        </CButton>
-
-                        <CButton
-                          color="secondary"
-                          variant="solid"
-                          size="sm"
-                          style={circleBtnStyle}
-                          title="Download"
-                          onClick={onDownload}
-                        >
-                          <CIcon icon={cilCloudDownload} />
-                        </CButton>
-
-                        <CButton
-                          color="success"
-                          variant="solid"
-                          size="sm"
-                          style={circleBtnStyle}
-                          title="Print"
-                          onClick={onPrint}
-                        >
-                          <CIcon icon={cilPrint} />
-                        </CButton>
-
-                        <CButton color="success" size="sm" title="Save" onClick={onSave} disabled={!isEdit}>
-                          <CIcon icon={cilSave} className="me-2" />
-                          Save
-                        </CButton>
-
-                        <CButton color="danger" size="sm" title="Cancel" onClick={onCancel}>
-                          <CIcon icon={cilX} className="me-2" />
-                          Cancel
-                        </CButton>
-                      </div>
+</div>
                     </CTableDataCell>
                   </CTableRow>
 
@@ -1387,18 +1344,9 @@ const StudentProfile = () => {
                         <h6 className="mb-0">View Documents</h6>
                         <div className="d-flex gap-2">
                           <CButton color="primary" size="sm" style={circleBtnStyle} title="View">
-                            <CIcon icon={cilEye} />
+                            <CIcon icon={ARP_ICONS.VIEW} />
                           </CButton>
-                          <CButton
-                            color="success"
-                            size="sm"
-                            style={circleBtnStyle}
-                            title="Download"
-                            onClick={onDownload}
-                          >
-                            <CIcon icon={cilCloudDownload} />
-                          </CButton>
-                        </div>
+</div>
                       </div>
 
                       <CTable bordered responsive align="middle" className="mb-2">

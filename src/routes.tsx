@@ -83,6 +83,13 @@ const ResearchOutreach = React.lazy(() => import('./views/research/ResearchOutre
 const ResearchCollaboration = React.lazy(() => import('./views/research/ResearchCollaboration'))
 const ResearchMoU = React.lazy(() => import('./views/research/ResearchMoU'))
 
+// STUDENT PROFILE COMPONENTS CAN BE ADDED HERE
+const StudentProfileBasic = React.lazy(() => import('./views/studprofile/StudentProfileBasic'))
+const StudentAcademicProfile = React.lazy(() => import('./views/studprofile/StudentAcademicProfile'))
+const StudentExtraCurricular = React.lazy(() => import('./views/studprofile/StudentExtraCurricular'))
+const StudentPlacements = React.lazy(() => import('./views/studprofile/StudentPlacements'))
+const StudentProgression = React.lazy(() => import('./views/studprofile/StudentProgression'))
+
 
 const Page = (name) => () => <div className="p-4">{name}</div>
 
@@ -178,9 +185,6 @@ const routes = [
 
   { path: '/lms/activities', name: 'Activities', element: LearningActivities },
   { path: '/lms/learner-activities', name: 'Learner Activities', element: LearnerActivities },
-  
-
-  
 
   {
     path: '/lms/internal-assessment',
@@ -247,19 +251,24 @@ const routes = [
   },
 
   // ===== Phase 9 : Student Information System =====
-  { path: '/student-profile/basic-profile', name: 'Basic Profile', element: Page('Basic Profile') },
+
+  { path: '/student-profile/basic-profile', name: 'Basic Profile', element: StudentProfileBasic },
   {
     path: '/student-profile/academic-profile',
     name: 'Academic Profile',
-    element: Page('Academic Profile'),
+    element: StudentAcademicProfile,
   },
+
   {
     path: '/student-profile/extra-curricular',
     name: 'Extra-Curricular',
-    element: Page('Extra-Curricular'),
+    element: StudentExtraCurricular,
   },
-  { path: '/student-profile/placements', name: 'Placements', element: Page('Placements') },
-  { path: '/student-profile/progression', name: 'Progression', element: Page('Progression') },
+
+  { path: '/student-profile/placements', name: 'Placements', element: StudentPlacements },
+  { path: '/student-profile/progression', name: 'Progression', element: StudentProgression },
+  
+
 
   // ===== Phase 10 : Grievance System =====
   { path: '/grievances/view-affidavit', name: 'View Affidavit', element: Page('View Affidavit') },
