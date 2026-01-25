@@ -33,6 +33,8 @@ const LearningActivities = React.lazy(() => import('./views/lms/LearningActiviti
 const LearnerActivities = React.lazy(() => import('./views/lms/learner-activities'))
 const Assignments = React.lazy(() => import('./views/lms/Assignments'))
 const InternalAssessment = React.lazy(() => import('./views/lms/InternalAssessment'))
+const SyllabusCompletion = React.lazy(() => import('./views/lms/SyllabusCompletion'))
+const OnlineClasses = React.lazy(() => import('./views/lms/OnlineClasses'))
 
 
 // ===== Phase 3+ : Migrated ARP modules =====
@@ -83,12 +85,56 @@ const ResearchOutreach = React.lazy(() => import('./views/research/ResearchOutre
 const ResearchCollaboration = React.lazy(() => import('./views/research/ResearchCollaboration'))
 const ResearchMoU = React.lazy(() => import('./views/research/ResearchMoU'))
 
+// STUDENT SUPPORT SYSTEM COMPONENTS CAN BE ADDED HERE  
+const SkillEnhancement = React.lazy(() => import('./views/studsupport/SkillEnhancement'))
+const CompetitiveExaminations = React.lazy(() => import('./views/studsupport/CompetitiveExaminations'))
+
+
+
 // STUDENT PROFILE COMPONENTS CAN BE ADDED HERE
 const StudentProfileBasic = React.lazy(() => import('./views/studprofile/StudentProfileBasic'))
 const StudentAcademicProfile = React.lazy(() => import('./views/studprofile/StudentAcademicProfile'))
 const StudentExtraCurricular = React.lazy(() => import('./views/studprofile/StudentExtraCurricular'))
 const StudentPlacements = React.lazy(() => import('./views/studprofile/StudentPlacements'))
 const StudentProgression = React.lazy(() => import('./views/studprofile/StudentProgression'))
+
+// STUDENT GRIEVANCE COMPONENTS CAN BE ADDED HERE
+const ViewAffidavits = React.lazy(() => import('./views/grievances/ViewAffidavits'))
+const ViewComplaints = React.lazy(() => import('./views/grievances/ViewComplaints'))
+
+// PLACEMENTS COMPONENTS CAN BE ADDED HERE
+const CompanyDetails = React.lazy(() => import('./views/placements/CompanyDetails'))
+const PlacementMOUs = React.lazy(() => import('./views/placements/PlacementMOUs'))
+const PlacementSchedule = React.lazy(() => import('./views/placements/PlacementSchedule'))
+const PlacementActivities = React.lazy(() => import('./views/placements/PlacementActivities'))
+const PlacementDrives = React.lazy(() => import('./views/placements/PlacementDrives'))
+const PlacementOffers = React.lazy(() => import('./views/placements/PlacementOffers'))
+const PlacementReports = React.lazy(() => import('./views/placements/PlacementReports'))
+
+// ACCREDITATION MANAGEMENT SYSTEM (AMS) COMPONENTS CAN BE ADDED HERE
+const AMSExtendedProfile = React.lazy(() => import('./views/ams/AMSExtendedProfile'))
+const AMSExecutiveSummary = React.lazy(() => import('./views/ams/AMSExecutiveSummary'))
+const AMSQIFMetrics = React.lazy(() => import('./views/ams/AMSQIFMetrics'))
+const ExpertView = React.lazy(() => import('./views/ams/ExpertView'))
+
+// FEEDACK SYSTEM COMPONENTS CAN BE ADDED HERE
+const FeedbackConfiguration = React.lazy(() => import('./views/feedback/FeedbackConfiguration'))
+const CourseFeedback = React.lazy(() => import('./views/feedback/CourseFeedback'))
+const AssignFeedback = React.lazy(() => import('./views/feedback/AssignFeedback'))
+const AnalysisReportAssignedFeedback = React.lazy(() => import('./views/feedback/AnalysisReportAssignedFeedback'))
+const AnalysisReportCourseFeedback = React.lazy(() => import('./views/feedback/AnalysisReportCourseFeedback'))
+const SSRIntrospection = React.lazy(() => import('./views/ams/SSRIntrospection'))
+const SSRCGPAScore = React.lazy(() => import('./views/ams/SSRCGPAScore'))
+const SubmitSSR = React.lazy(() => import('./views/ams/SubmitSSR'))
+
+// REPORTS COMPONENTS CAN BE ADDED HERE
+const PrimaryReports = React.lazy(() => import('./views/reports/PrimaryReports'))
+const AcademicReports = React.lazy(() => import('./views/reports/AcademicReports'))
+const CompliancesReports = React.lazy(() => import('./views/reports/CompliancesReports'))
+const AccreditationReports = React.lazy(() => import('./views/reports/AccreditationReports'))
+const MiscellaneousReports = React.lazy(() => import('./views/reports/MiscellaneousReports'))
+
+
 
 
 const Page = (name) => () => <div className="p-4">{name}</div>
@@ -109,52 +155,24 @@ const routes = [
   { path: '/setup/regulation', name: 'Regulation', element: RegulationConfiguration },
   { path: '/setup/courses', name: 'Courses Configuration', element: CoursesConfiguration },
   { path: '/setup/regulation-map', name: 'Regulation Map', element: RegulationMapConfiguration },
-  {
-    path: '/setup/combined-courses',
-    name: 'Combined Courses',
-    element: CommonScheduleConfiguration,
-  },
+  { path: '/setup/combined-courses', name: 'Combined Courses', element: CommonScheduleConfiguration},
   { path: '/setup/student', name: 'Student', element: StudentConfiguration },
   { path: '/setup/faculty', name: 'Faculty', element: FacultyConfiguration },
   { path: '/setup/calendar', name: 'Calendar', element: CalendarConfiguration },
   { path: '/setup/timetable', name: 'Timetable', element: TimetableConfiguration },
   { path: '/setup/question-models', name: 'Question Models', element: QuestionModelConfiguration },
   { path: '/setup/cia-components', name: 'CIA Components', element: CIAComponentsConfiguration },
-  {
-    path: '/setup/cia-computations',
-    name: 'CIA Computations',
-    element: CIAComputationConfiguration,
-  },
-  {
-    path: '/setup/assessment-setup',
-    name: 'Assessment Setup',
-    element: AssessmentSetupConfiguration,
-  },
+  { path: '/setup/cia-computations', name: 'CIA Computations', element: CIAComputationConfiguration},
+  { path: '/setup/assessment-setup', name: 'Assessment Setup', element: AssessmentSetupConfiguration},
   { path: '/setup/upload-photo', name: 'Upload Photo', element: UploadPhotoConfiguration },
 
   // ===== Phase 2 : Accreditation =====
   { path: '/accreditation/add-manual', name: 'Add Manual', element: AddManual },
-  {
-    path: '/accreditation/add-data-labels',
-    name: 'Add Data Labels',
-    element: AddDataLabel,
-  },
-  {
-    path: '/accreditation/extended-profile',
-    name: 'Extended Profile',
-    element: ExtendedProfile,
-  },
-  {
-    path: '/accreditation/add-ep-metrics',
-    name: 'Add EP Metrics',
-    element: AddEpMetrics,
-  },
-  { path: '/accreditation/criteria', name: 'Criteria', element: CriteriaSetup },
-  {
-    path: '/accreditation/key-indicators',
-    name: 'Key Indicators',
-    element: KeyIndicatorSetup,
-  },
+  { path: '/accreditation/add-data-labels', name: 'Add Data Labels', element: AddDataLabel},
+  { path: '/accreditation/extended-profile', name: 'Extended Profile', element: ExtendedProfile},
+  { path: '/accreditation/add-ep-metrics', name: 'Add EP Metrics', element: AddEpMetrics },
+  { path: '/accreditation/criteria', name: 'Criteria', element: CriteriaSetup},
+  { path: '/accreditation/key-indicators', name: 'Key Indicators', element: KeyIndicatorSetup},
   { path: '/accreditation/main-metrics', name: 'Main Metrics', element: MetricSetup },
   { path: '/accreditation/sub-metrics', name: 'Sub Metrics', element: SubMetricSetup },
   { path: '/accreditation/qualitative', name: 'Qualitative', element: QualitativeSetup },
@@ -176,21 +194,11 @@ const routes = [
   { path: '/lms/attendance', name: 'Attendance', element: Attendance },
   { path: '/lms/assignments', name: 'Assignments', element: Assignments },
 
-  {
-    path: '/lms/syllabus-completion',
-    name: 'Syllabus Completion',
-    element: Page('Syllabus Completion'),
-  },
-  { path: '/lms/online-classes', name: 'Online Classes', element: Page('Online Classes') },
-
+  { path: '/lms/syllabus-completion', name: 'Syllabus Completion', element: SyllabusCompletion},
+  { path: '/lms/online-classes', name: 'Online Classes', element: OnlineClasses},
   { path: '/lms/activities', name: 'Activities', element: LearningActivities },
   { path: '/lms/learner-activities', name: 'Learner Activities', element: LearnerActivities },
-
-  {
-    path: '/lms/internal-assessment',
-    name: 'Internal Assessment',
-    element: InternalAssessment,
-  },
+  { path: '/lms/internal-assessment', name: 'Internal Assessment', element: InternalAssessment},
 
   // ===== Phase 4 : Academic Events =====
   { path: '/academics/tutor-ward', name: 'Tutor Ward', element: TutorWard },
@@ -213,22 +221,10 @@ const routes = [
   // ===== Phase 6 : Internal Assessment =====
   { path: '/evaluation/question-bank', name: 'Question Bank', element: QuestionBank },
   { path: '/evaluation/question-paper', name: 'Question Paper', element: QuestionPaper },
-  {
-    path: '/evaluation/schedule-examination',
-    name: 'Schedule Examination',
-    element: ScheduleExamination,
-  },
-  {
-    path: '/evaluation/online-examination',
-    name: 'Online Examination',
-    element: OnlineExamination,
-  },
+  { path: '/evaluation/schedule-examination', name: 'Schedule Examination', element: ScheduleExamination},
+  { path: '/evaluation/online-examination', name: 'Online Examination', element: OnlineExamination},
   { path: '/evaluation/mark-entry', name: 'Mark Entry', element: MarkEntry },
-  {
-    path: '/evaluation/result-analysis',
-    name: 'Result Analysis',
-    element: ResultAnalysis,
-  },
+  { path: '/evaluation/result-analysis', name: 'Result Analysis', element: ResultAnalysis},
 
   // ===== Phase 7 : Research & Innovation =====
   { path: '/research/activities', name: 'Research Activities', element: ResearchActivities },
@@ -239,83 +235,53 @@ const routes = [
   { path: '/research/mous', name: 'MoUs', element: ResearchMoU },
 
   // ===== Phase 8 : Student Support System =====
-  {
-    path: '/student-support/skill-enhancement',
-    name: 'Skill Enhancement',
-    element: Page('Skill Enhancement'),
-  },
-  {
-    path: '/student-support/competitive-exams',
-    name: 'Competitive Exams',
-    element: Page('Competitive Exams'),
-  },
+  { path: '/student-support/skill-enhancement', name: 'Skill Enhancement', element: SkillEnhancement},
+  { path: '/student-support/competitive-exams', name: 'Competitive Exams', element: CompetitiveExaminations},
 
   // ===== Phase 9 : Student Information System =====
 
   { path: '/student-profile/basic-profile', name: 'Basic Profile', element: StudentProfileBasic },
-  {
-    path: '/student-profile/academic-profile',
-    name: 'Academic Profile',
-    element: StudentAcademicProfile,
-  },
-
-  {
-    path: '/student-profile/extra-curricular',
-    name: 'Extra-Curricular',
-    element: StudentExtraCurricular,
-  },
-
+  { path: '/student-profile/academic-profile', name: 'Academic Profile', element: StudentAcademicProfile},
+  { path: '/student-profile/extra-curricular', name: 'Extra-Curricular', element: StudentExtraCurricular},
   { path: '/student-profile/placements', name: 'Placements', element: StudentPlacements },
   { path: '/student-profile/progression', name: 'Progression', element: StudentProgression },
-  
-
 
   // ===== Phase 10 : Grievance System =====
-  { path: '/grievances/view-affidavit', name: 'View Affidavit', element: Page('View Affidavit') },
-  {
-    path: '/grievances/view-complaints',
-    name: 'View Complaints',
-    element: Page('View Complaints'),
-  },
-  {
-    path: '/grievances/exam',
-    name: 'Examination Grievances',
-    element: Page('Examination Grievances'),
-  },
+  { path: '/grievances/view-affidavit', name: 'View Affidavit', element: ViewAffidavits },
+  { path: '/grievances/view-complaints', name: 'View Complaints', element: ViewComplaints },
+  { path: '/grievances/exam', name: 'Examination Grievances', element: Page('Examination Grievances')},
   { path: '/grievances/general', name: 'General Grievances', element: Page('General Grievances') },
 
   // ===== Phase 11 : Placement Information =====
   {
     path: '/placements/company-details',
     name: 'Company Details',
-    element: Page('Company Details'),
+    element: CompanyDetails,
   },
-  { path: '/placements/mous', name: 'Placement MoUs', element: Page('Placement MoUs') },
-  { path: '/placements/schedule', name: 'Placement Schedule', element: Page('Placement Schedule') },
+  { path: '/placements/mous', name: 'Placement MoUs', element: PlacementMOUs },
+  { path: '/placements/schedule', name: 'Placement Schedule', element: PlacementSchedule },
   {
     path: '/placements/activities',
     name: 'Placement Activities',
-    element: Page('Placement Activities'),
+    element: PlacementActivities,
   },
-  { path: '/placements/drives', name: 'Placement Drives', element: Page('Placement Drives') },
-  { path: '/placements/offers', name: 'Placement Offers', element: Page('Placement Offers') },
-  { path: '/placements/reports', name: 'Placement Reports', element: Page('Placement Reports') },
+  { path: '/placements/drives', name: 'Placement Drives', element: PlacementDrives },
+  { path: '/placements/offers', name: 'Placement Offers', element: PlacementOffers },
+  { path: '/placements/reports', name: 'Placement Reports', element: PlacementReports },
 
   // ===== Phase 12 : Accreditation System (AMS) =====
   { path: '/ams/dashboard', name: 'AMS Dashboard', element: Page('AMS Dashboard') },
-  { path: '/ams/mous', name: 'AMS MoUs', element: Page('AMS MoUs') },
+
   { path: '/ams/profile-ssr', name: 'Profile of SSR', element: Page('Profile of SSR') },
-  {
-    path: '/ams/extended-profile',
-    name: 'AMS Extended Profile',
-    element: Page('AMS Extended Profile'),
-  },
-  { path: '/ams/executive-summary', name: 'Executive Summary', element: Page('Executive Summary') },
-  { path: '/ams/qif-metrics', name: 'QIF Metrics', element: Page('QIF Metrics') },
-  { path: '/ams/expert-views', name: 'Expert Views', element: Page('Expert Views') },
-  { path: '/ams/ssr-introspect', name: 'SSR Introspect', element: Page('SSR Introspect') },
-  { path: '/ams/cgpa-score', name: 'CGPA Score', element: Page('CGPA Score') },
-  { path: '/ams/submit-ssr', name: 'Submit SSR', element: Page('Submit SSR') },
+  { path: '/ams/extended-profile', name: 'AMS Extended Profile', element: AMSExtendedProfile },
+  { path: '/ams/executive-summary', name: 'Executive Summary', element: AMSExecutiveSummary },
+
+  { path: '/ams/qif-metrics', name: 'QIF Metrics', element: AMSQIFMetrics },
+  { path: '/ams/expert-views', name: 'Expert Views', element: ExpertView },
+
+  { path: '/ams/ssr-introspect', name: 'SSR Introspect', element: SSRIntrospection },
+  { path: '/ams/cgpa-score', name: 'CGPA Score', element: SSRCGPAScore },
+  { path: '/ams/submit-ssr', name: 'Submit SSR', element: SubmitSSR },
 
   // ===== Phase 13 : Admin (Governance) =====
   { path: '/governance/circular', name: 'Circular', element: Page('Circular') },
@@ -338,31 +304,28 @@ const routes = [
   {
     path: '/feedback/configuration',
     name: 'Feedback Configuration',
-    element: Page('Feedback Configuration'),
+    element: FeedbackConfiguration,
   },
   { path: '/feedback/feedback', name: 'Feedback', element: Page('Feedback') },
-  { path: '/feedback/course-feedback', name: 'Course Feedback', element: Page('Course Feedback') },
-  { path: '/feedback/assign-feedback', name: 'Assign Feedback', element: Page('Assign Feedback') },
-  { path: '/feedback/analysis-report', name: 'Analysis Report', element: Page('Analysis Report') },
+  { path: '/feedback/course-feedback', name: 'Course Feedback', element: CourseFeedback },
+  { path: '/feedback/assign-feedback', name: 'Assign Feedback', element: AssignFeedback },
+  {
+    path: '/feedback/analysis-report',
+    name: 'Analysis Report',
+    element: AnalysisReportAssignedFeedback,
+  },
+  {
+    path: '/feedback/AR-course-feedback',
+    name: 'AR Course Feedback',
+    element: AnalysisReportCourseFeedback,
+  },
 
   // ===== Phase 15 : Report System =====
-  { path: '/reports/primary', name: 'Primary Reports', element: Page('Primary Reports') },
-  { path: '/reports/academics', name: 'Academics Reports', element: Page('Academics Reports') },
-  {
-    path: '/reports/compliances',
-    name: 'Compliances Reports',
-    element: Page('Compliances Reports'),
-  },
-  {
-    path: '/reports/accreditation',
-    name: 'Accreditation Reports',
-    element: Page('Accreditation Reports'),
-  },
-  {
-    path: '/reports/miscellaneous',
-    name: 'Miscellaneous Reports',
-    element: Page('Miscellaneous Reports'),
-  },
+  { path: '/reports/primary', name: 'Primary Reports', element: PrimaryReports},
+  { path: '/reports/academics', name: 'Academics Reports', element: AcademicReports},
+  { path: '/reports/compliances', name: 'Compliances Reports', element: CompliancesReports},
+  { path: '/reports/accreditation', name: 'Accreditation Reports', element: AccreditationReports},
+  { path: '/reports/miscellaneous', name: 'Miscellaneous Reports', element: MiscellaneousReports},
 
   // ===== Phase 16 : Gallery =====
   { path: '/gallery', name: 'Gallery', element: Page('Gallery') },

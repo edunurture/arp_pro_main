@@ -232,7 +232,6 @@ const _nav: NavItem[] = [
     icon: icon(cilList),
     items: [
       { component: CNavItem, name: 'Dashboards', to: '/ams/dashboard' },
-      { component: CNavItem, name: 'MoUs', to: '/ams/mous' },
       { component: CNavItem, name: 'Profile of SSR', to: '/ams/profile-ssr' },
       { component: CNavItem, name: 'Extended Profile', to: '/ams/extended-profile' },
       { component: CNavItem, name: 'Executive Summary', to: '/ams/executive-summary' },
@@ -266,6 +265,7 @@ const _nav: NavItem[] = [
       { component: CNavItem, name: 'Course Feedback', to: '/feedback/course-feedback' },
       { component: CNavItem, name: 'Assign Feedback', to: '/feedback/assign-feedback' },
       { component: CNavItem, name: 'Analysis Report', to: '/feedback/analysis-report' },
+      { component: CNavItem, name: 'AR Course Feedback', to: '/feedback/AR-course-feedback' },
     ],
   },
 

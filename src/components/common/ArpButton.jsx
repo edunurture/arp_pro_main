@@ -1,35 +1,22 @@
 import React from 'react'
 import PropTypes from 'prop-types'
 import CIcon from '@coreui/icons-react'
-import { CTooltip } from '@coreui/react-pro'
+import { CButton } from '@coreui/react-pro'
 import {
+  cilMagnifyingGlass,
+  cilSend,
+  cilCloudUpload,
   cilPlus,
   cilSearch,
   cilReload,
-  cilCloudUpload,
   cilCloudDownload,
   cilSave,
   cilX,
   cilPencil,
   cilTrash,
+  cilPrint,
 } from '@coreui/icons'
 
-const BS_COLORS = new Set([
-  'primary',
-  'secondary',
-  'success',
-  'danger',
-  'warning',
-  'info',
-  'light',
-  'dark',
-])
-
-const FALLBACK_BG = {
-  purple: '#6f42c1',
-}
-
-// ✅ ARP Standard Icons (CoreUI)
 const ARP_ICON = {
   add: cilPlus,
   search: cilSearch,
@@ -38,8 +25,12 @@ const ARP_ICON = {
   download: cilCloudDownload,
   save: cilSave,
   cancel: cilX,
-  edit: cilPencil, // ✅ added
-  delete: cilTrash, // ✅ added
+  edit: cilPencil,
+  delete: cilTrash,
+  print: cilPrint,
+  view: cilMagnifyingGlass,
+  submit: cilSend,
+  publish: cilCloudUpload,
 }
 
 const DEFAULT_TITLES = {
@@ -52,67 +43,67 @@ const DEFAULT_TITLES = {
   cancel: 'Cancel',
   edit: 'Edit',
   delete: 'Delete',
+  print: 'Print',
+  view: 'View',
+  submit: 'Submit',
+  publish: 'Publish',
 }
 
-export default function ArpButton({
+// CoreUI supports only these theme colors by default.
+// Your ARP pages use color="purple" for Add New — map it safely here.
+const COLOR_ALIASES = {
+  purple: 'primary',
+}
+
+const DARK_TEXT_COLORS = new Set(['light', 'warning'])
+
+const ArpButton = ({
   label,
-  // icon keys: add | upload | download | save | cancel | edit | delete
   icon,
   color = 'primary',
-  size = 'sm',
-  type = 'button',
-  disabled = false,
   onClick,
-  title,
+  disabled = false,
   className = '',
-}) {
-  const isBootstrapColor = BS_COLORS.has(color)
+  style,
+  ...rest
+}) => {
+  const iconSvg = ARP_ICON[icon]
+  const title = DEFAULT_TITLES[icon] || label
 
-  // Purple fallback (Bootstrap doesn't include btn-purple by default)
-  const style =
-    color === 'purple' && !isBootstrapColor
-      ? { backgroundColor: FALLBACK_BG.purple, borderColor: FALLBACK_BG.purple }
-      : undefined
+  // 1) Normalize unsupported colors (ex: "purple")
+  const normalizedColor = COLOR_ALIASES[color] || color
 
-  const iconSvg = icon ? ARP_ICON[icon] : null
-  const tip = title || (icon ? DEFAULT_TITLES[icon] : undefined)
+  // 2) Ensure professional contrast
+  const textClass = DARK_TEXT_COLORS.has(normalizedColor) ? 'text-dark' : 'text-white'
 
-  const btn = (
-    <button
-      type={type}
-      className={[
-        'btn',
-        `btn-${isBootstrapColor ? color : 'primary'}`,
-        `btn-${size}`,
-        'text-white',
-        className,
-      ].join(' ')}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        ...(style || {}),
-      }}
-      disabled={disabled}
+  // 3) Optional: keep the "purple" visual identity even though CoreUI doesn't have a "purple" theme color.
+  // If you already have your own SCSS theme, you can remove this and set the color in CSS instead.
+  const purpleStyle =
+    color === 'purple'
+      ? {
+          backgroundColor: '#6f42c1',
+          borderColor: '#6f42c1',
+          ...(style || {}),
+        }
+      : style
+
+  return (
+    <CButton
+      color={normalizedColor}
       onClick={onClick}
-      aria-label={tip || label}
+      disabled={disabled}
+      className={[textClass, className].filter(Boolean).join(' ')}
+      style={purpleStyle}
+      {...rest}
     >
-      {iconSvg ? <CIcon icon={iconSvg} size="sm" className="text-white" /> : null}
-      <span>{label}</span>
-    </button>
-  )
-
-  return tip ? (
-    <CTooltip content={tip} placement="top">
-      <span className="d-inline-block">{btn}</span>
-    </CTooltip>
-  ) : (
-    btn
+      {iconSvg && <CIcon icon={iconSvg} className={['me-2', textClass].join(' ')} />}
+      {label || title}
+    </CButton>
   )
 }
 
 ArpButton.propTypes = {
-  label: PropTypes.string.isRequired,
+  label: PropTypes.string,
   icon: PropTypes.oneOf([
     'add',
     'search',
@@ -123,12 +114,16 @@ ArpButton.propTypes = {
     'cancel',
     'edit',
     'delete',
+    'print',
+    'view',
+    'submit',
+    'publish',
   ]),
   color: PropTypes.string,
-  size: PropTypes.string,
-  type: PropTypes.string,
-  disabled: PropTypes.bool,
   onClick: PropTypes.func,
-  title: PropTypes.string,
+  disabled: PropTypes.bool,
   className: PropTypes.string,
+  style: PropTypes.object,
 }
+
+export default ArpButton
