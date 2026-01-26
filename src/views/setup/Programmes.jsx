@@ -1,14 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { ArpButton, ArpIconButton } from '../../components/common'
+import ArpDataTable from '../../components/common/ArpDataTable'
 
 /**
- * Programmes.jsx
- * - Keeps ALL form fields as-is
- * - Programmes Details:
- *   - Header: Title left + Action icons right (same line)
- *   - Toolbar above table: Search + Page Size in same line (no wrap)
- *   - Removed "Showing X–Y of N"
- *   - Added sorting + pagination
+ * Programmes.jsx (ARP Updated)
+ * - Keeps ALL form fields as-is (legacy bootstrap layout preserved)
+ * - Programmes Details migrated to ArpDataTable (Search + Page Size + Sorting + Pagination + Selection)
  */
 export default function Programmes() {
   const uploadRef = useRef(null)
@@ -114,18 +111,12 @@ export default function Programmes() {
   }
 
   /* =========================
-     TABLE: Search + Sort + Pagination
+     TABLE: ArpDataTable (Search + Page Size + Sort + Pagination)
   ========================== */
-  const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState('MCA')
+  const loading = false
 
-  // ✅ page size selector
-  const [pageSize, setPageSize] = useState(10)
-  const [page, setPage] = useState(1)
-
-  // ✅ sorting
-  const [sort, setSort] = useState({ key: 'departmentCode', dir: 'asc' })
-
+  // Demo rows (replace with API later)
   const rows = useMemo(
     () => [
       {
@@ -154,70 +145,19 @@ export default function Programmes() {
     [],
   )
 
-  const normalize = (v) =>
-    String(v ?? '')
-      .toLowerCase()
-      .trim()
-
-  const sortToggle = (key) => {
-    setSort((p) =>
-      p.key === key ? { key, dir: p.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' },
-    )
-  }
-
-  const sortIndicator = (key) => (sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '')
-
-  const filteredSorted = useMemo(() => {
-    const q = normalize(search)
-    let data = rows
-
-    if (q) {
-      data = rows.filter((r) =>
-        [
-          r.departmentCode,
-          r.departmentName,
-          r.year,
-          r.nba,
-          r.objectives,
-          r.vision,
-          r.mission,
-          r.goal,
-        ]
-          .join(' ')
-          .toLowerCase()
-          .includes(q),
-      )
-    }
-
-    const { key, dir } = sort
-    const sorted = [...data].sort((a, b) => normalize(a?.[key]).localeCompare(normalize(b?.[key])))
-    return dir === 'asc' ? sorted : sorted.reverse()
-  }, [rows, search, sort])
-
-  // reset page when search / page size changes
-  useEffect(() => {
-    setPage(1)
-  }, [search, pageSize])
-
-  const total = filteredSorted.length
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const safePage = Math.min(page, totalPages)
-
-  const startIdx = (safePage - 1) * pageSize
-  const endIdx = Math.min(startIdx + pageSize, total)
-  const pageRows = filteredSorted.slice(startIdx, endIdx)
-
-  const pageWindow = useMemo(() => {
-    // show up to 5 pages around current
-    const windowSize = 5
-    const half = Math.floor(windowSize / 2)
-    let start = Math.max(1, safePage - half)
-    let end = Math.min(totalPages, start + windowSize - 1)
-    start = Math.max(1, end - windowSize + 1)
-    const arr = []
-    for (let p = start; p <= end; p++) arr.push(p)
-    return arr
-  }, [safePage, totalPages])
+  const columns = useMemo(
+    () => [
+      { key: 'departmentCode', label: 'Department Code', sortable: true, width: 170 },
+      { key: 'departmentName', label: 'Department Name', sortable: true },
+      { key: 'year', label: 'Year', sortable: true, width: 100, align: 'center', sortType: 'number' },
+      { key: 'nba', label: 'NBA', sortable: true, width: 100, align: 'center' },
+      { key: 'objectives', label: 'Objectives', sortable: true },
+      { key: 'vision', label: 'Vision', sortable: true },
+      { key: 'mission', label: 'Mission', sortable: true },
+      { key: 'goal', label: 'Goal', sortable: true },
+    ],
+    [],
+  )
 
   const onView = () => {
     if (!selectedId) return
@@ -234,6 +174,14 @@ export default function Programmes() {
     if (!selectedId) return
     alert(`Delete: ${selectedId}`)
   }
+
+  const tableActions = (
+    <div className="d-flex gap-2 align-items-center">
+      <ArpIconButton icon="view" color="purple" title="View" onClick={onView} disabled={!selectedId} />
+      <ArpIconButton icon="edit" color="info" title="Edit" onClick={onEdit} disabled={!selectedId} />
+      <ArpIconButton icon="delete" color="danger" title="Delete" onClick={onDelete} disabled={!selectedId} />
+    </div>
+  )
 
   return (
     <div className="pcoded-content">
@@ -252,12 +200,7 @@ export default function Programmes() {
                     {/* buttons aligned right */}
                     <div className="d-flex gap-2">
                       <ArpButton label="Add New" icon="add" color="purple" onClick={onAddNew} />
-                      <ArpButton
-                        label="Upload"
-                        icon="upload"
-                        color="info"
-                        onClick={onUploadClick}
-                      />
+                      <ArpButton label="Upload" icon="upload" color="info" onClick={onUploadClick} />
                       <ArpButton
                         label="Download Template"
                         icon="download"
@@ -464,9 +407,7 @@ export default function Programmes() {
                             </select>
                           </div>
 
-                          <label className="col-md-3 col-form-label">
-                            Total Number of Semesters
-                          </label>
+                          <label className="col-md-3 col-form-label">Total Number of Semesters</label>
                           <div className="col-md-3">
                             <select
                               id="total_semesters"
@@ -526,20 +467,8 @@ export default function Programmes() {
                         {/* Buttons row */}
                         <div className="row mb-4">
                           <div className="col-md-12 d-flex justify-content-end gap-2">
-                            <ArpButton
-                              label="Save"
-                              icon="save"
-                              color="success"
-                              type="submit"
-                              disabled={!isFormEnabled}
-                            />
-                            <ArpButton
-                              label="Cancel"
-                              icon="cancel"
-                              color="secondary"
-                              type="button"
-                              onClick={onCancel}
-                            />
+                            <ArpButton label="Save" icon="save" color="success" type="submit" disabled={!isFormEnabled} />
+                            <ArpButton label="Cancel" icon="cancel" color="secondary" type="button" onClick={onCancel} />
                           </div>
                         </div>
                       </form>
@@ -547,168 +476,29 @@ export default function Programmes() {
                   </div>
                 </div>
 
-                {/* ===================== Programmes Details (UPDATED LIKE DEPARTMENT) ===================== */}
-                <div className="card mt-3">
-                  {/* Header: title left + Search + Page Size + icons RIGHT (ONE ROW) */}
-                  <div className="card-header d-flex justify-content-between align-items-center">
-                    <div className="card-header-left">
-                      <h5 className="mb-0">Programmes Details</h5>
-                    </div>
-
-                    {/* ✅ ONE ROW: Search + Page Size + Action Icons (no wrap) */}
-                    <div className="d-flex align-items-center gap-2 flex-nowrap" style={{ overflowX: 'auto' }}>
-                      <input
-                        className="form-control form-control-sm"
-                        placeholder="Search..."
-                        style={{ width: 280, flex: '0 0 auto' }}
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                      />
-
-                      <select
-                        className="form-control form-control-sm"
-                        style={{ width: 120, flex: '0 0 auto' }}
-                        value={pageSize}
-                        onChange={(e) => setPageSize(Number(e.target.value))}
-                        title="Rows per page"
-                      >
-                        {[5, 10, 20, 50].map((n) => (
-                          <option key={n} value={n}>
-                            {n} / page
-                          </option>
-                        ))}
-                      </select>
-
-                      <div className="d-flex gap-2 align-items-center flex-nowrap" style={{ flex: '0 0 auto' }}>
-                        <ArpIconButton
-                          icon="view"
-                          color="purple"
-                          title="View"
-                          onClick={onView}
-                          disabled={!selectedId}
-                        />
-                        <ArpIconButton
-                          icon="edit"
-                          color="info"
-                          title="Edit"
-                          onClick={onEdit}
-                          disabled={!selectedId}
-                        />
-                        <ArpIconButton
-                          icon="delete"
-                          color="danger"
-                          title="Delete"
-                          onClick={onDelete}
-                          disabled={!selectedId}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="card-body">
-                    {/* Toolbar above table: Search + Page Size SAME LINE */}
-
-                    <table className="table table-bordered table-hover">
-                      <thead>
-                        <tr>
-                          <th style={{ width: 70 }}>Select</th>
-
-                          <th
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => sortToggle('departmentCode')}
-                          >
-                            Department Code{sortIndicator('departmentCode')}
-                          </th>
-
-                          <th
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => sortToggle('departmentName')}
-                          >
-                            Department Name{sortIndicator('departmentName')}
-                          </th>
-
-                          <th style={{ cursor: 'pointer' }} onClick={() => sortToggle('year')}>
-                            Year{sortIndicator('year')}
-                          </th>
-
-                          <th style={{ cursor: 'pointer' }} onClick={() => sortToggle('nba')}>
-                            NBA{sortIndicator('nba')}
-                          </th>
-
-                          <th>Objectives</th>
-                          <th>Vision</th>
-                          <th>Mission</th>
-                          <th>Goal</th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        {pageRows.map((r) => (
-                          <tr key={r.id}>
-                            <td className="text-center">
-                              <input
-                                type="radio"
-                                name="programmeRow"
-                                checked={selectedId === r.id}
-                                onChange={() => setSelectedId(r.id)}
-                              />
-                            </td>
-                            <td>{r.departmentCode}</td>
-                            <td>{r.departmentName}</td>
-                            <td className="text-center">{r.year}</td>
-                            <td className="text-center">{r.nba}</td>
-                            <td>{r.objectives}</td>
-                            <td>{r.vision}</td>
-                            <td>{r.mission}</td>
-                            <td>{r.goal}</td>
-                          </tr>
-                        ))}
-
-                        {pageRows.length === 0 && (
-                          <tr>
-                            <td colSpan={9} className="text-center">
-                              No records found
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-
-                    {/* Pagination (bottom only) */}
-                    <div className="d-flex justify-content-end">
-                      <ul className="pagination mb-0">
-                        <li className={`page-item ${safePage <= 1 ? 'disabled' : ''}`}>
-                          <button
-                            className="page-link"
-                            type="button"
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            disabled={safePage <= 1}
-                          >
-                            Prev
-                          </button>
-                        </li>
-
-                        {pageWindow.map((p) => (
-                          <li key={p} className={`page-item ${p === safePage ? 'active' : ''}`}>
-                            <button className="page-link" type="button" onClick={() => setPage(p)}>
-                              {p}
-                            </button>
-                          </li>
-                        ))}
-
-                        <li className={`page-item ${safePage >= totalPages ? 'disabled' : ''}`}>
-                          <button
-                            className="page-link"
-                            type="button"
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            disabled={safePage >= totalPages}
-                          >
-                            Next
-                          </button>
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
+                {/* ===================== Programmes Details (ArpDataTable) ===================== */}
+                <div className="mt-3">
+                  <ArpDataTable
+                    title="Programmes Details"
+                    rows={rows}
+                    columns={columns}
+                    loading={loading}
+                    headerActions={tableActions}
+                    selection={{
+                      type: 'radio',
+                      selected: selectedId,
+                      onChange: (id) => setSelectedId(id),
+                      key: 'id',
+                      headerLabel: 'Select',
+                      width: 60,
+                      name: 'programmeRow',
+                    }}
+                    pageSizeOptions={[5, 10, 20, 50]}
+                    defaultPageSize={10}
+                    searchable
+                    searchPlaceholder="Search..."
+                    rowKey="id"
+                  />
                 </div>
                 {/* ===================== End ===================== */}
               </div>

@@ -239,7 +239,6 @@ const routes = [
   { path: '/student-support/competitive-exams', name: 'Competitive Exams', element: CompetitiveExaminations},
 
   // ===== Phase 9 : Student Information System =====
-
   { path: '/student-profile/basic-profile', name: 'Basic Profile', element: StudentProfileBasic },
   { path: '/student-profile/academic-profile', name: 'Academic Profile', element: StudentAcademicProfile},
   { path: '/student-profile/extra-curricular', name: 'Extra-Curricular', element: StudentExtraCurricular},
@@ -253,32 +252,21 @@ const routes = [
   { path: '/grievances/general', name: 'General Grievances', element: Page('General Grievances') },
 
   // ===== Phase 11 : Placement Information =====
-  {
-    path: '/placements/company-details',
-    name: 'Company Details',
-    element: CompanyDetails,
-  },
-  { path: '/placements/mous', name: 'Placement MoUs', element: PlacementMOUs },
+  { path: '/placements/company-details', name: 'Company Details', element: CompanyDetails},
+  { path: '/placements/mous', name: 'Placement MoUs', element: PlacementMOUs},
   { path: '/placements/schedule', name: 'Placement Schedule', element: PlacementSchedule },
-  {
-    path: '/placements/activities',
-    name: 'Placement Activities',
-    element: PlacementActivities,
-  },
-  { path: '/placements/drives', name: 'Placement Drives', element: PlacementDrives },
-  { path: '/placements/offers', name: 'Placement Offers', element: PlacementOffers },
-  { path: '/placements/reports', name: 'Placement Reports', element: PlacementReports },
+  { path: '/placements/activities', name: 'Placement Activities', element: PlacementActivities},
+  { path: '/placements/drives', name: 'Placement Drives', element: PlacementDrives},
+  { path: '/placements/offers', name: 'Placement Offers', element: PlacementOffers},
+  { path: '/placements/reports', name: 'Placement Reports', element: PlacementReports},
 
   // ===== Phase 12 : Accreditation System (AMS) =====
   { path: '/ams/dashboard', name: 'AMS Dashboard', element: Page('AMS Dashboard') },
-
   { path: '/ams/profile-ssr', name: 'Profile of SSR', element: Page('Profile of SSR') },
   { path: '/ams/extended-profile', name: 'AMS Extended Profile', element: AMSExtendedProfile },
   { path: '/ams/executive-summary', name: 'Executive Summary', element: AMSExecutiveSummary },
-
   { path: '/ams/qif-metrics', name: 'QIF Metrics', element: AMSQIFMetrics },
   { path: '/ams/expert-views', name: 'Expert Views', element: ExpertView },
-
   { path: '/ams/ssr-introspect', name: 'SSR Introspect', element: SSRIntrospection },
   { path: '/ams/cgpa-score', name: 'CGPA Score', element: SSRCGPAScore },
   { path: '/ams/submit-ssr', name: 'Submit SSR', element: SubmitSSR },
@@ -286,39 +274,19 @@ const routes = [
   // ===== Phase 13 : Admin (Governance) =====
   { path: '/governance/circular', name: 'Circular', element: Page('Circular') },
   { path: '/governance/communication', name: 'Communication', element: Page('Communication') },
-  {
-    path: '/governance/leave-management',
-    name: 'Leave Management',
-    element: Page('Leave Management'),
-  },
-  {
-    path: '/governance/activities',
-    name: 'Governance Activities',
-    element: Page('Governance Activities'),
-  },
-  { path: '/governance/drives', name: 'Governance Drives', element: Page('Governance Drives') },
-  { path: '/governance/offers', name: 'Governance Offers', element: Page('Governance Offers') },
-  { path: '/governance/reports', name: 'Governance Reports', element: Page('Governance Reports') },
+  { path: '/governance/leave-management', name: 'Leave Management', element: Page('Leave Management')},
+  { path: '/governance/activities', name: 'Governance Activities', element: Page('Governance Activities')},
+  { path: '/governance/drives', name: 'Governance Drives', element: Page('Governance Drives')},
+  { path: '/governance/offers', name: 'Governance Offers', element: Page('Governance Offers')},
+  { path: '/governance/reports', name: 'Governance Reports', element: Page('Governance Reports')},
 
   // ===== Phase 14 : Feedback System =====
-  {
-    path: '/feedback/configuration',
-    name: 'Feedback Configuration',
-    element: FeedbackConfiguration,
-  },
-  { path: '/feedback/feedback', name: 'Feedback', element: Page('Feedback') },
-  { path: '/feedback/course-feedback', name: 'Course Feedback', element: CourseFeedback },
-  { path: '/feedback/assign-feedback', name: 'Assign Feedback', element: AssignFeedback },
-  {
-    path: '/feedback/analysis-report',
-    name: 'Analysis Report',
-    element: AnalysisReportAssignedFeedback,
-  },
-  {
-    path: '/feedback/AR-course-feedback',
-    name: 'AR Course Feedback',
-    element: AnalysisReportCourseFeedback,
-  },
+  { path: '/feedback/configuration', name: 'Feedback Configuration', element: FeedbackConfiguration},
+  { path: '/feedback/feedback', name: 'Feedback', element: Page('Feedback')},
+  { path: '/feedback/course-feedback', name: 'Course Feedback', element: CourseFeedback},
+  { path: '/feedback/assign-feedback', name: 'Assign Feedback', element: AssignFeedback},
+  { path: '/feedback/analysis-report', name: 'Analysis Report', element: AnalysisReportAssignedFeedback},
+  { path: '/feedback/AR-course-feedback', name: 'AR Course Feedback', element: AnalysisReportCourseFeedback},
 
   // ===== Phase 15 : Report System =====
   { path: '/reports/primary', name: 'Primary Reports', element: PrimaryReports},
@@ -334,13 +302,9 @@ const routes = [
   { path: '/faq', name: 'FAQ', element: Page('FAQ') },
 
   // ===== Phase 18 : ARP Management =====
-  {
-    path: '/arp/support-helpdesk',
-    name: 'Support & Helpdesk',
-    element: Page('Support & Helpdesk'),
-  },
-  { path: '/arp/invoices', name: 'Invoices', element: Page('Invoices') },
-  { path: '/arp/payments', name: 'Payments', element: Page('Payments') },
+  { path: '/arp/support-helpdesk', name: 'Support & Helpdesk', element: Page('Support & Helpdesk')},
+  { path: '/arp/invoices', name: 'Invoices', element: Page('Invoices')},
+  { path: '/arp/payments', name: 'Payments', element: Page('Payments')},
 
   // ===== Phase 19 : Authorization =====
   { path: '/auth/admin', name: 'Authorization - Admin', element: Page('Authorization - Admin') },
