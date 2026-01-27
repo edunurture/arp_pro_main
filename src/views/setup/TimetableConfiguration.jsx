@@ -1,225 +1,198 @@
-import React, { useState } from 'react'
-import {
-  CCard,
-  CCardHeader,
-  CCardBody,
-  CRow,
-  CCol,
-  CForm,
-  CFormLabel,
-  CFormInput,
-  CFormSelect,
-  CButton,
-  CTable,
-  CTableHead,
-  CTableRow,
-  CTableHeaderCell,
-  CTableBody,
-  CTableDataCell,
-  CFormCheck,
-  CInputGroup,
-  CInputGroupText,
-  CPagination,
-  CPaginationItem,
-} from '@coreui/react-pro'
-import CIcon from '@coreui/icons-react'
-import { cilSearch } from '@coreui/icons'
+import React, { useMemo, useState } from 'react'
+import { CCard, CCardBody, CCardHeader, CCol, CForm, CFormCheck, CFormInput, CFormSelect, CRow } from '@coreui/react-pro'
+
 import { ArpButton, ArpIconButton } from '../../components/common'
+import ArpDataTable from '../../components/common/ArpDataTable'
 
 /**
- * Converted from timetable.html
- * - Add New enables form
- * - Dynamic add/remove timetable rows
- * - Search + page size + action icons in ONE row
+ * TimetableConfiguration.jsx (ARP CoreUI React Pro Standard) - v3
+ * Row Action behavior:
+ *  - ONLY one circle icon per row
+ *  - Last row shows "+" (add)
+ *  - Other rows show "delete" (trash)
  */
 
-const emptyRow = () => ({
+const createRow = (overrides = {}) => ({
+  shiftId: '',
+  shiftName: '',
   timeFrom: '',
   timeTo: '',
   nomenclature: '',
-  isInterval: 'No',
+  isInterval: false,
   priority: '',
+  ...overrides,
 })
 
-const TimetableConfiguration = () => {
+export default function TimetableConfiguration() {
   const [isEdit, setIsEdit] = useState(false)
-  const [shiftId, setShiftId] = useState('')
-  const [shiftName, setShiftName] = useState('')
-  const [rows, setRows] = useState([emptyRow()])
+  const [selectedId, setSelectedId] = useState(null)
+  const [shiftRows, setShiftRows] = useState([createRow()])
 
-  const [tableData] = useState([
-    {
-      id: 1,
-      programmeCode: 'MCA',
-      programme: 'Master of Computer Applications',
-      semester: '2016',
-      batch: 'Yes',
-      regNo: 'XXX - XXX',
-      name: 'XXX - XXX',
-      className: 'XXX - XXX',
-      label: 'XXX - XXX',
-    },
+  const [rows, setRows] = useState([
+    { id: 1, timetableName: 'Morning Shift', shifts: 6, status: 'Active' },
+    { id: 2, timetableName: 'Evening Shift', shifts: 4, status: 'Active' },
   ])
 
-  const [selectedId, setSelectedId] = useState(null)
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(5)
-
-  const addRow = () => setRows((prev) => [...prev, emptyRow()])
-  const removeRow = (idx) => setRows((prev) => prev.filter((_, i) => i !== idx))
-
-  const updateRow = (idx, key, value) => {
-    setRows((prev) =>
-      prev.map((r, i) => (i === idx ? { ...r, [key]: value } : r)),
-    )
+  const addRowBelow = (index) => {
+    setShiftRows((prev) => {
+      const next = [...prev]
+      next.splice(index + 1, 0, createRow())
+      return next
+    })
   }
+
+  const removeRowAt = (index) => {
+    setShiftRows((prev) => {
+      if (prev.length <= 1) return prev
+      const next = [...prev]
+      next.splice(index, 1)
+      return next
+    })
+  }
+
+  const updateRow = (index, key, value) => {
+    setShiftRows((prev) => {
+      const next = [...prev]
+      next[index] = { ...next[index], [key]: value }
+      return next
+    })
+  }
+
+  const onAddNew = () => {
+    setIsEdit(true)
+    setSelectedId(null)
+    setShiftRows([createRow()])
+  }
+
+  const onCancel = () => {
+    setIsEdit(false)
+    setShiftRows([createRow()])
+  }
+
+  const onSave = (e) => {
+    e.preventDefault()
+    if (!isEdit) return
+    const next = {
+      id: Date.now(),
+      timetableName: `Timetable ${Date.now()}`,
+      shifts: shiftRows.length,
+      status: 'Active',
+    }
+    setRows((prev) => [next, ...prev])
+    setSelectedId(next.id)
+    setIsEdit(false)
+    setShiftRows([createRow()])
+  }
+
+  const selectedRow = rows.find((r) => String(r.id) === String(selectedId)) || null
+
+  const onView = () => selectedRow && alert(`Timetable: ${selectedRow.timetableName}`)
+  const onEdit = () => selectedRow && setIsEdit(true)
+  const onDelete = () => {
+    if (!selectedRow) return
+    setRows((prev) => prev.filter((r) => String(r.id) !== String(selectedRow.id)))
+    setSelectedId(null)
+  }
+
+  const columns = useMemo(
+    () => [
+      { key: 'timetableName', label: 'Timetable Name', sortable: true },
+      { key: 'shifts', label: 'No. of Shifts', sortable: true, width: 140, align: 'center', sortType: 'number' },
+      { key: 'status', label: 'Status', sortable: true, width: 120, align: 'center' },
+    ],
+    [],
+  )
+
+  const headerActions = (
+    <div className="d-flex gap-2 align-items-center">
+      <ArpIconButton icon="view" color="purple" onClick={onView} disabled={!selectedId} />
+      <ArpIconButton icon="edit" color="info" onClick={onEdit} disabled={!selectedId} />
+      <ArpIconButton icon="delete" color="danger" onClick={onDelete} disabled={!selectedId} />
+    </div>
+  )
 
   return (
     <CRow>
       <CCol xs={12}>
-        {/* HEADER */}
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>TIMETABLE CONFIGURATION</strong>
-            <ArpButton label="Add New" icon="add" color="purple" onClick={() => setIsEdit(true)} />
+            <ArpButton label="Add New" icon="add" color="purple" onClick={onAddNew} />
           </CCardHeader>
         </CCard>
 
-        {/* FORM */}
         <CCard className="mb-3">
-          <CCardHeader><strong>Add Timetable</strong></CCardHeader>
+          <CCardHeader><strong>Shift Master</strong></CCardHeader>
           <CCardBody>
-            <CForm>
-              <CRow className="mb-3">
-                <CCol md={2}><CFormLabel>Shift Id</CFormLabel></CCol>
-                <CCol md={4}>
-                  <CFormInput value={shiftId} onChange={(e) => setShiftId(e.target.value)} disabled={!isEdit} />
-                </CCol>
-                <CCol md={2}><CFormLabel>Shift Name</CFormLabel></CCol>
-                <CCol md={4}>
-                  <CFormInput value={shiftName} onChange={(e) => setShiftName(e.target.value)} disabled={!isEdit} />
-                </CCol>
-              </CRow>
+            <CForm onSubmit={onSave}>
+              <div className="table-responsive">
+                <table className="table table-bordered align-middle">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 68, textAlign: 'center' }}>Action</th>
+                      <th>Shift Id</th>
+                      <th>Shift Name</th>
+                      <th>Time From</th>
+                      <th>Time To</th>
+                      <th>Nomenclature</th>
+                      <th>Is Interval</th>
+                      <th>Priority</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shiftRows.map((r, idx) => {
+                      const isLastRow = idx === shiftRows.length - 1
+                      const icon = isLastRow ? 'add' : 'delete'
+                      const color = isLastRow ? 'success' : 'danger'
+                      const title = isLastRow ? 'Add Row' : 'Delete Row'
+                      const onClick = isLastRow ? () => addRowBelow(idx) : () => removeRowAt(idx)
 
-              <CRow className="fw-bold mb-2">
-                <CCol md={2}>Time From</CCol>
-                <CCol md={2}>Time To</CCol>
-                <CCol md={3}>Nomenclature</CCol>
-                <CCol md={2}>Is Interval</CCol>
-                <CCol md={2}>Priority</CCol>
-                <CCol md={1} className="text-center">Action</CCol>
-              </CRow>
+                      return (
+                        <tr key={idx}>
+                          <td className="text-center">
+                            <ArpIconButton icon={icon} color={color} title={title} onClick={onClick} disabled={!isEdit || (!isLastRow && shiftRows.length <= 1)} />
+                          </td>
+                          <td><CFormInput value={r.shiftId} onChange={(e)=>updateRow(idx,'shiftId',e.target.value)} disabled={!isEdit}/></td>
+                          <td><CFormInput value={r.shiftName} onChange={(e)=>updateRow(idx,'shiftName',e.target.value)} disabled={!isEdit}/></td>
+                          <td><CFormInput type="time" value={r.timeFrom} onChange={(e)=>updateRow(idx,'timeFrom',e.target.value)} disabled={!isEdit}/></td>
+                          <td><CFormInput type="time" value={r.timeTo} onChange={(e)=>updateRow(idx,'timeTo',e.target.value)} disabled={!isEdit}/></td>
+                          <td>
+                            <CFormSelect value={r.nomenclature} onChange={(e)=>updateRow(idx,'nomenclature',e.target.value)} disabled={!isEdit}>
+                              <option value="">Select</option>
+                              <option value="Lecture">Lecture</option>
+                              <option value="Lab">Lab</option>
+                              <option value="Break">Break</option>
+                            </CFormSelect>
+                          </td>
+                          <td className="text-center"><CFormCheck checked={!!r.isInterval} onChange={(e)=>updateRow(idx,'isInterval',e.target.checked)} disabled={!isEdit}/></td>
+                          <td><CFormInput type="number" value={r.priority} onChange={(e)=>updateRow(idx,'priority',e.target.value)} disabled={!isEdit}/></td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
-              {rows.map((r, idx) => (
-                <CRow key={idx} className="mb-2 align-items-center">
-                  <CCol md={2}>
-                    <CFormInput type="time" value={r.timeFrom} disabled={!isEdit}
-                      onChange={(e) => updateRow(idx, 'timeFrom', e.target.value)} />
-                  </CCol>
-                  <CCol md={2}>
-                    <CFormInput type="time" value={r.timeTo} disabled={!isEdit}
-                      onChange={(e) => updateRow(idx, 'timeTo', e.target.value)} />
-                  </CCol>
-                  <CCol md={3}>
-                    <CFormInput value={r.nomenclature} disabled={!isEdit}
-                      onChange={(e) => updateRow(idx, 'nomenclature', e.target.value)} />
-                  </CCol>
-                  <CCol md={2}>
-                    <CFormSelect value={r.isInterval} disabled={!isEdit}
-                      onChange={(e) => updateRow(idx, 'isInterval', e.target.value)}>
-                      <option>No</option>
-                      <option>Yes</option>
-                    </CFormSelect>
-                  </CCol>
-                  <CCol md={2}>
-                    <CFormInput type="number" value={r.priority} disabled={!isEdit}
-                      onChange={(e) => updateRow(idx, 'priority', e.target.value)} />
-                  </CCol>
-                  <CCol md={1} className="text-center">
-                    {idx === rows.length - 1 ? (
-                      <CButton size="sm" color="success" disabled={!isEdit} onClick={addRow}>+</CButton>
-                    ) : (
-                      <CButton size="sm" color="danger" disabled={!isEdit} onClick={() => removeRow(idx)}>-</CButton>
-                    )}
-                  </CCol>
-                </CRow>
-              ))}
-
-              <div className="d-flex justify-content-end gap-2 mt-3">
-                <ArpButton label="Save" icon="save" color="success" disabled={!isEdit} />
-                <ArpButton label="Cancel" icon="cancel" color="secondary" onClick={() => setIsEdit(false)} />
+              <div className="d-flex justify-content-end gap-2">
+                <ArpButton label="Save" icon="save" color="success" type="submit" disabled={!isEdit}/>
+                <ArpButton label="Cancel" icon="cancel" color="secondary" onClick={onCancel}/>
               </div>
             </CForm>
           </CCardBody>
         </CCard>
 
-        {/* TABLE */}
-        <CCard>
-          <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>Student Details</strong>
-            <div className="d-flex align-items-center gap-2 flex-nowrap">
-              <CInputGroup size="sm" style={{ width: 260 }}>
-                <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
-                <CFormInput placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} />
-              </CInputGroup>
-              <CFormSelect size="sm" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={{ width: 120 }}>
-                {[5, 10, 20].map((n) => <option key={n} value={n}>{n} / page</option>)}
-              </CFormSelect>
-              <div className="d-flex gap-2">
-                <ArpIconButton icon="view" color="purple" disabled={!selectedId} />
-                <ArpIconButton icon="edit" color="info" disabled={!selectedId} />
-                <ArpIconButton icon="delete" color="danger" disabled={!selectedId} />
-              </div>
-            </div>
-          </CCardHeader>
-
-          <CCardBody>
-            <CTable hover responsive align="middle">
-              <CTableHead color="light">
-                <CTableRow>
-                  <CTableHeaderCell>Select</CTableHeaderCell>
-                  <CTableHeaderCell>Program Code</CTableHeaderCell>
-                  <CTableHeaderCell>Programme</CTableHeaderCell>
-                  <CTableHeaderCell>Semester</CTableHeaderCell>
-                  <CTableHeaderCell>Batch</CTableHeaderCell>
-                  <CTableHeaderCell>Reg. No.</CTableHeaderCell>
-                  <CTableHeaderCell>Name</CTableHeaderCell>
-                  <CTableHeaderCell>Class</CTableHeaderCell>
-                  <CTableHeaderCell>Label</CTableHeaderCell>
-                </CTableRow>
-              </CTableHead>
-              <CTableBody>
-                {tableData.map((r) => (
-                  <CTableRow key={r.id}>
-                    <CTableDataCell>
-                      <CFormCheck type="radio" name="ttSel" checked={selectedId === r.id} onChange={() => setSelectedId(r.id)} />
-                    </CTableDataCell>
-                    <CTableDataCell>{r.programmeCode}</CTableDataCell>
-                    <CTableDataCell>{r.programme}</CTableDataCell>
-                    <CTableDataCell>{r.semester}</CTableDataCell>
-                    <CTableDataCell>{r.batch}</CTableDataCell>
-                    <CTableDataCell>{r.regNo}</CTableDataCell>
-                    <CTableDataCell>{r.name}</CTableDataCell>
-                    <CTableDataCell>{r.className}</CTableDataCell>
-                    <CTableDataCell>{r.label}</CTableDataCell>
-                  </CTableRow>
-                ))}
-              </CTableBody>
-            </CTable>
-
-            <div className="d-flex justify-content-end mt-2">
-              <CPagination size="sm">
-                <CPaginationItem disabled>{'«'}</CPaginationItem>
-                <CPaginationItem active>1</CPaginationItem>
-                <CPaginationItem>{'»'}</CPaginationItem>
-              </CPagination>
-            </div>
-          </CCardBody>
-        </CCard>
+        <ArpDataTable
+          title="TIMETABLE LIST"
+          rows={rows}
+          columns={columns}
+          headerActions={headerActions}
+          selection={{ type:'radio', selected:selectedId, onChange:(v)=>setSelectedId(v), key:'id', headerLabel:'Select', width:60, name:'timetableSelect' }}
+          pageSizeOptions={[5,10,20,50]}
+          defaultPageSize={10}
+          searchable
+          rowKey="id"
+        />
       </CCol>
     </CRow>
   )
 }
-
-export default TimetableConfiguration

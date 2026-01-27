@@ -1,107 +1,137 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react'
-import { ArpButton, ArpIconButton } from '../../components/common'
+import React, { useMemo, useRef, useState } from 'react'
 import {
   CCard,
-  CCardHeader,
   CCardBody,
-  CRow,
+  CCardHeader,
   CCol,
   CForm,
-  CFormLabel,
   CFormInput,
+  CFormLabel,
   CFormSelect,
-  CFormCheck,
-  CTable,
-  CTableHead,
-  CTableRow,
-  CTableHeaderCell,
-  CTableBody,
-  CTableDataCell,
-  CPagination,
-  CPaginationItem,
+  CRow,
 } from '@coreui/react-pro'
 
+import { ArpButton, ArpIconButton } from '../../components/common'
+import ArpDataTable from '../../components/common/ArpDataTable'
+
+/**
+ * CoursesConfiguration.jsx (ARP CoreUI React Pro Standard)
+ * - Strict 3-card layout: Header Action Card + Form Card + Table Card (ArpDataTable)
+ * - Uses ArpDataTable for Search + Page Size + Sorting + Pagination + Selection
+ * - No manual search/pagination logic inside the module
+ * - No direct @coreui/icons imports
+ * - Demo rows only. Hook API where indicated.
+ */
+
 const initialForm = {
-  className: '',
-  classLabel: '',
+  courseCode: '',
+  courseTitle: '',
   department: '',
   programme: '',
+  regulation: '',
   semester: '',
-  strength: '',
-  roomNumber: '',
-  capacity: '',
-  buildingName: '',
-  blockLabel: '',
+  courseType: '',
+  courseCategory: '',
+  credits: '',
+  contactHours: '',
+  status: 'Active',
 }
 
-export default function ClassesConfiguration() {
+export default function CoursesConfiguration() {
+  // ARP mandatory state pattern
   const [isEdit, setIsEdit] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
   const [form, setForm] = useState(initialForm)
-
-  // Table UX state (same pattern as Institution)
-  const [search, setSearch] = useState('')
-  const [pageSize, setPageSize] = useState(10)
-  const [page, setPage] = useState(1) // 1-based
 
   // Upload input ref
   const fileRef = useRef(null)
 
   // Template download URL (adjust to your actual public path)
-  const TEMPLATE_URL = '/templates/ARP_T03_Classes_Template.xlsx'
+  const TEMPLATE_URL = '/templates/ARP_T04_Courses_Template.xlsx'
 
-  // Sample rows (replace with API later)
+  // Demo rows (replace with API later)
   const [rows, setRows] = useState([
     {
       id: 1,
-      classLabel: 'I-MCA',
+      courseCode: 'CA6101',
+      courseTitle: 'Data Structures',
       department: 'Computer Applications',
       programme: 'MCA',
-      semester: 'Sem-I',
-      strength: 57,
-      roomNumber: 'A101',
-      capacity: 60,
-      block: 'A-Block',
+      regulation: '2026',
+      semester: 'Sem-1',
+      courseType: 'Core',
+      courseCategory: 'Theory',
+      credits: 4,
+      contactHours: 4,
+      status: 'Active',
     },
     {
       id: 2,
-      classLabel: 'II-MCA',
+      courseCode: 'CA6102',
+      courseTitle: 'Database Management Systems',
       department: 'Computer Applications',
       programme: 'MCA',
-      semester: 'Sem-I',
-      strength: 58,
-      roomNumber: 'A102',
-      capacity: 60,
-      block: 'A-Block',
+      regulation: '2026',
+      semester: 'Sem-1',
+      courseType: 'Core',
+      courseCategory: 'Theory',
+      credits: 4,
+      contactHours: 4,
+      status: 'Active',
     },
   ])
 
+  /* =========================
+     FORM HANDLERS
+  ========================== */
+
   const onChange = (key) => (e) => setForm((p) => ({ ...p, [key]: e.target.value }))
 
+  const resetForm = () => setForm(initialForm)
+
   const onAddNew = () => {
-    setForm(initialForm)
+    resetForm()
     setSelectedId(null)
     setIsEdit(true)
   }
 
+  const loadSelectedToForm = () => {
+    const selected = rows.find((r) => String(r.id) === String(selectedId))
+    if (!selected) return false
+
+    setForm({
+      courseCode: selected.courseCode ?? '',
+      courseTitle: selected.courseTitle ?? '',
+      department: selected.department ?? '',
+      programme: selected.programme ?? '',
+      regulation: selected.regulation ?? '',
+      semester: selected.semester ?? '',
+      courseType: selected.courseType ?? '',
+      courseCategory: selected.courseCategory ?? '',
+      credits: selected.credits ?? '',
+      contactHours: selected.contactHours ?? '',
+      status: selected.status ?? 'Active',
+    })
+
+    return true
+  }
+
+  const onView = () => {
+    if (!selectedId) return
+    if (!loadSelectedToForm()) return
+    setIsEdit(false)
+  }
+
   const onEdit = () => {
-    const selected = rows.find((r) => r.id === selectedId)
-    if (!selected) return
-    setForm((p) => ({
-      ...p,
-      classLabel: selected.classLabel || '',
-      department: selected.department || '',
-      programme: selected.programme || '',
-      semester: selected.semester || '',
-      strength: selected.strength ?? '',
-      roomNumber: selected.roomNumber || '',
-      capacity: selected.capacity ?? '',
-      blockLabel: selected.block || '',
-    }))
+    if (!selectedId) return
+    if (!loadSelectedToForm()) return
     setIsEdit(true)
   }
 
-  const onCancel = () => setIsEdit(false)
+  const onCancel = () => {
+    setIsEdit(false)
+    resetForm()
+  }
 
   const onSave = (e) => {
     e.preventDefault()
@@ -109,122 +139,101 @@ export default function ClassesConfiguration() {
 
     const newRow = {
       id: selectedId ?? Date.now(),
-      classLabel: form.classLabel || '—',
+      courseCode: form.courseCode || '—',
+      courseTitle: form.courseTitle || '—',
       department: form.department || '—',
       programme: form.programme || '—',
+      regulation: form.regulation || '—',
       semester: form.semester || '—',
-      strength: form.strength || '—',
-      roomNumber: form.roomNumber || '—',
-      capacity: form.capacity || '—',
-      block: form.blockLabel || '—',
+      courseType: form.courseType || '—',
+      courseCategory: form.courseCategory || '—',
+      credits: form.credits === '' ? '—' : Number(form.credits),
+      contactHours: form.contactHours === '' ? '—' : Number(form.contactHours),
+      status: form.status || 'Active',
     }
 
-    // If editing existing, replace; else add new
+    // Hook your API save here
     setRows((prev) => {
-      const exists = prev.some((r) => r.id === newRow.id)
-      return exists ? prev.map((r) => (r.id === newRow.id ? newRow : r)) : [newRow, ...prev]
+      const exists = prev.some((r) => String(r.id) === String(newRow.id))
+      return exists ? prev.map((r) => (String(r.id) === String(newRow.id) ? newRow : r)) : [newRow, ...prev]
     })
 
     setSelectedId(newRow.id)
     setIsEdit(false)
-    setForm(initialForm)
+    resetForm()
   }
 
-  // Upload / Download
+  const onDelete = () => {
+    if (!selectedId) return
+    // Hook your API delete here
+    setRows((prev) => prev.filter((r) => String(r.id) !== String(selectedId)))
+    setSelectedId(null)
+    setIsEdit(false)
+    resetForm()
+  }
+
+  /* =========================
+     UPLOAD / DOWNLOAD
+  ========================== */
+
   const onUploadClick = () => fileRef.current?.click()
 
   const onFileSelected = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
-    console.log('Selected file:', file.name)
+    // Hook your upload handler here
     e.target.value = ''
   }
 
   const onDownloadTemplate = () => {
     const link = document.createElement('a')
     link.href = TEMPLATE_URL
-    link.download = 'ARP_T03_Classes_Template.xlsx'
+    link.download = 'ARP_T04_Courses_Template.xlsx'
     document.body.appendChild(link)
     link.click()
     link.remove()
   }
 
-  // Filter
-  const normalize = (v) =>
-    String(v ?? '')
-      .toLowerCase()
-      .trim()
+  /* =========================
+     ArpDataTable CONFIG
+  ========================== */
 
-  const filtered = useMemo(() => {
-    const q = normalize(search)
-    if (!q) return rows
-    return rows.filter((r) => {
-      const hay = [
-        r.id,
-        r.classLabel,
-        r.department,
-        r.programme,
-        r.semester,
-        r.strength,
-        r.roomNumber,
-        r.capacity,
-        r.block,
-      ]
-        .map(normalize)
-        .join(' ')
-      return hay.includes(q)
-    })
-  }, [rows, search])
+  const columns = useMemo(
+    () => [
+      { key: 'courseCode', label: 'Course Code', sortable: true, width: 140 },
+      { key: 'courseTitle', label: 'Course Title', sortable: true },
+      { key: 'department', label: 'Department', sortable: true, width: 200 },
+      { key: 'programme', label: 'Programme', sortable: true, width: 120, align: 'center' },
+      { key: 'regulation', label: 'Regulation', sortable: true, width: 120, align: 'center' },
+      { key: 'semester', label: 'Semester', sortable: true, width: 110, align: 'center' },
+      { key: 'courseType', label: 'Type', sortable: true, width: 110, align: 'center' },
+      { key: 'courseCategory', label: 'Category', sortable: true, width: 130, align: 'center' },
+      { key: 'credits', label: 'Credits', sortable: true, width: 110, align: 'center', sortType: 'number' },
+      { key: 'contactHours', label: 'Contact Hrs', sortable: true, width: 130, align: 'center', sortType: 'number' },
+      { key: 'status', label: 'Status', sortable: true, width: 110, align: 'center' },
+    ],
+    [],
+  )
 
-  // Pagination (CoursesConfiguration-style)
-  const total = filtered.length
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const safePage = Math.min(page, totalPages)
-  const startIdx = total === 0 ? 0 : (safePage - 1) * pageSize
-  const endIdx = Math.min(startIdx + pageSize, total)
-
-  const pageRows = useMemo(() => filtered.slice(startIdx, endIdx), [filtered, startIdx, endIdx])
-
-  // Reset paging when search/pageSize changes
-  useEffect(() => setPage(1), [search, pageSize])
-
-  // Keep page in range if totalPages shrinks
-  useEffect(() => {
-    if (page !== safePage) setPage(safePage)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [totalPages])
+  const headerActions = (
+    <div className="d-flex gap-2 align-items-center">
+      <ArpIconButton icon="view" color="purple" title="View" onClick={onView} disabled={!selectedId} />
+      <ArpIconButton icon="edit" color="info" title="Edit" onClick={onEdit} disabled={!selectedId} />
+      <ArpIconButton icon="delete" color="danger" title="Delete" onClick={onDelete} disabled={!selectedId} />
+    </div>
+  )
 
   return (
     <CRow>
       <CCol xs={12}>
-        {/* HEADER ACTIONS (same layout style as Institution) */}
+        {/* ===================== A) HEADER ACTION CARD ===================== */}
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>CLASSES SETUP</strong>
+            <strong>COURSES SETUP</strong>
 
             <div className="d-flex gap-2">
-              <ArpButton
-                label="Add New"
-                icon="add"
-                color="purple"
-                onClick={onAddNew}
-                title="Add New"
-              />
-              <ArpButton
-                label="Edit"
-                icon="edit"
-                color="primary"
-                onClick={onEdit}
-                disabled={!selectedId}
-                title="Edit"
-              />
-              <ArpButton
-                label="Upload"
-                icon="upload"
-                color="info"
-                onClick={onUploadClick}
-                title="Upload"
-              />
+              <ArpButton label="Add New" icon="add" color="purple" onClick={onAddNew} title="Add New" />
+              <ArpButton label="Upload" icon="upload" color="info" onClick={onUploadClick} title="Upload" />
               <ArpButton
                 label="Download Template"
                 icon="download"
@@ -234,55 +243,38 @@ export default function ClassesConfiguration() {
               />
             </div>
 
-            <input
-              ref={fileRef}
-              type="file"
-              style={{ display: 'none' }}
-              onChange={onFileSelected}
-            />
+            <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFileSelected} />
           </CCardHeader>
         </CCard>
 
-        {/* FORM CARD */}
+        {/* ===================== B) FORM CARD ===================== */}
         <CCard className="mb-3">
           <CCardHeader>
-            <strong>Classes Configuration</strong>
+            <strong>Course Configuration</strong>
           </CCardHeader>
 
           <CCardBody>
             <CForm onSubmit={onSave}>
               <CRow className="g-3">
                 <CCol md={3}>
-                  <CFormLabel>Name of the Class</CFormLabel>
+                  <CFormLabel>Course Code</CFormLabel>
                 </CCol>
                 <CCol md={3}>
-                  <CFormInput
-                    value={form.className}
-                    onChange={onChange('className')}
-                    disabled={!isEdit}
-                  />
+                  <CFormInput value={form.courseCode} onChange={onChange('courseCode')} disabled={!isEdit} />
                 </CCol>
 
                 <CCol md={3}>
-                  <CFormLabel>Class Label</CFormLabel>
+                  <CFormLabel>Course Title</CFormLabel>
                 </CCol>
                 <CCol md={3}>
-                  <CFormInput
-                    value={form.classLabel}
-                    onChange={onChange('classLabel')}
-                    disabled={!isEdit}
-                  />
+                  <CFormInput value={form.courseTitle} onChange={onChange('courseTitle')} disabled={!isEdit} />
                 </CCol>
 
                 <CCol md={3}>
                   <CFormLabel>Select Department</CFormLabel>
                 </CCol>
                 <CCol md={3}>
-                  <CFormSelect
-                    value={form.department}
-                    onChange={onChange('department')}
-                    disabled={!isEdit}
-                  >
+                  <CFormSelect value={form.department} onChange={onChange('department')} disabled={!isEdit}>
                     <option value="">Select</option>
                     <option value="Commerce">Commerce</option>
                     <option value="Computer Science">Computer Science</option>
@@ -295,269 +287,135 @@ export default function ClassesConfiguration() {
                   <CFormLabel>Select Programme</CFormLabel>
                 </CCol>
                 <CCol md={3}>
-                  <CFormSelect
-                    value={form.programme}
-                    onChange={onChange('programme')}
-                    disabled={!isEdit}
-                  >
+                  <CFormSelect value={form.programme} onChange={onChange('programme')} disabled={!isEdit}>
                     <option value="">Select</option>
                     <option value="MBA">MBA</option>
                     <option value="MCA">MCA</option>
+                    <option value="BCA">BCA</option>
                   </CFormSelect>
                 </CCol>
 
                 <CCol md={3}>
-                  <CFormLabel>Choose Semester</CFormLabel>
+                  <CFormLabel>Regulation Year</CFormLabel>
                 </CCol>
                 <CCol md={3}>
-                  <CFormSelect
-                    value={form.semester}
-                    onChange={onChange('semester')}
-                    disabled={!isEdit}
-                  >
+                  <CFormSelect value={form.regulation} onChange={onChange('regulation')} disabled={!isEdit}>
+                    <option value="">Select</option>
+                    <option value="2024">2024</option>
+                    <option value="2025">2025</option>
+                    <option value="2026">2026</option>
+                  </CFormSelect>
+                </CCol>
+
+                <CCol md={3}>
+                  <CFormLabel>Semester</CFormLabel>
+                </CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.semester} onChange={onChange('semester')} disabled={!isEdit}>
                     <option value="">Select</option>
                     <option value="Sem-1">Sem-1</option>
+                    <option value="Sem-2">Sem-2</option>
                     <option value="Sem-3">Sem-3</option>
+                    <option value="Sem-4">Sem-4</option>
                     <option value="Sem-5">Sem-5</option>
+                    <option value="Sem-6">Sem-6</option>
                   </CFormSelect>
                 </CCol>
 
                 <CCol md={3}>
-                  <CFormLabel>Strength of the Students</CFormLabel>
+                  <CFormLabel>Course Type</CFormLabel>
+                </CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.courseType} onChange={onChange('courseType')} disabled={!isEdit}>
+                    <option value="">Select</option>
+                    <option value="Core">Core</option>
+                    <option value="Elective">Elective</option>
+                    <option value="Allied">Allied</option>
+                    <option value="Open Elective">Open Elective</option>
+                  </CFormSelect>
+                </CCol>
+
+                <CCol md={3}>
+                  <CFormLabel>Course Category</CFormLabel>
+                </CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.courseCategory} onChange={onChange('courseCategory')} disabled={!isEdit}>
+                    <option value="">Select</option>
+                    <option value="Theory">Theory</option>
+                    <option value="Practical">Practical</option>
+                    <option value="Project">Project</option>
+                    <option value="Internship">Internship</option>
+                  </CFormSelect>
+                </CCol>
+
+                <CCol md={3}>
+                  <CFormLabel>Credits</CFormLabel>
                 </CCol>
                 <CCol md={3}>
                   <CFormInput
                     type="number"
                     min={0}
-                    value={form.strength}
-                    onChange={onChange('strength')}
+                    value={form.credits}
+                    onChange={onChange('credits')}
                     disabled={!isEdit}
                   />
                 </CCol>
 
                 <CCol md={3}>
-                  <CFormLabel>Classroom Number</CFormLabel>
-                </CCol>
-                <CCol md={3}>
-                  <CFormInput
-                    value={form.roomNumber}
-                    onChange={onChange('roomNumber')}
-                    disabled={!isEdit}
-                  />
-                </CCol>
-
-                <CCol md={3}>
-                  <CFormLabel>Maximum Capacity</CFormLabel>
+                  <CFormLabel>Contact Hours</CFormLabel>
                 </CCol>
                 <CCol md={3}>
                   <CFormInput
                     type="number"
                     min={0}
-                    value={form.capacity}
-                    onChange={onChange('capacity')}
+                    value={form.contactHours}
+                    onChange={onChange('contactHours')}
                     disabled={!isEdit}
                   />
                 </CCol>
 
                 <CCol md={3}>
-                  <CFormLabel>Name of the Building</CFormLabel>
+                  <CFormLabel>Status</CFormLabel>
                 </CCol>
                 <CCol md={3}>
-                  <CFormInput
-                    value={form.buildingName}
-                    onChange={onChange('buildingName')}
-                    disabled={!isEdit}
-                  />
-                </CCol>
-
-                <CCol md={3}>
-                  <CFormLabel>Block Label</CFormLabel>
-                </CCol>
-                <CCol md={3}>
-                  <CFormInput
-                    value={form.blockLabel}
-                    onChange={onChange('blockLabel')}
-                    disabled={!isEdit}
-                  />
+                  <CFormSelect value={form.status} onChange={onChange('status')} disabled={!isEdit}>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                  </CFormSelect>
                 </CCol>
 
                 {/* Actions */}
                 <CCol xs={12} className="d-flex justify-content-end gap-2 mt-2">
-                  <ArpButton
-                    label="Save"
-                    icon="save"
-                    color="success"
-                    type="submit"
-                    disabled={!isEdit}
-                    title="Save"
-                  />
-                  <ArpButton
-                    label="Cancel"
-                    icon="cancel"
-                    color="secondary"
-                    type="button"
-                    onClick={onCancel}
-                    title="Cancel"
-                  />
+                  {isEdit && <ArpButton label="Save" icon="save" color="success" type="submit" title="Save" />}
+                  <ArpButton label="Cancel" icon="cancel" color="secondary" type="button" onClick={onCancel} title="Cancel" />
                 </CCol>
               </CRow>
             </CForm>
           </CCardBody>
         </CCard>
 
-        {/* TABLE CARD */}
-        <CCard>
-          <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>Classes Details</strong>
-
-            {/* ✅ no-wrap so icons never go to next line */}
-            <div className="d-flex align-items-center gap-2 flex-nowrap">
-              <CFormInput
-                size="sm"
-                placeholder="Search..."
-                style={{ width: 220 }}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-
-              <CFormSelect
-                size="sm"
-                style={{ width: 110 }}
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                title="Page size"
-              >
-                {[5, 10, 25, 50, 100].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </CFormSelect>
-
-              {/* ✅ circle icon buttons (same as CoursesConfiguration base) */}
-              <div className="d-flex gap-2 align-items-center flex-nowrap">
-                <ArpIconButton
-                  icon="view"
-                  color="primary"
-                  disabled={!selectedId}
-                  onClick={() => console.log('view', selectedId)}
-                  title="View"
-                />
-                <ArpIconButton
-                  icon="edit"
-                  color="info"
-                  disabled={!selectedId}
-                  onClick={onEdit}
-                  title="Edit"
-                />
-                <ArpIconButton
-                  icon="delete"
-                  color="danger"
-                  disabled={!selectedId}
-                  onClick={() => {
-                    if (!selectedId) return
-                    setRows((prev) => prev.filter((r) => r.id !== selectedId))
-                    setSelectedId(null)
-                  }}
-                  title="Delete"
-                />
-              </div>
-            </div>
-          </CCardHeader>
-
-          <CCardBody>
-            <CTable hover responsive align="middle">
-              <CTableHead color="light">
-                <CTableRow>
-                  <CTableHeaderCell style={{ width: 90 }}>Select</CTableHeaderCell>
-                  <CTableHeaderCell>Class Label</CTableHeaderCell>
-                  <CTableHeaderCell>Department</CTableHeaderCell>
-                  <CTableHeaderCell>Programme</CTableHeaderCell>
-                  <CTableHeaderCell>Semester</CTableHeaderCell>
-                  <CTableHeaderCell>Strength</CTableHeaderCell>
-                  <CTableHeaderCell>Room Number</CTableHeaderCell>
-                  <CTableHeaderCell>Capacity</CTableHeaderCell>
-                  <CTableHeaderCell>Block</CTableHeaderCell>
-                </CTableRow>
-              </CTableHead>
-
-              <CTableBody>
-                {pageRows.map((r) => (
-                  <CTableRow key={r.id}>
-                    <CTableDataCell>
-                      <CFormCheck
-                        type="radio"
-                        name="classSelect"
-                        checked={selectedId === r.id}
-                        onChange={() => setSelectedId(r.id)}
-                      />
-                    </CTableDataCell>
-                    <CTableDataCell>{r.classLabel}</CTableDataCell>
-                    <CTableDataCell>{r.department}</CTableDataCell>
-                    <CTableDataCell>{r.programme}</CTableDataCell>
-                    <CTableDataCell>{r.semester}</CTableDataCell>
-                    <CTableDataCell>{r.strength}</CTableDataCell>
-                    <CTableDataCell>{r.roomNumber}</CTableDataCell>
-                    <CTableDataCell>{r.capacity}</CTableDataCell>
-                    <CTableDataCell>{r.block}</CTableDataCell>
-                  </CTableRow>
-                ))}
-
-                {pageRows.length === 0 && (
-                  <CTableRow>
-                    <CTableDataCell colSpan={9} className="text-center text-muted py-4">
-                      No records found
-                    </CTableDataCell>
-                  </CTableRow>
-                )}
-              </CTableBody>
-            </CTable>
-
-            {/* ✅ Pagination (CoursesConfiguration-style: numbers + first/prev/next/last) */}
-            <div className="d-flex justify-content-end mt-3">
-              <CPagination size="sm" className="mb-0">
-                <CPaginationItem disabled={safePage <= 1} onClick={() => setPage(1)}>
-                  «
-                </CPaginationItem>
-                <CPaginationItem
-                  disabled={safePage <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  ‹
-                </CPaginationItem>
-
-                {Array.from({ length: totalPages })
-                  .slice(Math.max(0, safePage - 3), Math.min(totalPages, safePage + 2))
-                  .map((_, i) => {
-                    const pageNumber = Math.max(1, safePage - 2) + i
-                    if (pageNumber > totalPages) return null
-                    return (
-                      <CPaginationItem
-                        key={pageNumber}
-                        active={pageNumber === safePage}
-                        onClick={() => setPage(pageNumber)}
-                      >
-                        {pageNumber}
-                      </CPaginationItem>
-                    )
-                  })}
-
-                <CPaginationItem
-                  disabled={safePage >= totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                >
-                  ›
-                </CPaginationItem>
-                <CPaginationItem
-                  disabled={safePage >= totalPages}
-                  onClick={() => setPage(totalPages)}
-                >
-                  »
-                </CPaginationItem>
-              </CPagination>
-            </div>
-          </CCardBody>
-        </CCard>
+        {/* ===================== C) TABLE CARD (ArpDataTable) ===================== */}
+        <ArpDataTable
+          title="COURSES DETAILS"
+          rows={rows}
+          columns={columns}
+          loading={false}
+          headerActions={headerActions}
+          selection={{
+            type: 'radio',
+            selected: selectedId,
+            onChange: (value) => setSelectedId(value),
+            key: 'id',
+            headerLabel: 'Select',
+            width: 60,
+            name: 'courseSelect',
+          }}
+          pageSizeOptions={[5, 10, 20, 50]}
+          defaultPageSize={10}
+          searchable
+          searchPlaceholder="Search..."
+          rowKey="id"
+        />
       </CCol>
     </CRow>
   )

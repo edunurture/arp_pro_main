@@ -238,21 +238,30 @@ const ArpDataTable = ({
             ))}
           </CFormSelect>
 
-          {headerActions ? <div className="d-flex align-items-center gap-2">{headerActions}</div> : null}
+          {headerActions ? (
+            <div className="d-flex align-items-center gap-2">{headerActions}</div>
+          ) : null}
         </div>
       </CCardHeader>
 
       <CCardBody>
-        <CTable bordered striped hover responsive className="mb-2">
+        <CTable bordered striped hover responsive className="mb-2 arp-table-compact">
           <CTableHead>
             <CTableRow>
               {renderSelectionHeader()}
 
               {columns.map((c) => {
                 const clickable = !!c.sortable
-                const style = { ...(c.width ? { width: c.width } : {}), ...(clickable ? { cursor: 'pointer' } : {}) }
+                const style = {
+                  ...(c.width ? { width: c.width } : {}),
+                  ...(clickable ? { cursor: 'pointer' } : {}),
+                }
                 const alignClass =
-                  c.align === 'center' ? 'text-center' : c.align === 'right' ? 'text-end' : 'text-start'
+                  c.align === 'center'
+                    ? 'text-center'
+                    : c.align === 'right'
+                      ? 'text-end'
+                      : 'text-start'
 
                 return (
                   <CTableHeaderCell
@@ -273,14 +282,20 @@ const ArpDataTable = ({
           <CTableBody>
             {loading ? (
               <CTableRow>
-                <CTableDataCell colSpan={(selection ? 1 : 0) + columns.length} className="text-center py-4">
+                <CTableDataCell
+                  colSpan={(selection ? 1 : 0) + columns.length}
+                  className="text-center py-4"
+                >
                   <CSpinner size="sm" className="me-2" />
                   Loading...
                 </CTableDataCell>
               </CTableRow>
             ) : pageRows.length === 0 ? (
               <CTableRow>
-                <CTableDataCell colSpan={(selection ? 1 : 0) + columns.length} className="text-center py-4">
+                <CTableDataCell
+                  colSpan={(selection ? 1 : 0) + columns.length}
+                  className="text-center py-4"
+                >
                   {emptyText}
                 </CTableDataCell>
               </CTableRow>
@@ -291,7 +306,11 @@ const ArpDataTable = ({
 
                   {columns.map((c) => {
                     const alignClass =
-                      c.align === 'center' ? 'text-center' : c.align === 'right' ? 'text-end' : 'text-start'
+                      c.align === 'center'
+                        ? 'text-center'
+                        : c.align === 'right'
+                          ? 'text-end'
+                          : 'text-start'
                     const cell = typeof c.render === 'function' ? c.render(row) : row?.[c.key]
 
                     return (
@@ -308,7 +327,8 @@ const ArpDataTable = ({
 
         <div className="d-flex justify-content-between align-items-center mt-2 flex-wrap gap-2">
           <div className="text-body-secondary">
-            Showing <strong>{showingFrom}</strong>–<strong>{showingTo}</strong> of <strong>{total}</strong>
+            Showing <strong>{showingFrom}</strong>–<strong>{showingTo}</strong> of{' '}
+            <strong>{total}</strong>
           </div>
 
           <CPagination size="sm" aria-label="Table pagination">
@@ -316,41 +336,43 @@ const ArpDataTable = ({
               Previous
             </CPaginationItem>
 
-            {Array.from({ length: totalPages }).slice(0, 20).map((_, idx) => {
-              const n = idx + 1
+            {Array.from({ length: totalPages })
+              .slice(0, 20)
+              .map((_, idx) => {
+                const n = idx + 1
 
-              // If many pages, keep it clean: show 1..3, current±1, last
-              if (totalPages > 9) {
-                const isEdge = n <= 2 || n > totalPages - 2
-                const isNear = Math.abs(n - page) <= 1
-                const shouldShow = isEdge || isNear
+                // If many pages, keep it clean: show 1..3, current±1, last
+                if (totalPages > 9) {
+                  const isEdge = n <= 2 || n > totalPages - 2
+                  const isNear = Math.abs(n - page) <= 1
+                  const shouldShow = isEdge || isNear
 
-                if (!shouldShow) {
-                  // show ellipsis placeholders at boundaries
-                  if (n === 3 && page > 4) {
-                    return (
-                      <CPaginationItem key="left-ellipsis" disabled>
-                        …
-                      </CPaginationItem>
-                    )
+                  if (!shouldShow) {
+                    // show ellipsis placeholders at boundaries
+                    if (n === 3 && page > 4) {
+                      return (
+                        <CPaginationItem key="left-ellipsis" disabled>
+                          …
+                        </CPaginationItem>
+                      )
+                    }
+                    if (n === totalPages - 2 && page < totalPages - 3) {
+                      return (
+                        <CPaginationItem key="right-ellipsis" disabled>
+                          …
+                        </CPaginationItem>
+                      )
+                    }
+                    return null
                   }
-                  if (n === totalPages - 2 && page < totalPages - 3) {
-                    return (
-                      <CPaginationItem key="right-ellipsis" disabled>
-                        …
-                      </CPaginationItem>
-                    )
-                  }
-                  return null
                 }
-              }
 
-              return (
-                <CPaginationItem key={n} active={n === page} onClick={() => goPage(n)}>
-                  {n}
-                </CPaginationItem>
-              )
-            })}
+                return (
+                  <CPaginationItem key={n} active={n === page} onClick={() => goPage(n)}>
+                    {n}
+                  </CPaginationItem>
+                )
+              })}
 
             <CPaginationItem disabled={page >= totalPages} onClick={() => goPage(page + 1)}>
               Next

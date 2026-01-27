@@ -197,3 +197,27 @@ body {
 .arp-radio:focus-visible {
   outline-color: var(--cui-info);
 }
+
+/* ARP Professional Compact Table */
+.arp-table-compact {
+  font-size: 13.5px;
+}
+
+.arp-table-compact thead th {
+  padding: 0.45rem 0.5rem;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.arp-table-compact tbody td {
+  padding: 0.35rem 0.5rem;
+  line-height: 1.2;
+  vertical-align: middle;
+}
+
+.arp-table-compact td,
+.arp-table-compact th {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

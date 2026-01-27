@@ -248,8 +248,7 @@ const routes = [
   // ===== Phase 10 : Grievance System =====
   { path: '/grievances/view-affidavit', name: 'View Affidavit', element: ViewAffidavits },
   { path: '/grievances/view-complaints', name: 'View Complaints', element: ViewComplaints },
-  { path: '/grievances/exam', name: 'Examination Grievances', element: Page('Examination Grievances')},
-  { path: '/grievances/general', name: 'General Grievances', element: Page('General Grievances') },
+ 
 
   // ===== Phase 11 : Placement Information =====
   { path: '/placements/company-details', name: 'Company Details', element: CompanyDetails},

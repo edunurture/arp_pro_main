@@ -1,25 +1,19 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
+import { CCard, CCardBody, CCardHeader, CCol, CForm, CFormInput, CFormLabel, CFormSelect, CRow } from '@coreui/react-pro'
+
 import { ArpButton, ArpIconButton } from '../../components/common'
-import {
-  CCard,
-  CCardHeader,
-  CCardBody,
-  CRow,
-  CCol,
-  CForm,
-  CFormLabel,
-  CFormInput,
-  CFormSelect,
-  CFormCheck,
-  CTable,
-  CTableHead,
-  CTableRow,
-  CTableHeaderCell,
-  CTableBody,
-  CTableDataCell,
-  CPagination,
-  CPaginationItem,
-} from '@coreui/react-pro'
+import ArpDataTable from '../../components/common/ArpDataTable'
+
+/**
+ * ClassesConfiguration.jsx (ARP CoreUI React Pro Standard)
+ * Source: User provided "CoursesConfiguration.jsx" (actually Classes Setup module)
+ *
+ * - Strict 3-card layout: Header Action Card + Form Card + Table Card (ArpDataTable)
+ * - Uses ArpDataTable for Search + Page Size + Sorting + Pagination + Selection
+ * - No manual search / pagination / safePage logic inside the module
+ * - No ArpPagination usage
+ * - Demo rows only. Hook API where indicated.
+ */
 
 const initialForm = {
   className: '',
@@ -35,14 +29,10 @@ const initialForm = {
 }
 
 export default function ClassesConfiguration() {
+  // ARP mandatory state pattern
   const [isEdit, setIsEdit] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
   const [form, setForm] = useState(initialForm)
-
-  // Table UX state (same pattern as Institution)
-  const [search, setSearch] = useState('')
-  const [pageSize, setPageSize] = useState(10)
-  const [page, setPage] = useState(1) // 1-based
 
   // Upload input ref
   const fileRef = useRef(null)
@@ -76,19 +66,27 @@ export default function ClassesConfiguration() {
     },
   ])
 
+  /* =========================
+     FORM HANDLERS
+  ========================== */
+
   const onChange = (key) => (e) => setForm((p) => ({ ...p, [key]: e.target.value }))
 
+  const resetForm = () => setForm(initialForm)
+
   const onAddNew = () => {
-    setForm(initialForm)
+    resetForm()
     setSelectedId(null)
     setIsEdit(true)
   }
 
-  const onEdit = () => {
-    const selected = rows.find((r) => r.id === selectedId)
-    if (!selected) return
+  const loadSelectedToForm = () => {
+    const selected = rows.find((r) => String(r.id) === String(selectedId))
+    if (!selected) return false
+
     setForm((p) => ({
       ...p,
+      className: p.className || '',
       classLabel: selected.classLabel || '',
       department: selected.department || '',
       programme: selected.programme || '',
@@ -96,12 +94,29 @@ export default function ClassesConfiguration() {
       strength: selected.strength ?? '',
       roomNumber: selected.roomNumber || '',
       capacity: selected.capacity ?? '',
+      buildingName: p.buildingName || '',
       blockLabel: selected.block || '',
     }))
+
+    return true
+  }
+
+  const onView = () => {
+    if (!selectedId) return
+    if (!loadSelectedToForm()) return
+    setIsEdit(false)
+  }
+
+  const onEdit = () => {
+    if (!selectedId) return
+    if (!loadSelectedToForm()) return
     setIsEdit(true)
   }
 
-  const onCancel = () => setIsEdit(false)
+  const onCancel = () => {
+    setIsEdit(false)
+    resetForm()
+  }
 
   const onSave = (e) => {
     e.preventDefault()
@@ -113,30 +128,42 @@ export default function ClassesConfiguration() {
       department: form.department || '—',
       programme: form.programme || '—',
       semester: form.semester || '—',
-      strength: form.strength || '—',
+      strength: form.strength === '' ? '—' : form.strength,
       roomNumber: form.roomNumber || '—',
-      capacity: form.capacity || '—',
+      capacity: form.capacity === '' ? '—' : form.capacity,
       block: form.blockLabel || '—',
     }
 
-    // If editing existing, replace; else add new
+    // Hook your API save here
     setRows((prev) => {
-      const exists = prev.some((r) => r.id === newRow.id)
-      return exists ? prev.map((r) => (r.id === newRow.id ? newRow : r)) : [newRow, ...prev]
+      const exists = prev.some((r) => String(r.id) === String(newRow.id))
+      return exists ? prev.map((r) => (String(r.id) === String(newRow.id) ? newRow : r)) : [newRow, ...prev]
     })
 
     setSelectedId(newRow.id)
     setIsEdit(false)
-    setForm(initialForm)
+    resetForm()
   }
 
-  // Upload / Download
+  const onDelete = () => {
+    if (!selectedId) return
+    // Hook your API delete here
+    setRows((prev) => prev.filter((r) => String(r.id) !== String(selectedId)))
+    setSelectedId(null)
+    setIsEdit(false)
+    resetForm()
+  }
+
+  /* =========================
+     UPLOAD / DOWNLOAD
+  ========================== */
+
   const onUploadClick = () => fileRef.current?.click()
 
   const onFileSelected = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
-    console.log('Selected file:', file.name)
+    // Hook your upload handler here
     e.target.value = ''
   }
 
@@ -149,71 +176,57 @@ export default function ClassesConfiguration() {
     link.remove()
   }
 
-  // Filter
-  const normalize = (v) =>
-    String(v ?? '')
-      .toLowerCase()
-      .trim()
+  /* =========================
+     ArpDataTable CONFIG
+  ========================== */
 
-  const filtered = useMemo(() => {
-    const q = normalize(search)
-    if (!q) return rows
-    return rows.filter((r) => {
-      const hay = [
-        r.id,
-        r.classLabel,
-        r.department,
-        r.programme,
-        r.semester,
-        r.strength,
-        r.roomNumber,
-        r.capacity,
-        r.block,
-      ]
-        .map(normalize)
-        .join(' ')
-      return hay.includes(q)
-    })
-  }, [rows, search])
+  const columns = useMemo(
+    () => [
+      { key: 'classLabel', label: 'Class Label', sortable: true, width: 140 },
+      { key: 'department', label: 'Department', sortable: true },
+      { key: 'programme', label: 'Programme', sortable: true, width: 120 },
+      { key: 'semester', label: 'Semester', sortable: true, width: 110, align: 'center' },
+      { key: 'strength', label: 'Strength', sortable: true, width: 110, align: 'center', sortType: 'number' },
+      { key: 'roomNumber', label: 'Room Number', sortable: true, width: 130, align: 'center' },
+      { key: 'capacity', label: 'Capacity', sortable: true, width: 110, align: 'center', sortType: 'number' },
+      { key: 'block', label: 'Block', sortable: true, width: 140 },
+    ],
+    [],
+  )
 
-  // Pagination (same style as Institution)
-  const total = filtered.length
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const safePage = Math.min(page, totalPages)
-  const startIdx = total === 0 ? 0 : (safePage - 1) * pageSize
-  const endIdx = Math.min(startIdx + pageSize, total)
-
-  const pageRows = useMemo(() => filtered.slice(startIdx, endIdx), [filtered, startIdx, endIdx])
-
-  // Reset paging when search/pageSize changes
-  useEffect(() => setPage(1), [search, pageSize])
-
-  // Keep page in range if totalPages shrinks
-  useEffect(() => {
-    if (page !== safePage) setPage(safePage)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [totalPages])
+  const headerActions = (
+    <div className="d-flex gap-2 align-items-center">
+      <ArpIconButton icon="view" color="purple" title="View" onClick={onView} disabled={!selectedId} />
+      <ArpIconButton icon="edit" color="info" title="Edit" onClick={onEdit} disabled={!selectedId} />
+      <ArpIconButton icon="delete" color="danger" title="Delete" onClick={onDelete} disabled={!selectedId} />
+    </div>
+  )
 
   return (
     <CRow>
       <CCol xs={12}>
-        {/* HEADER ACTIONS (same layout style as Institution) */}
+        {/* ===================== A) HEADER ACTION CARD ===================== */}
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>CLASSES SETUP</strong>
 
             <div className="d-flex gap-2">
               <ArpButton label="Add New" icon="add" color="purple" onClick={onAddNew} title="Add New" />
-              <ArpButton label="Edit" icon="edit" color="primary" onClick={onEdit} disabled={!selectedId} title="Edit" />
               <ArpButton label="Upload" icon="upload" color="info" onClick={onUploadClick} title="Upload" />
-              <ArpButton label="Download Template" icon="download" color="danger" onClick={onDownloadTemplate} title="Download Template" />
+              <ArpButton
+                label="Download Template"
+                icon="download"
+                color="danger"
+                onClick={onDownloadTemplate}
+                title="Download Template"
+              />
             </div>
 
             <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFileSelected} />
           </CCardHeader>
         </CCard>
 
-        {/* FORM CARD */}
+        {/* ===================== B) FORM CARD ===================== */}
         <CCard className="mb-3">
           <CCardHeader>
             <strong>Classes Configuration</strong>
@@ -276,7 +289,13 @@ export default function ClassesConfiguration() {
                   <CFormLabel>Strength of the Students</CFormLabel>
                 </CCol>
                 <CCol md={3}>
-                  <CFormInput type="number" min={0} value={form.strength} onChange={onChange('strength')} disabled={!isEdit} />
+                  <CFormInput
+                    type="number"
+                    min={0}
+                    value={form.strength}
+                    onChange={onChange('strength')}
+                    disabled={!isEdit}
+                  />
                 </CCol>
 
                 <CCol md={3}>
@@ -290,7 +309,13 @@ export default function ClassesConfiguration() {
                   <CFormLabel>Maximum Capacity</CFormLabel>
                 </CCol>
                 <CCol md={3}>
-                  <CFormInput type="number" min={0} value={form.capacity} onChange={onChange('capacity')} disabled={!isEdit} />
+                  <CFormInput
+                    type="number"
+                    min={0}
+                    value={form.capacity}
+                    onChange={onChange('capacity')}
+                    disabled={!isEdit}
+                  />
                 </CCol>
 
                 <CCol md={3}>
@@ -309,7 +334,7 @@ export default function ClassesConfiguration() {
 
                 {/* Actions */}
                 <CCol xs={12} className="d-flex justify-content-end gap-2 mt-2">
-                  <ArpButton label="Save" icon="save" color="success" type="submit" disabled={!isEdit} title="Save" />
+                  {isEdit && <ArpButton label="Save" icon="save" color="success" type="submit" title="Save" />}
                   <ArpButton label="Cancel" icon="cancel" color="secondary" type="button" onClick={onCancel} title="Cancel" />
                 </CCol>
               </CRow>
@@ -317,122 +342,28 @@ export default function ClassesConfiguration() {
           </CCardBody>
         </CCard>
 
-        {/* TABLE CARD */}
-        <CCard>
-          <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>Classes Details</strong>
-
-            <div className="d-flex align-items-center gap-2">
-              <CFormInput
-                size="sm"
-                placeholder="Search..."
-                style={{ width: 220 }}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-
-              <CFormSelect
-                size="sm"
-                style={{ width: 110 }}
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                title="Page size"
-              >
-                {[5, 10, 25, 50, 100].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </CFormSelect>
-
-              <div className="d-flex gap-2">
-                <ArpIconButton icon="view" color="primary" disabled={!selectedId} onClick={() => console.log('view', selectedId)} title="View" />
-                <ArpIconButton icon="edit" color="info" disabled={!selectedId} onClick={onEdit} title="Edit" />
-                <ArpIconButton
-                  icon="delete"
-                  color="danger"
-                  disabled={!selectedId}
-                  onClick={() => {
-                    if (!selectedId) return
-                    setRows((prev) => prev.filter((r) => r.id !== selectedId))
-                    setSelectedId(null)
-                  }}
-                  title="Delete"
-                />
-              </div>
-            </div>
-          </CCardHeader>
-
-          <CCardBody>
-            <CTable hover responsive align="middle">
-              <CTableHead color="light">
-                <CTableRow>
-                  <CTableHeaderCell style={{ width: 90 }}>Select</CTableHeaderCell>
-                  <CTableHeaderCell>Class Label</CTableHeaderCell>
-                  <CTableHeaderCell>Department</CTableHeaderCell>
-                  <CTableHeaderCell>Programme</CTableHeaderCell>
-                  <CTableHeaderCell>Semester</CTableHeaderCell>
-                  <CTableHeaderCell>Strength</CTableHeaderCell>
-                  <CTableHeaderCell>Room Number</CTableHeaderCell>
-                  <CTableHeaderCell>Capacity</CTableHeaderCell>
-                  <CTableHeaderCell>Block</CTableHeaderCell>
-                </CTableRow>
-              </CTableHead>
-
-              <CTableBody>
-                {pageRows.map((r) => (
-                  <CTableRow key={r.id}>
-                    <CTableDataCell>
-                      <CFormCheck
-                        type="radio"
-                        name="classSelect"
-                        checked={selectedId === r.id}
-                        onChange={() => setSelectedId(r.id)}
-                      />
-                    </CTableDataCell>
-                    <CTableDataCell>{r.classLabel}</CTableDataCell>
-                    <CTableDataCell>{r.department}</CTableDataCell>
-                    <CTableDataCell>{r.programme}</CTableDataCell>
-                    <CTableDataCell>{r.semester}</CTableDataCell>
-                    <CTableDataCell>{r.strength}</CTableDataCell>
-                    <CTableDataCell>{r.roomNumber}</CTableDataCell>
-                    <CTableDataCell>{r.capacity}</CTableDataCell>
-                    <CTableDataCell>{r.block}</CTableDataCell>
-                  </CTableRow>
-                ))}
-
-                {pageRows.length === 0 && (
-                  <CTableRow>
-                    <CTableDataCell colSpan={9} className="text-center text-muted py-4">
-                      No records found
-                    </CTableDataCell>
-                  </CTableRow>
-                )}
-              </CTableBody>
-            </CTable>
-
-            {/* Pagination */}
-            <div className="d-flex justify-content-end mt-3">
-              <CPagination size="sm" className="mb-0">
-                <CPaginationItem disabled={safePage <= 1} onClick={() => setPage(1)}>
-                  «
-                </CPaginationItem>
-                <CPaginationItem disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                  ‹
-                </CPaginationItem>
-
-                <CPaginationItem active>{safePage}</CPaginationItem>
-
-                <CPaginationItem disabled={safePage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
-                  ›
-                </CPaginationItem>
-                <CPaginationItem disabled={safePage >= totalPages} onClick={() => setPage(totalPages)}>
-                  »
-                </CPaginationItem>
-              </CPagination>
-            </div>
-          </CCardBody>
-        </CCard>
+        {/* ===================== C) TABLE CARD (ArpDataTable) ===================== */}
+        <ArpDataTable
+          title="CLASSES DETAILS"
+          rows={rows}
+          columns={columns}
+          loading={false}
+          headerActions={headerActions}
+          selection={{
+            type: 'radio',
+            selected: selectedId,
+            onChange: (value) => setSelectedId(value),
+            key: 'id',
+            headerLabel: 'Select',
+            width: 60,
+            name: 'classSelect',
+          }}
+          pageSizeOptions={[5, 10, 20, 50]}
+          defaultPageSize={10}
+          searchable
+          searchPlaceholder="Search..."
+          rowKey="id"
+        />
       </CCol>
     </CRow>
   )

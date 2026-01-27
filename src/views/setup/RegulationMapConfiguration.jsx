@@ -1,30 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  CCard,
-  CCardHeader,
-  CCardBody,
-  CRow,
-  CCol,
-  CForm,
-  CFormLabel,
-  CFormSelect,
-  CInputGroup,
-  CInputGroupText,
-  CFormInput,
-  CTable,
-  CTableHead,
-  CTableRow,
-  CTableHeaderCell,
-  CTableBody,
-  CTableDataCell,
-  CFormCheck,
-  CPagination,
-  CPaginationItem,
-} from '@coreui/react-pro'
-import CIcon from '@coreui/icons-react'
-import { cilSearch } from '@coreui/icons'
+import React, { useMemo, useRef, useState } from 'react'
+import { CCard, CCardBody, CCardHeader, CCol, CForm, CFormLabel, CFormSelect, CRow } from '@coreui/react-pro'
 
 import { ArpButton, ArpIconButton } from '../../components/common'
+import ArpDataTable from '../../components/common/ArpDataTable'
+
+/**
+ * RegulationMapConfiguration.jsx (ARP CoreUI React Pro Standard)
+ * - Strict 3-card layout: Header Action Card + Form Card + Table Card (ArpDataTable)
+ * - Uses ArpDataTable for Search + Page Size + Sorting + Pagination + Selection
+ * - No manual search/pagination logic inside the module
+ * - No direct @coreui/icons imports (no CIcon/cilSearch)
+ * - Demo rows only. Hook API where indicated.
+ */
 
 const initialForm = {
   academicYear: '',
@@ -35,20 +22,16 @@ const initialForm = {
   semester: '',
 }
 
-const RegulationMapConfiguration = () => {
+export default function RegulationMapConfiguration() {
+  // ARP mandatory state pattern
   const [isEdit, setIsEdit] = useState(false)
+  const [selectedId, setSelectedId] = useState(null)
   const [form, setForm] = useState(initialForm)
 
-  // Table UX (same standard as Courses/Department)
-  const [selectedId, setSelectedId] = useState(null)
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1) // 1-based
-  const [pageSize, setPageSize] = useState(10)
-
-  // Optional: show table after Search (matches HTML "Search" intent)
+  // Optional: show table after Search click (matches typical "Search" intent)
   const [tableVisible, setTableVisible] = useState(true)
 
-  // Upload ref (if later needed)
+  // Upload ref (kept for future use)
   const fileRef = useRef(null)
 
   // Sample dropdown values (replace with API)
@@ -59,8 +42,8 @@ const RegulationMapConfiguration = () => {
   const batches = ['2025 - 26', '2026 - 27']
   const semesters = ['Sem-1', 'Sem-3', 'Sem-5']
 
-  // Sample table rows (replace with API)
-  const [rows] = useState([
+  // Sample rows (replace with API)
+  const [rows, setRows] = useState([
     {
       id: 1,
       academicYear: '2025 - 26',
@@ -83,67 +66,86 @@ const RegulationMapConfiguration = () => {
 
   const onChange = (key) => (e) => setForm((p) => ({ ...p, [key]: e.target.value }))
 
+  /* =========================
+     HEADER / FORM ACTIONS
+  ========================== */
+
   const onAddNew = () => {
     setIsEdit(true)
     setForm(initialForm)
     setSelectedId(null)
+    // keep table visibility as-is
   }
 
   const onCancel = () => {
     setIsEdit(false)
     setForm(initialForm)
     setSelectedId(null)
-    // keep table visible; you can set false if you want to hide
+    // keep table visible; change to false if you want to hide
     // setTableVisible(false)
   }
 
   const onSearch = () => {
     // Hook API call here (based on selected filters)
+    // Example:
+    // fetchMappingStatus(form).then(setRows)
     setTableVisible(true)
-    // Reset paging when searching new criteria
-    setPage(1)
   }
 
+  /* =========================
+     TABLE ACTIONS
+  ========================== */
+
+  const selectedRow = rows.find((r) => String(r.id) === String(selectedId)) || null
+
   const onView = () => {
+    if (!selectedRow) return
     // Hook view logic (modal/page) here
-    console.log('View selected row id:', selectedId)
+    // Example: open modal with selectedRow
   }
 
   const onEdit = () => {
+    if (!selectedRow) return
     // Hook edit logic (load row into form) here
-    console.log('Edit selected row id:', selectedId)
+    // Typically you may allow editing mapping in another screen
   }
 
   const onDelete = () => {
+    if (!selectedRow) return
     // Hook delete logic here
-    console.log('Delete selected row id:', selectedId)
+    // For demo, remove row
+    setRows((prev) => prev.filter((r) => String(r.id) !== String(selectedRow.id)))
+    setSelectedId(null)
   }
 
-  const normalize = (v) =>
-    String(v ?? '')
-      .toLowerCase()
-      .trim()
+  /* =========================
+     ArpDataTable CONFIG
+  ========================== */
 
-  const filtered = useMemo(() => {
-    const q = normalize(search)
-    if (!q) return rows
-    return rows.filter((r) => Object.values(r).map(normalize).join(' ').includes(q))
-  }, [rows, search])
+  const columns = useMemo(
+    () => [
+      { key: 'academicYear', label: 'Academic Year', sortable: true, width: 140 },
+      { key: 'regulationCode', label: 'Regulation Code', sortable: true, width: 140, align: 'center' },
+      { key: 'programmeCode', label: 'Programme Code', sortable: true, width: 150, align: 'center' },
+      { key: 'programme', label: 'Programme', sortable: true, width: 120, align: 'center' },
+      { key: 'batch', label: 'Batch', sortable: true, width: 140, align: 'center' },
+      { key: 'status', label: 'Map Status', sortable: true, width: 140, align: 'center' },
+    ],
+    [],
+  )
 
-  // Reset to first page when pageSize/search changes
-  useEffect(() => setPage(1), [pageSize, search])
-
-  const total = filtered.length
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const safePage = Math.min(page, totalPages)
-  const startIdx = total === 0 ? 0 : (safePage - 1) * pageSize
-  const endIdx = Math.min(startIdx + pageSize, total)
-  const pageRows = useMemo(() => filtered.slice(startIdx, endIdx), [filtered, startIdx, endIdx])
+  const headerActions = (
+    <div className="d-flex gap-2 align-items-center">
+      <ArpIconButton icon="view" color="purple" title="View" onClick={onView} disabled={!selectedId} />
+      <ArpIconButton icon="edit" color="info" title="Edit" onClick={onEdit} disabled={!selectedId} />
+      <ArpIconButton icon="delete" color="danger" title="Delete" onClick={onDelete} disabled={!selectedId} />
+    </div>
+  )
 
   return (
     <CRow>
       <CCol xs={12}>
-        {/* ================= HEADER ACTION CARD ================= */}
+        {/* ===================== A) HEADER ACTION CARD ===================== */}
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>REGULATIONS MAP CONFIGURATIONS</strong>
@@ -154,7 +156,7 @@ const RegulationMapConfiguration = () => {
           </CCardHeader>
         </CCard>
 
-        {/* ================= FORM CARD ================= */}
+        {/* ===================== B) FORM CARD ===================== */}
         <CCard className="mb-3">
           <CCardHeader>
             <strong>Map Courses to Curriculum Regulation</strong>
@@ -181,11 +183,7 @@ const RegulationMapConfiguration = () => {
                   <CFormLabel>Select Regulation Code</CFormLabel>
                 </CCol>
                 <CCol md={3}>
-                  <CFormSelect
-                    value={form.regulationCode}
-                    onChange={onChange('regulationCode')}
-                    disabled={!isEdit}
-                  >
+                  <CFormSelect value={form.regulationCode} onChange={onChange('regulationCode')} disabled={!isEdit}>
                     <option value="">Select Regulation Code</option>
                     {regulationCodes.map((r) => (
                       <option key={r} value={r}>
@@ -262,147 +260,38 @@ const RegulationMapConfiguration = () => {
                     disabled={!isEdit}
                     title="Search"
                   />
-                  <ArpButton
-                    label="Cancel"
-                    icon="cancel"
-                    color="secondary"
-                    type="button"
-                    onClick={onCancel}
-                    title="Cancel"
-                  />
+                  <ArpButton label="Cancel" icon="cancel" color="secondary" type="button" onClick={onCancel} title="Cancel" />
                 </CCol>
               </CRow>
             </CForm>
           </CCardBody>
         </CCard>
 
-        {/* ================= TABLE CARD ================= */}
+        {/* ===================== C) TABLE CARD (ArpDataTable) ===================== */}
         {tableVisible && (
-          <CCard className="mb-3">
-            {/* ✅ ONE ROW: Search + Page Size + Action Icons */}
-            <CCardHeader className="d-flex justify-content-between align-items-center">
-              <strong>Status of Map Regulation</strong>
-
-              <div className="d-flex align-items-center gap-2 flex-nowrap" style={{ overflowX: 'auto' }}>
-                <CInputGroup size="sm" style={{ width: 280, flex: '0 0 auto' }}>
-                  <CInputGroupText>
-                    <CIcon icon={cilSearch} />
-                  </CInputGroupText>
-                  <CFormInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." />
-                </CInputGroup>
-
-                <CFormSelect
-                  size="sm"
-                  value={pageSize}
-                  onChange={(e) => setPageSize(Number(e.target.value))}
-                  style={{ width: 120, flex: '0 0 auto' }}
-                  title="Rows per page"
-                >
-                  {[5, 10, 20, 50].map((n) => (
-                    <option key={n} value={n}>
-                      {n} / page
-                    </option>
-                  ))}
-                </CFormSelect>
-
-                <div className="d-flex gap-2 align-items-center flex-nowrap" style={{ flex: '0 0 auto' }}>
-                  <ArpIconButton icon="view" color="purple" title="View" onClick={onView} disabled={!selectedId} />
-                  <ArpIconButton icon="edit" color="info" title="Edit" onClick={onEdit} disabled={!selectedId} />
-                  <ArpIconButton icon="delete" color="danger" title="Delete" onClick={onDelete} disabled={!selectedId} />
-                </div>
-              </div>
-            </CCardHeader>
-
-            <CCardBody>
-              <CTable hover responsive align="middle">
-                <CTableHead color="light">
-                  <CTableRow>
-                    <CTableHeaderCell style={{ width: 70 }}>Select</CTableHeaderCell>
-                    <CTableHeaderCell>Academic Year</CTableHeaderCell>
-                    <CTableHeaderCell>Regulation Code</CTableHeaderCell>
-                    <CTableHeaderCell>Programme Code</CTableHeaderCell>
-                    <CTableHeaderCell>Programme</CTableHeaderCell>
-                    <CTableHeaderCell>Batch</CTableHeaderCell>
-                    <CTableHeaderCell>Map Status</CTableHeaderCell>
-                  </CTableRow>
-                </CTableHead>
-
-                <CTableBody>
-                  {pageRows.map((r) => (
-                    <CTableRow key={r.id}>
-                      <CTableDataCell className="text-center">
-                        <CFormCheck
-                          type="radio"
-                          name="mapRegSelect"
-                          checked={selectedId === r.id}
-                          onChange={() => setSelectedId(r.id)}
-                        />
-                      </CTableDataCell>
-                      <CTableDataCell>{r.academicYear}</CTableDataCell>
-                      <CTableDataCell>{r.regulationCode}</CTableDataCell>
-                      <CTableDataCell>{r.programmeCode}</CTableDataCell>
-                      <CTableDataCell>{r.programme}</CTableDataCell>
-                      <CTableDataCell>{r.batch}</CTableDataCell>
-                      <CTableDataCell>{r.status}</CTableDataCell>
-                    </CTableRow>
-                  ))}
-
-                  {pageRows.length === 0 && (
-                    <CTableRow>
-                      <CTableDataCell colSpan={7} className="text-center text-muted py-4">
-                        No records found
-                      </CTableDataCell>
-                    </CTableRow>
-                  )}
-                </CTableBody>
-              </CTable>
-
-              {/* ✅ CoursesConfiguration-style pagination */}
-              <div className="d-flex justify-content-end mt-2">
-                <CPagination size="sm" className="mb-0">
-                  <CPaginationItem disabled={safePage <= 1} onClick={() => setPage(1)}>
-                    «
-                  </CPaginationItem>
-                  <CPaginationItem
-                    disabled={safePage <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  >
-                    ‹
-                  </CPaginationItem>
-
-                  {Array.from({ length: totalPages })
-                    .slice(Math.max(0, safePage - 3), Math.min(totalPages, safePage + 2))
-                    .map((_, i) => {
-                      const pageNumber = Math.max(1, safePage - 2) + i
-                      if (pageNumber > totalPages) return null
-                      return (
-                        <CPaginationItem
-                          key={pageNumber}
-                          active={pageNumber === safePage}
-                          onClick={() => setPage(pageNumber)}
-                        >
-                          {pageNumber}
-                        </CPaginationItem>
-                      )
-                    })}
-
-                  <CPaginationItem
-                    disabled={safePage >= totalPages}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  >
-                    ›
-                  </CPaginationItem>
-                  <CPaginationItem disabled={safePage >= totalPages} onClick={() => setPage(totalPages)}>
-                    »
-                  </CPaginationItem>
-                </CPagination>
-              </div>
-            </CCardBody>
-          </CCard>
+          <ArpDataTable
+            title="STATUS OF MAP REGULATION"
+            rows={rows}
+            columns={columns}
+            loading={false}
+            headerActions={headerActions}
+            selection={{
+              type: 'radio',
+              selected: selectedId,
+              onChange: (value) => setSelectedId(value),
+              key: 'id',
+              headerLabel: 'Select',
+              width: 60,
+              name: 'mapRegSelect',
+            }}
+            pageSizeOptions={[5, 10, 20, 50]}
+            defaultPageSize={10}
+            searchable
+            searchPlaceholder="Search..."
+            rowKey="id"
+          />
         )}
       </CCol>
     </CRow>
   )
 }
-
-export default RegulationMapConfiguration

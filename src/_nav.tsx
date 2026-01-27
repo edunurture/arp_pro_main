@@ -205,8 +205,7 @@ const _nav: NavItem[] = [
     items: [
       { component: CNavItem, name: 'View Affidavit', to: '/grievances/view-affidavit' },
       { component: CNavItem, name: 'View Complaints', to: '/grievances/view-complaints' },
-      { component: CNavItem, name: 'Examination Related', to: '/grievances/exam' },
-      { component: CNavItem, name: 'General Grievances', to: '/grievances/general' },
+      
     ],
   },
 
