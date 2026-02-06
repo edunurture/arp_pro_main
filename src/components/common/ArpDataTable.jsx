@@ -60,6 +60,13 @@ const ArpDataTable = ({
   className = 'mb-3',
 }) => {
   const [search, setSearch] = useState(defaultSearch)
+  
+
+  
+
+  // 🔧 Safety: ensure rows is always an array
+  const safeRows = Array.isArray(rows) ? rows : []
+  
   const [pageSize, setPageSize] = useState(defaultPageSize)
   const [page, setPage] = useState(1) // 1-based
   const [sort, setSort] = useState(() => {
@@ -79,14 +86,14 @@ const ArpDataTable = ({
       .trim()
 
   const filteredRows = useMemo(() => {
-    if (!searchable || !search) return rows
-    const q = normalize(search)
+  const list = Array.isArray(safeRows) ? safeRows : []
 
-    // Search across all visible columns (and selection is ignored)
-    const keys = columns.map((c) => c.key).filter(Boolean)
+  if (!search || !String(search).trim()) return list
 
-    return rows.filter((r) => keys.some((k) => normalize(r?.[k]).includes(q)))
-  }, [rows, columns, search, searchable])
+  const q = String(search).toLowerCase()
+
+  return list.filter((row) => JSON.stringify(row ?? {}).toLowerCase().includes(q))
+}, [safeRows, search])
 
   const sortedRows = useMemo(() => {
     const { key, dir } = sort || {}
@@ -125,7 +132,7 @@ const ArpDataTable = ({
       return String(va).localeCompare(String(vb), undefined, { sensitivity: 'base' })
     }
 
-    const arr = [...filteredRows].sort(cmp)
+    const arr = [...(Array.isArray(filteredRows) ? filteredRows : [])].sort(cmp)
     if (dir === 'desc') arr.reverse()
     return arr
   }, [filteredRows, sort, columns])

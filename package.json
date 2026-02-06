@@ -26,6 +26,8 @@
     "zip": "git archive -o $npm_package_config_zipPrefix-$npm_package_config_theme-$npm_package_config_bundler-v$npm_package_version.zip -9 HEAD"
   },
   "dependencies": {
+    "@ckeditor/ckeditor5-build-classic": "^39.0.2",
+    "@ckeditor/ckeditor5-react": "^11.0.1",
     "@coreui/chartjs": "^4.2.0",
     "@coreui/coreui-pro": "^5.23.0",
     "@coreui/icons": "^3.0.1",
@@ -40,9 +42,11 @@
     "@fullcalendar/timegrid": "^6.1.20",
     "@popperjs/core": "^2.11.8",
     "@react-google-maps/api": "^2.20.8",
+    "axios": "^1.13.4",
     "chart.js": "^4.5.1",
     "classnames": "^2.5.1",
     "core-js": "^3.47.0",
+    "exceljs": "^4.4.0",
     "i18next": "^25.7.3",
     "i18next-browser-languagedetector": "^8.2.0",
     "i18next-http-backend": "^3.0.2",
