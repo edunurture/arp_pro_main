@@ -16,6 +16,9 @@ import {
   CFormInput,
   CFormSelect,
   CFormCheck,
+  CBadge,
+  CProgress,
+  CProgressBar
 } from '@coreui/react-pro'
 
 /**
@@ -42,7 +45,8 @@ import {
  *   POST   /api/setup/programme/import
  */
 
-const api = axios.create({ baseURL: '', headers: { 'Content-Type': 'application/json' } })
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
+const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
 
 const initialForm = {
   institutionId: '',
@@ -142,9 +146,14 @@ const Programmes = () => {
   const [form, setForm] = useState(initialForm)
   const [toast, setToast] = useState(null)
 
-  // excel (Department.jsx pattern)
+  // Import / Preview (Department.jsx pattern)
   const fileRef = useRef(null)
+  const [fileName, setFileName] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewData, setPreviewData] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState(0)
+  const [importSummary, setImportSummary] = useState(null)
 
   const showToast = (type, message) => {
     setToast({ type, message })
@@ -411,25 +420,28 @@ const Programmes = () => {
   }
 
   // -----------------------
-  // Excel (Department.jsx pattern)
+  // Excel Import (Department.jsx pattern)
   // -----------------------
+  const downloadBlob = (blob, filename) => {
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  }
+
   const downloadTemplate = async () => {
     try {
-      // ✅ Backend-generated template (ARP Standard)
       const res = await api.get('/api/setup/programme/template', { responseType: 'blob' })
       const blob = new Blob([res.data], {
         type:
           res.headers?.['content-type'] ||
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'Programme_Template.xlsx'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      window.URL.revokeObjectURL(url)
+      downloadBlob(blob, 'Programme_Template.xlsx')
       showToast('success', 'Template downloaded')
     } catch (e) {
       showToast(
@@ -440,43 +452,203 @@ const Programmes = () => {
       )
     }
   }
-      
 
-  const onUploadClick = () => fileRef.current?.click()
-
-  const onFileChange = async (e) => {
+  const onChooseFile = async (e) => {
     const file = e.target.files?.[0]
-    e.target.value = ''
+    setFileName(file?.name || '')
+    setPreviewData(null)
+    setImportSummary(null)
     if (!file) return
 
-    const name = String(file.name || '').toLowerCase()
-    const ok = name.endsWith('.xlsx') || name.endsWith('.xls') || file.type.includes('spreadsheet')
-    if (!ok) return showToast('danger', 'Please select Excel file (.xlsx / .xls)')
+    const ext = (file.name.split('.').pop() || '').toLowerCase()
+    if (!['xlsx', 'xls'].includes(ext)) {
+      showToast('danger', 'Please choose .xlsx or .xls file')
+      if (fileRef.current) fileRef.current.value = ''
+      return
+    }
 
-    const formData = new FormData()
-    formData.append('file', file)
-
+    setPreviewLoading(true)
     try {
-      setImporting(true)
-      const res = await api.post('/api/setup/programme/import', formData, {
+      const fd = new FormData()
+      fd.append('file', file)
+
+      // ✅ Preview endpoint (recommended)
+      const res = await api.post('/api/setup/programme/import/preview', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      // Backend returns success:false with an error workbook (base64) when import has row errors
+
+      setPreviewData(res.data)
+      showToast('success', 'Preview generated')
+    } catch (err) {
+      // Backward compatibility: some backends may not have preview endpoint yet
+      showToast(
+        'danger',
+        err?.response?.status === 404
+          ? 'Preview API not available (backend missing: /api/setup/programme/import/preview)'
+          : err?.response?.data?.error || 'Preview failed',
+      )
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  // Download preview errors (backend-generated first; fallback to ExcelJS in frontend)
+  const downloadPreviewErrors = async () => {
+    try {
+      const file = fileRef.current?.files?.[0]
+      if (!file) return showToast('danger', 'Please choose an Excel file')
+
+      const fd = new FormData()
+      fd.append('file', file)
+
+      const res = await api.post('/api/setup/programme/import/preview?download=errors', fd, {
+        responseType: 'blob',
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+
+      const blob = new Blob([res.data], {
+        type:
+          res.headers?.['content-type'] ||
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      downloadBlob(blob, 'programme_preview_errors.xlsx')
+    } catch (e) {
+      // Frontend fallback
+      try {
+        const errs = previewData?.errors?.length
+          ? previewData.errors
+          : (previewData?.preview || [])
+              .filter(
+                (r) =>
+                  String(r.action || '').toLowerCase() === 'error' ||
+                  String(r.action || '').toLowerCase() === 'failed',
+              )
+              .map((r) => ({ rowNumber: r.rowNumber, reason: r.reason || 'Validation error' }))
+
+        if (!errs?.length) return showToast('danger', 'No preview errors to download')
+
+        const mod = await import('exceljs')
+        const ExcelJS = mod.default || mod
+        const wb = new ExcelJS.Workbook()
+        const ws = wb.addWorksheet('Preview Errors')
+        ws.addRow(['Row Number', 'Error'])
+        ws.getRow(1).font = { bold: true }
+        errs.forEach((er) => ws.addRow([er.row ?? er.rowNumber ?? '', er.error ?? er.reason ?? '']))
+        ws.columns = [{ width: 14 }, { width: 90 }]
+        ws.views = [{ state: 'frozen', ySplit: 1 }]
+        const buf = await wb.xlsx.writeBuffer()
+        downloadBlob(
+          new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+          'programme_preview_errors.xlsx',
+        )
+      } catch (e2) {
+        console.error(e2)
+        showToast('danger', 'Preview error download failed (install exceljs OR enable backend error download).')
+      }
+    }
+  }
+
+  // Download import errors (backend first; fallback to ExcelJS)
+  const downloadErrorReport = async () => {
+    try {
+      const file = fileRef.current?.files?.[0]
+      if (!file) {
+        if (!importSummary?.errors?.length) return showToast('danger', 'No import errors to download')
+        throw new Error('NO_FILE_FOR_BACKEND_DOWNLOAD')
+      }
+
+      const fd = new FormData()
+      fd.append('file', file)
+
+      const res = await api.post('/api/setup/programme/import?download=errors', fd, {
+        responseType: 'blob',
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+
+      const blob = new Blob([res.data], {
+        type:
+          res.headers?.['content-type'] ||
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      downloadBlob(blob, 'programme_import_errors.xlsx')
+    } catch (e) {
+      // Frontend fallback
+      try {
+        if (!importSummary?.errors?.length) return showToast('danger', 'No import errors to download')
+
+        const mod = await import('exceljs')
+        const ExcelJS = mod.default || mod
+        const wb = new ExcelJS.Workbook()
+        const ws = wb.addWorksheet('Import Errors')
+        ws.addRow(['Row Number', 'Error'])
+        ws.getRow(1).font = { bold: true }
+        importSummary.errors.forEach((er) => ws.addRow([er.row ?? er.rowNumber ?? '', er.error ?? er.reason ?? '']))
+        ws.columns = [{ width: 14 }, { width: 90 }]
+        ws.views = [{ state: 'frozen', ySplit: 1 }]
+        const buf = await wb.xlsx.writeBuffer()
+        downloadBlob(
+          new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+          'programme_import_errors.xlsx',
+        )
+      } catch (e2) {
+        console.error(e2)
+        showToast('danger', 'Import error download failed (install exceljs OR enable backend error download).')
+      }
+    }
+  }
+
+  const onImportExcel = async () => {
+    const file = fileRef.current?.files?.[0]
+    if (!file) return showToast('danger', 'Please choose an Excel file')
+
+    // If preview is available, block import when there are errors
+    if ((previewData?.failed ?? 0) > 0) return showToast('danger', 'Fix preview errors before importing')
+
+    setImporting(true)
+    setImportProgress(10)
+    setImportSummary(null)
+
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+
+      setImportProgress(35)
+      const res = await api.post('/api/setup/programme/import', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+
+      setImportProgress(90)
+
+      // Backward compatibility: your previous backend returned { success:false, errorFileBase64 }
       if (res?.data?.success === false) {
+        // if backend already sends an error workbook (base64), trigger download
         if (res?.data?.errorFileBase64) {
-          downloadBase64Excel(res.data.errorFileBase64, res.data.errorFileName)
+          // keep your old helper (base64 workbook download)
+          downloadBase64Excel(res.data.errorFileBase64, res.data.errorFileName || 'programme_import_errors.xlsx')
         }
+        setImportSummary(res.data)
         showToast('warning', res?.data?.error || 'Import completed with errors')
+        setImportProgress(100)
         await loadProgrammes()
         return
       }
 
-      showToast('success', res?.data?.message || 'Import completed')
+      setImportSummary(res.data)
+      setImportProgress(100)
+      showToast('success', res?.data?.message || 'Excel imported successfully')
+
+      if (fileRef.current) fileRef.current.value = ''
+      setFileName('')
+      setPreviewData(null)
+
       await loadProgrammes()
     } catch (err) {
+      setImportProgress(0)
+      setImportSummary(err?.response?.data || null)
+
       const data = err?.response?.data
       if (data?.errorFileBase64) {
-        downloadBase64Excel(data.errorFileBase64, data.errorFileName)
+        downloadBase64Excel(data.errorFileBase64, data.errorFileName || 'programme_import_errors.xlsx')
         showToast('warning', data?.error || 'Import completed with errors')
         await loadProgrammes()
       } else {
@@ -488,10 +660,22 @@ const Programmes = () => {
         )
       }
     } finally {
-      setImporting(false)
+      setTimeout(() => setImporting(false), 250)
     }
   }
 
+  const previewColumns = useMemo(
+    () => [
+      { key: 'rowNumber', label: 'Row' },
+      { key: 'institutionCode', label: 'Institution Code' },
+      { key: 'departmentCode', label: 'Department Code' },
+      { key: 'programmeCode', label: 'Programme Code' },
+      { key: 'programmeName', label: 'Programme Name' },
+      { key: 'action', label: 'Action' },
+      { key: 'reason', label: 'Reason' },
+    ],
+    [],
+  )
 
   const columns = useMemo(
     () => [
@@ -529,16 +713,41 @@ const Programmes = () => {
   return (
     <React.Fragment>
 <CCard className="mb-3">
-        <CCardHeader className="d-flex justify-content-between align-items-center">
-          <strong>ADD PROGRAMME</strong>
+        <CCardHeader>
+          <div className="d-flex flex-column gap-2">
+            <div className="d-flex justify-content-between align-items-center flex-wrap">
+              <strong>ADD PROGRAMME</strong>
 
-          <div className="d-flex gap-2">
-            <ArpButton label="Add New" icon="add" color="purple" onClick={onAddNew} />
+              <div className="d-flex gap-2 align-items-center">
+                <ArpButton label="Add New" icon="add" color="purple" onClick={onAddNew} />
+                <ArpIconButton icon="view" color="purple" title="View" onClick={onView} disabled={!selectedId} />
+                <ArpIconButton icon="edit" color="info" title="Edit" onClick={onEdit} disabled={!selectedId} />
+                <ArpIconButton icon="delete" color="danger" title="Delete" onClick={onDelete} disabled={!selectedId} />
+              </div>
+            </div>
 
-            <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFileChange} />
+            <div className="d-flex gap-2 align-items-center flex-wrap">
+              <ArpButton label="Download Template" icon="download" color="secondary" onClick={downloadTemplate} />
 
-            <ArpButton label={importing ? "Uploading..." : "Upload"} icon="upload" color="info" onClick={onUploadClick} />
-            <ArpButton label="Download Template" icon="download" color="danger" onClick={downloadTemplate} />
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="form-control"
+                style={{ maxWidth: 320 }}
+                onChange={onChooseFile}
+              />
+
+              <ArpButton
+                label={importing ? 'Importing...' : 'Import Excel'}
+                icon="upload"
+                color="success"
+                onClick={onImportExcel}
+                disabled={importing || previewLoading || !fileName || (previewData?.failed ?? 0) > 0}
+              />
+
+              {(previewLoading || importing) && <CSpinner size="sm" />}
+            </div>
           </div>
         </CCardHeader>
 
@@ -549,7 +758,82 @@ const Programmes = () => {
             </CAlert>
           )}
 
-          <CForm onSubmit={onSave}>
+          
+          {/* Excel Preview Status */}
+          {fileName && (
+            <div className="mb-2 small text-muted">
+              Selected: <strong>{fileName}</strong>
+            </div>
+          )}
+
+          {previewData && (
+            <div className="mb-2">
+              <CBadge color="success" className="me-2">
+                Inserts: {previewData.inserts ?? 0}
+              </CBadge>
+              <CBadge color="info" className="me-2">
+                Updates: {previewData.updates ?? 0}
+              </CBadge>
+              <CBadge color="danger" className="me-2">
+                Errors: {previewData.failed ?? 0}
+              </CBadge>
+
+              {!!(previewData?.failed ?? 0) && (
+                <ArpButton
+                  className="ms-2"
+                  label="Download Preview Errors"
+                  icon="download"
+                  color="danger"
+                  onClick={downloadPreviewErrors}
+                />
+              )}
+            </div>
+          )}
+
+          {importing && (
+            <div className="mb-2">
+              <CProgress>
+                <CProgressBar value={importProgress} />
+              </CProgress>
+            </div>
+          )}
+
+          {importSummary && (
+            <div className="mb-2">
+              <CBadge color="success" className="me-2">
+                Inserted: {importSummary.inserted ?? 0}
+              </CBadge>
+              <CBadge color="info" className="me-2">
+                Updated: {importSummary.updated ?? 0}
+              </CBadge>
+              <CBadge color="danger" className="me-2">
+                Failed: {importSummary.failed ?? 0}
+              </CBadge>
+
+              {!!importSummary?.errors?.length && (
+                <ArpButton
+                  className="ms-2"
+                  label="Download Error Report"
+                  icon="download"
+                  color="danger"
+                  onClick={downloadErrorReport}
+                />
+              )}
+            </div>
+          )}
+
+          {previewData?.preview?.length ? (
+            <div className="mb-3">
+              <ArpDataTable
+                title="Bulk Import Preview"
+                rows={previewData.preview}
+                columns={previewColumns}
+                loading={previewLoading}
+              />
+            </div>
+          ) : null}
+
+<CForm onSubmit={onSave}>
             <CRow className="g-3">
               <LabelCol>Institution *</LabelCol>
               <InputCol>

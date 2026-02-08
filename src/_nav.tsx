@@ -52,10 +52,10 @@ const _nav: NavItem[] = [
       { component: CNavItem, name: 'Department', to: '/setup/department' },
       { component: CNavItem, name: 'Programmes', to: '/setup/programmes' },
       { component: CNavItem, name: 'Academic Year', to: '/setup/academic-year' },
-      { component: CNavItem, name: 'Classes', to: '/setup/classes' },
       { component: CNavItem, name: 'Regulation', to: '/setup/regulation' },
-      { component: CNavItem, name: 'Courses', to: '/setup/courses' },
       { component: CNavItem, name: 'Regulation Map', to: '/setup/regulation-map' },
+      { component: CNavItem, name: 'Courses', to: '/setup/courses' },
+      { component: CNavItem, name: 'Classes', to: '/setup/classes' },
       { component: CNavItem, name: 'Combined Courses', to: '/setup/combined-courses' },
       { component: CNavItem, name: 'Student', to: '/setup/student' },
       { component: CNavItem, name: 'Faculty', to: '/setup/faculty' },
@@ -205,7 +205,6 @@ const _nav: NavItem[] = [
     items: [
       { component: CNavItem, name: 'View Affidavit', to: '/grievances/view-affidavit' },
       { component: CNavItem, name: 'View Complaints', to: '/grievances/view-complaints' },
-      
     ],
   },
 

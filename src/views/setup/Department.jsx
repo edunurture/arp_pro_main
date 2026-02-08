@@ -2,9 +2,26 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios'
 import { ArpButton, ArpIconButton } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
-import { CCard, CCardHeader, CCardBody, CAlert, CBadge, CSpinner, CProgress, CProgressBar, CRow, CCol, CForm, CFormLabel, CFormInput, CFormSelect, CFormTextarea } from '@coreui/react-pro'
+import {
+  CCard,
+  CCardHeader,
+  CCardBody,
+  CAlert,
+  CBadge,
+  CSpinner,
+  CProgress,
+  CProgressBar,
+  CRow,
+  CCol,
+  CForm,
+  CFormLabel,
+  CFormInput,
+  CFormSelect,
+  CFormTextarea,
+} from '@coreui/react-pro'
 
-const api = axios.create({ baseURL: '', headers: { 'Content-Type': 'application/json' } })
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
+const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
 
 const initialForm = {
   institutionId: '',
@@ -58,10 +75,21 @@ const Department = () => {
     return Number.isFinite(n) ? n : null
   }
 
+  const downloadBlob = (blob, filename) => {
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  }
+
   const loadInstitutions = async () => {
     try {
       const res = await api.get('/api/setup/institution')
-      setInstitutions(Array.isArray(res.data) ? res.data : [])
+      setInstitutions(Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [])
     } catch (e) {
       showToast('danger', 'Failed to load Institution list')
     }
@@ -71,7 +99,7 @@ const Department = () => {
     setLoading(true)
     try {
       const res = await api.get('/api/setup/department')
-      setRows(Array.isArray(res.data) ? res.data : [])
+      setRows(Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [])
     } catch (e) {
       showToast('danger', e?.response?.data?.error || 'Failed to load data')
     } finally {
@@ -98,7 +126,11 @@ const Department = () => {
     setForm((p) => ({ ...p, [key]: value }))
   }
 
-  const onAddNew = () => { setSelectedId(null); setForm(initialForm); setIsEdit(true) }
+  const onAddNew = () => {
+    setSelectedId(null)
+    setForm(initialForm)
+    setIsEdit(true)
+  }
 
   const onView = () => {
     const selected = rows.find((r) => r.id === selectedId)
@@ -120,8 +152,15 @@ const Department = () => {
     setIsEdit(false)
   }
 
-  const onEdit = () => { if (!selectedId) return; onView(); setIsEdit(true) }
-  const onCancel = () => { setForm(initialForm); setIsEdit(false) }
+  const onEdit = () => {
+    if (!selectedId) return
+    onView()
+    setIsEdit(true)
+  }
+  const onCancel = () => {
+    setForm(initialForm)
+    setIsEdit(false)
+  }
 
   const onSave = async (e) => {
     e.preventDefault()
@@ -164,16 +203,9 @@ const Department = () => {
 
   const downloadTemplate = async () => {
     try {
-      const res = await axios.get('/api/setup/department/template', { responseType: 'blob' })
+      const res = await api.get('/api/setup/department/template', { responseType: 'blob' })
       const blob = new Blob([res.data], { type: res.headers['content-type'] })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'departments_template_with_institution.xlsx'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      window.URL.revokeObjectURL(url)
+      downloadBlob(blob, 'departments_template_with_institution.xlsx')
     } catch (e) {
       showToast('danger', 'Template download failed')
     }
@@ -197,7 +229,9 @@ const Department = () => {
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await axios.post('/api/setup/department/import/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const res = await api.post('/api/setup/department/import/preview', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
       setPreviewData(res.data)
       showToast('success', 'Preview generated')
     } catch (err) {
@@ -207,30 +241,114 @@ const Department = () => {
     }
   }
 
-  const downloadErrorReport = async () => {
-    if (!importSummary?.errors?.length) return
+  /**
+   * ✅ FIX: Your JSX was calling downloadPreviewErrors but the function name in your file was downloadPreviewErrorReport.
+   * To avoid frontend exceljs dependency, we prefer backend-generated error Excel:
+   * - POST /api/setup/department/import/preview?download=errors   (multipart, blob)
+   */
+  const downloadPreviewErrors = async () => {
     try {
-      const mod = await import('exceljs')
-      const ExcelJS = mod.default || mod
-      const wb = new ExcelJS.Workbook()
-      const ws = wb.addWorksheet('Import Errors')
-      ws.addRow(['Row Number', 'Error'])
-      ws.getRow(1).font = { bold: true }
-      importSummary.errors.forEach((e) => ws.addRow([e.row, e.error]))
-      ws.columns = [{ width: 14 }, { width: 90 }]
-      ws.views = [{ state: 'frozen', ySplit: 1 }]
-      const buf = await wb.xlsx.writeBuffer()
-      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'department_import_errors.xlsx'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      window.URL.revokeObjectURL(url)
+      const file = fileRef.current?.files?.[0]
+      if (!file) return showToast('danger', 'Please choose an Excel file')
+
+      const fd = new FormData()
+      fd.append('file', file)
+
+      // Backend-generated error sheet (recommended)
+      const res = await api.post('/api/setup/department/import/preview?download=errors', fd, {
+        responseType: 'blob',
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+
+      const blob = new Blob([res.data], {
+        type: res.headers?.['content-type'] || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      downloadBlob(blob, 'department_preview_errors.xlsx')
     } catch (e) {
-      showToast('danger', 'Error report download failed. Install exceljs in frontend.')
+      // Fallback: if backend doesn't support download yet, try frontend generation
+      try {
+        const errs = previewData?.errors?.length
+          ? previewData.errors
+          : (previewData?.preview || [])
+              .filter(
+                (r) =>
+                  String(r.action || '').toLowerCase() === 'error' ||
+                  String(r.action || '').toLowerCase() === 'failed',
+              )
+              .map((r) => ({ rowNumber: r.rowNumber, reason: r.reason || 'Validation error' }))
+
+        if (!errs?.length) return showToast('danger', 'No preview errors to download')
+
+        const mod = await import('exceljs')
+        const ExcelJS = mod.default || mod
+        const wb = new ExcelJS.Workbook()
+        const ws = wb.addWorksheet('Preview Errors')
+        ws.addRow(['Row Number', 'Error'])
+        ws.getRow(1).font = { bold: true }
+        errs.forEach((er) => ws.addRow([er.row ?? er.rowNumber ?? '', er.error ?? er.reason ?? '']))
+        ws.columns = [{ width: 14 }, { width: 90 }]
+        ws.views = [{ state: 'frozen', ySplit: 1 }]
+        const buf = await wb.xlsx.writeBuffer()
+        downloadBlob(
+          new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+          'department_preview_errors.xlsx',
+        )
+      } catch (e2) {
+        console.error(e2)
+        showToast('danger', 'Preview error report download failed (install exceljs OR enable backend error download).')
+      }
+    }
+  }
+
+  /**
+   * Import error report download (backend-generated first).
+   * - POST /api/setup/department/import?download=errors (multipart, blob)
+   * If you already imported and cleared the file input, this will ask to choose file again.
+   */
+  const downloadErrorReport = async () => {
+    try {
+      const file = fileRef.current?.files?.[0]
+      if (!file) {
+        // fallback to frontend workbook if we have error list
+        if (!importSummary?.errors?.length) return showToast('danger', 'No import errors to download')
+        throw new Error('NO_FILE_FOR_BACKEND_DOWNLOAD')
+      }
+
+      const fd = new FormData()
+      fd.append('file', file)
+
+      const res = await api.post('/api/setup/department/import?download=errors', fd, {
+        responseType: 'blob',
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+
+      const blob = new Blob([res.data], {
+        type: res.headers?.['content-type'] || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      downloadBlob(blob, 'department_import_errors.xlsx')
+    } catch (e) {
+      // Frontend fallback (uses exceljs) if backend route not used/available
+      try {
+        if (!importSummary?.errors?.length) return showToast('danger', 'No import errors to download')
+
+        const mod = await import('exceljs')
+        const ExcelJS = mod.default || mod
+        const wb = new ExcelJS.Workbook()
+        const ws = wb.addWorksheet('Import Errors')
+        ws.addRow(['Row Number', 'Error'])
+        ws.getRow(1).font = { bold: true }
+        importSummary.errors.forEach((er) => ws.addRow([er.row ?? er.rowNumber ?? '', er.error ?? er.reason ?? '']))
+        ws.columns = [{ width: 14 }, { width: 90 }]
+        ws.views = [{ state: 'frozen', ySplit: 1 }]
+        const buf = await wb.xlsx.writeBuffer()
+        downloadBlob(
+          new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+          'department_import_errors.xlsx',
+        )
+      } catch (e2) {
+        console.error(e2)
+        showToast('danger', 'Error report download failed (install exceljs OR enable backend error download).')
+      }
     }
   }
 
@@ -246,7 +364,9 @@ const Department = () => {
       const fd = new FormData()
       fd.append('file', file)
       setImportProgress(35)
-      const res = await axios.post('/api/setup/department/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const res = await api.post('/api/setup/department/import', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
       setImportProgress(90)
       setImportSummary(res.data)
       setImportProgress(100)
@@ -264,37 +384,47 @@ const Department = () => {
     }
   }
 
-  const mainColumns = useMemo(() => ([
-    { key: 'institution', label: 'Institution' },
-    { key: 'departmentCode', label: 'Department Code' },
-    { key: 'departmentName', label: 'Department Name' },
-    { key: 'yearEstablished', label: 'Year' },
-    { key: 'nbaAccredited', label: 'NBA' },
-    { key: 'status', label: 'Status' },
-    { key: 'isActive', label: 'Active' },
-  ]), [])
+  const mainColumns = useMemo(
+    () => [
+      { key: 'institution', label: 'Institution' },
+      { key: 'departmentCode', label: 'Department Code' },
+      { key: 'departmentName', label: 'Department Name' },
+      { key: 'yearEstablished', label: 'Year' },
+      { key: 'nbaAccredited', label: 'NBA' },
+      { key: 'status', label: 'Status' },
+      { key: 'isActive', label: 'Active' },
+    ],
+    [],
+  )
 
-  const mappedRows = useMemo(() => rows.map((r) => {
-    const instName = r?.institution?.name
-    const instCode = r?.institution?.code
-    return {
-      ...r,
-      institution: instCode && instName ? `${instCode} - ${instName}` : r.institutionId,
-      nbaAccredited: r.nbaAccredited ? 'Yes' : 'No',
-      status: r.status ? 'Active' : 'Inactive',
-      isActive: r.isActive ? 'Active' : 'Inactive',
-    }
-  }), [rows])
+  const mappedRows = useMemo(
+    () =>
+      rows.map((r) => {
+        const instName = r?.institution?.name
+        const instCode = r?.institution?.code
+        return {
+          ...r,
+          institution: instCode && instName ? `${instCode} - ${instName}` : r.institutionId,
+          nbaAccredited: r.nbaAccredited ? 'Yes' : 'No',
+          status: r.status ? 'Active' : 'Inactive',
+          isActive: r.isActive ? 'Active' : 'Inactive',
+        }
+      }),
+    [rows],
+  )
 
-  const previewColumns = useMemo(() => ([
-    { key: 'rowNumber', label: 'Row' },
-    { key: 'institutionCode', label: 'Institution Code' },
-    { key: 'institutionName', label: 'Institution Name' },
-    { key: 'departmentCode', label: 'Dept Code' },
-    { key: 'departmentName', label: 'Dept Name' },
-    { key: 'action', label: 'Action' },
-    { key: 'reason', label: 'Reason' },
-  ]), [])
+  const previewColumns = useMemo(
+    () => [
+      { key: 'rowNumber', label: 'Row' },
+      { key: 'institutionCode', label: 'Institution Code' },
+      { key: 'institutionName', label: 'Institution Name' },
+      { key: 'departmentCode', label: 'Dept Code' },
+      { key: 'departmentName', label: 'Dept Name' },
+      { key: 'action', label: 'Action' },
+      { key: 'reason', label: 'Reason' },
+    ],
+    [],
+  )
 
   return (
     <>
@@ -310,38 +440,91 @@ const Department = () => {
         </CCardHeader>
 
         <CCardBody>
-          {toast && <CAlert color={toast.type} className="mb-3">{toast.message}</CAlert>}
+          {toast && (
+            <CAlert color={toast.type} className="mb-3">
+              {toast.message}
+            </CAlert>
+          )}
 
           {/* Template + Preview + Import */}
           <CCard className="mb-3 border-0">
             <CCardBody className="p-0">
               <div className="d-flex flex-wrap align-items-center gap-2">
                 <ArpButton label="Download Template" icon="download" color="secondary" onClick={downloadTemplate} />
-                <input ref={fileRef} type="file" accept=".xlsx,.xls" className="form-control" style={{ maxWidth: 360 }} onChange={onChooseFile} />
-                <ArpButton label={importing ? 'Importing...' : 'Import Excel'} icon="upload" color="success" onClick={onImportExcel}
-                  disabled={importing || previewLoading || !fileName || (previewData?.failed ?? 0) > 0} />
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="form-control"
+                  style={{ maxWidth: 360 }}
+                  onChange={onChooseFile}
+                />
+                <ArpButton
+                  label={importing ? 'Importing...' : 'Import Excel'}
+                  icon="upload"
+                  color="success"
+                  onClick={onImportExcel}
+                  disabled={importing || previewLoading || !fileName || (previewData?.failed ?? 0) > 0}
+                />
                 {(previewLoading || importing) && <CSpinner size="sm" />}
               </div>
 
-              {fileName && <div className="mt-2 small text-muted">Selected: <strong>{fileName}</strong></div>}
-
-              {previewData && (
-                <div className="mt-2">
-                  <CBadge color="success" className="me-2">Inserts: {previewData.inserts ?? 0}</CBadge>
-                  <CBadge color="info" className="me-2">Updates: {previewData.updates ?? 0}</CBadge>
-                  <CBadge color="danger" className="me-2">Errors: {previewData.failed ?? 0}</CBadge>
+              {fileName && (
+                <div className="mt-2 small text-muted">
+                  Selected: <strong>{fileName}</strong>
                 </div>
               )}
 
-              {importing && <div className="mt-2"><CProgress><CProgressBar value={importProgress} /></CProgress></div>}
+              {previewData && (
+                <div className="mt-2">
+                  <CBadge color="success" className="me-2">
+                    Inserts: {previewData.inserts ?? 0}
+                  </CBadge>
+                  <CBadge color="info" className="me-2">
+                    Updates: {previewData.updates ?? 0}
+                  </CBadge>
+                  <CBadge color="danger" className="me-2">
+                    Errors: {previewData.failed ?? 0}
+                  </CBadge>
+                  {!!(previewData?.failed ?? 0) && (
+                    <ArpButton
+                      className="ms-2"
+                      label="Download Preview Errors"
+                      icon="download"
+                      color="danger"
+                      onClick={downloadPreviewErrors}
+                    />
+                  )}
+                </div>
+              )}
+
+              {importing && (
+                <div className="mt-2">
+                  <CProgress>
+                    <CProgressBar value={importProgress} />
+                  </CProgress>
+                </div>
+              )}
 
               {importSummary && (
                 <div className="mt-2">
-                  <CBadge color="success" className="me-2">Inserted: {importSummary.inserted ?? 0}</CBadge>
-                  <CBadge color="info" className="me-2">Updated: {importSummary.updated ?? 0}</CBadge>
-                  <CBadge color="danger" className="me-2">Failed: {importSummary.failed ?? 0}</CBadge>
+                  <CBadge color="success" className="me-2">
+                    Inserted: {importSummary.inserted ?? 0}
+                  </CBadge>
+                  <CBadge color="info" className="me-2">
+                    Updated: {importSummary.updated ?? 0}
+                  </CBadge>
+                  <CBadge color="danger" className="me-2">
+                    Failed: {importSummary.failed ?? 0}
+                  </CBadge>
                   {!!importSummary?.errors?.length && (
-                    <ArpButton className="ms-2" label="Download Error Report" icon="download" color="danger" onClick={downloadErrorReport} />
+                    <ArpButton
+                      className="ms-2"
+                      label="Download Error Report"
+                      icon="download"
+                      color="danger"
+                      onClick={downloadErrorReport}
+                    />
                   )}
                 </div>
               )}
@@ -357,31 +540,51 @@ const Department = () => {
           {/* Form */}
           <CForm onSubmit={onSave}>
             <CRow className="g-3">
-              <CCol md={3}><CFormLabel>Institution</CFormLabel></CCol>
+              <CCol md={3}>
+                <CFormLabel>Institution</CFormLabel>
+              </CCol>
               <CCol md={3}>
                 <CFormSelect value={form.institutionId} onChange={onChange('institutionId')} disabled={!isEdit}>
                   <option value="">Select</option>
                   {institutions.map((i) => (
-                    <option key={i.id} value={i.id}>{i.code ? `${i.code} - ${i.name}` : i.name}</option>
+                    <option key={i.id} value={i.id}>
+                      {i.code ? `${i.code} - ${i.name}` : i.name}
+                    </option>
                   ))}
                 </CFormSelect>
               </CCol>
 
-              <CCol md={3}><CFormLabel>Department Code</CFormLabel></CCol>
-              <CCol md={3}><CFormInput value={form.departmentCode} onChange={onChange('departmentCode')} disabled={!isEdit} /></CCol>
+              <CCol md={3}>
+                <CFormLabel>Department Code</CFormLabel>
+              </CCol>
+              <CCol md={3}>
+                <CFormInput value={form.departmentCode} onChange={onChange('departmentCode')} disabled={!isEdit} />
+              </CCol>
 
-              <CCol md={3}><CFormLabel>Department Name</CFormLabel></CCol>
-              <CCol md={3}><CFormInput value={form.departmentName} onChange={onChange('departmentName')} disabled={!isEdit} /></CCol>
+              <CCol md={3}>
+                <CFormLabel>Department Name</CFormLabel>
+              </CCol>
+              <CCol md={3}>
+                <CFormInput value={form.departmentName} onChange={onChange('departmentName')} disabled={!isEdit} />
+              </CCol>
 
-              <CCol md={3}><CFormLabel>Year Established</CFormLabel></CCol>
+              <CCol md={3}>
+                <CFormLabel>Year Established</CFormLabel>
+              </CCol>
               <CCol md={3}>
                 <CFormSelect value={form.yearEstablished} onChange={onChange('yearEstablished')} disabled={!isEdit}>
                   <option value="">Select</option>
-                  {years.map((y) => (<option key={y} value={y}>{y}</option>))}
+                  {years.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
                 </CFormSelect>
               </CCol>
 
-              <CCol md={3}><CFormLabel>NBA Accredited</CFormLabel></CCol>
+              <CCol md={3}>
+                <CFormLabel>NBA Accredited</CFormLabel>
+              </CCol>
               <CCol md={3}>
                 <CFormSelect value={form.nbaAccredited ? 'Yes' : 'No'} onChange={onChange('nbaAccredited')} disabled={!isEdit}>
                   <option value="No">No</option>
@@ -389,22 +592,30 @@ const Department = () => {
                 </CFormSelect>
               </CCol>
 
-              <CCol md={3}><CFormLabel>Objectives</CFormLabel></CCol>
+              <CCol md={3}>
+                <CFormLabel>Objectives</CFormLabel>
+              </CCol>
               <CCol md={3}>
                 <CFormTextarea rows={2} value={form.objectives} onChange={onChange('objectives')} disabled={!isEdit} />
               </CCol>
 
-              <CCol md={3}><CFormLabel>Vision</CFormLabel></CCol>
+              <CCol md={3}>
+                <CFormLabel>Vision</CFormLabel>
+              </CCol>
               <CCol md={3}>
                 <CFormTextarea rows={2} value={form.vision} onChange={onChange('vision')} disabled={!isEdit} />
               </CCol>
 
-              <CCol md={3}><CFormLabel>Mission</CFormLabel></CCol>
+              <CCol md={3}>
+                <CFormLabel>Mission</CFormLabel>
+              </CCol>
               <CCol md={3}>
                 <CFormTextarea rows={2} value={form.mission} onChange={onChange('mission')} disabled={!isEdit} />
               </CCol>
 
-              <CCol md={3}><CFormLabel>Goals</CFormLabel></CCol>
+              <CCol md={3}>
+                <CFormLabel>Goals</CFormLabel>
+              </CCol>
               <CCol md={3}>
                 <CFormTextarea rows={2} value={form.goals} onChange={onChange('goals')} disabled={!isEdit} />
               </CCol>
@@ -418,8 +629,18 @@ const Department = () => {
         </CCardBody>
       </CCard>
 
-      <ArpDataTable title="Department Details" rows={mappedRows} columns={mainColumns} loading={loading}
-        selection={{ type: 'radio', selected: selectedId, onChange: (id) => setSelectedId(id), key: 'id' }} />
+      <ArpDataTable
+        title="Department Details"
+        rows={mappedRows}
+        columns={mainColumns}
+        loading={loading}
+        selection={{
+          type: 'radio',
+          selected: selectedId,
+          onChange: (id) => setSelectedId(id),
+          key: 'id',
+        }}
+      />
     </>
   )
 }

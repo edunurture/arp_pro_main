@@ -210,7 +210,12 @@ const Institution = () => {
     setLoading(true)
     try {
       const res = await api.get('/api/setup/institution')
-      setRows(Array.isArray(res.data) ? res.data : [])
+      const list = Array.isArray(res.data?.data)
+        ? res.data.data
+        : Array.isArray(res.data)
+          ? res.data
+          : []
+      setRows(list)
     } catch (err) {
       console.error('Institution load error:', err)
       const msg =
