@@ -43,6 +43,7 @@ const Department = () => {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
   const [isEdit, setIsEdit] = useState(false)
   const [form, setForm] = useState(initialForm)
@@ -210,6 +211,97 @@ const Department = () => {
       showToast('danger', 'Template download failed')
     }
   }
+  const downloadDepartmentExcel = async () => {
+    setDownloading(true)
+    try {
+      // Fetch fresh copy to ensure we export the latest data
+      const res = await api.get('/api/setup/department')
+      const all = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : []
+
+      if (!all.length) {
+        showToast('warning', 'No department records to export')
+        return
+      }
+
+      const cols = [
+        { key: 'institutionCode', label: 'Institution Code' },
+        { key: 'institutionName', label: 'Institution Name' },
+        { key: 'departmentCode', label: 'Department Code' },
+        { key: 'departmentName', label: 'Department Name' },
+        { key: 'yearEstablished', label: 'Year Established' },
+        { key: 'nbaAccredited', label: 'NBA Accredited (Yes/No)' },
+        { key: 'nbaValidUpto', label: 'NBA Valid Upto' },
+        { key: 'objectives', label: 'Objectives' },
+        { key: 'vision', label: 'Vision' },
+        { key: 'mission', label: 'Mission' },
+        { key: 'goals', label: 'Goals' },
+        { key: 'status', label: 'Status (Active/Inactive)' },
+        { key: 'isActive', label: 'Is Active (Active/Inactive)' },
+      ]
+
+      const flatRows = all.map((r) => ({
+        institutionCode: r?.institution?.code || '',
+        institutionName: r?.institution?.name || '',
+        departmentCode: r?.departmentCode || '',
+        departmentName: r?.departmentName || '',
+        yearEstablished: r?.yearEstablished ?? '',
+        nbaAccredited: r?.nbaAccredited ? 'Yes' : 'No',
+        nbaValidUpto: r?.nbaValidUpto || '',
+        objectives: r?.objectives || '',
+        vision: r?.vision || '',
+        mission: r?.mission || '',
+        goals: r?.goals || '',
+        status: r?.status ? 'Active' : 'Inactive',
+        isActive: r?.isActive ? 'Active' : 'Inactive',
+      }))
+
+      const downloadXlsx = async (rows, cols) => {
+      // ✅ Create a real .xlsx (no Excel "format and extension don't match" warning)
+      // Requires: npm i xlsx
+      const mod = await import('xlsx')
+      const XLSX = mod.default ?? mod
+
+      const aoa = [
+        cols.map((c) => c.label), // header row (labels)
+        ...rows.map((r) => cols.map((c) => r?.[c.key] ?? '')),
+      ]
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa)
+
+      // Optional: basic column width estimation
+      const widths = cols.map((c, i) => {
+        const maxLen = Math.max(
+          String(c.label || '').length,
+          ...rows.slice(0, 2000).map((r) => String(r?.[c.key] ?? '').length),
+        )
+        return { wch: Math.min(Math.max(maxLen + 2, 12), 60) }
+      })
+      ws['!cols'] = widths
+
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Departments')
+
+      const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+      const blob = new Blob([out], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+
+      const d = new Date()
+      const yyyy = d.getFullYear()
+      const mm = String(d.getMonth() + 1).padStart(2, '0')
+      const dd = String(d.getDate()).padStart(2, '0')
+      downloadBlob(blob, `Department_Details_${yyyy}${mm}${dd}.xlsx`)
+    }
+
+      await downloadXlsx(flatRows, cols)
+      showToast('success', 'Department export downloaded')
+    } catch (e) {
+      showToast('danger', e?.response?.data?.error || 'Department export failed')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
 
   const onChooseFile = async (e) => {
     const file = e.target.files?.[0]
@@ -436,6 +528,13 @@ const Department = () => {
             <ArpIconButton icon="view" color="purple" onClick={onView} disabled={!selectedId} />
             <ArpIconButton icon="edit" color="info" onClick={onEdit} disabled={!selectedId} />
             <ArpIconButton icon="delete" color="danger" onClick={onDelete} disabled={!selectedId} />
+            <ArpIconButton
+              icon="download"
+              color="success"
+              onClick={downloadDepartmentExcel}
+              disabled={loading || downloading || rows.length === 0}
+              title="Download Department Excel"
+            />
           </div>
         </CCardHeader>
 

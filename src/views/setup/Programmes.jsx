@@ -155,6 +155,8 @@ const Programmes = () => {
   const [importProgress, setImportProgress] = useState(0)
   const [importSummary, setImportSummary] = useState(null)
 
+  const [exporting, setExporting] = useState(false)
+
   const showToast = (type, message) => {
     setToast({ type, message })
     window.setTimeout(() => setToast(null), 4500)
@@ -433,25 +435,118 @@ const Programmes = () => {
     window.URL.revokeObjectURL(url)
   }
 
-  const downloadTemplate = async () => {
+const downloadTemplate = async () => {
+  try {
+    const res = await axios.get(
+      `${API_BASE}/api/setup/programme/template?ts=${Date.now()}`,
+      { responseType: 'blob' },
+    )
+
+    const blob = new Blob([res.data], {
+      type:
+        res.headers?.['content-type'] ||
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+
+    downloadBlob(
+      blob,
+      `Programme_Template_${new Date().toISOString().slice(0, 10)}.xlsx`,
+    )
+    showToast('success', 'Template downloaded')
+  } catch (e) {
+    console.error(e)
+    showToast(
+      'danger',
+      e?.response?.data?.message || e?.response?.data?.error || 'Template download failed',
+    )
+  }
+}
+
+  // Export Programme Details (Excel via backend; CSV fallback)
+  const downloadTextFile = (content, filename, mime = 'text/csv;charset=utf-8;') => {
+    const blob = new Blob([content], { type: mime })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const csvEscape = (v) => {
+    const s = v === null || v === undefined ? '' : String(v)
+    const needsQuote = /[",\n\r]/.test(s)
+    const escaped = s.replace(/"/g, '""')
+    return needsQuote ? `"${escaped}"` : escaped
+  }
+
+  const exportProgrammeDetails = async () => {
     try {
-      const res = await api.get('/api/setup/programme/template', { responseType: 'blob' })
+      setExporting(true)
+
+      // ✅ Preferred: backend-generated Excel export
+      const res = await axios.get(
+        `${API_BASE}/api/setup/programme/export?ts=${Date.now()}`,
+        { responseType: 'blob' },
+      )
+
       const blob = new Blob([res.data], {
         type:
           res.headers?.['content-type'] ||
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       })
-      downloadBlob(blob, 'Programme_Template.xlsx')
-      showToast('success', 'Template downloaded')
-    } catch (e) {
-      showToast(
-        'danger',
-        e?.response?.status === 404
-          ? 'Template API not found'
-          : e?.response?.data?.error || 'Failed to download template',
+
+      downloadBlob(
+        blob,
+        `Programme_Details_${new Date().toISOString().slice(0, 10)}.xlsx`,
       )
+      showToast('success', 'Programme details exported')
+    } catch (err) {
+      // ✅ Fallback: client-side CSV (opens in Excel)
+      try {
+        const headers = [
+          'Programme Code',
+          'Programme Name',
+          'Institution',
+          'Department',
+          'Status',
+          'Active',
+        ]
+
+        const lines = (rows || []).map((r) => [
+          csvEscape(r?.programmeCode),
+          csvEscape(r?.programmeName),
+          csvEscape(r?.institution?.name),
+          csvEscape(r?.department?.departmentName),
+          csvEscape(r?.programmeStatus),
+          csvEscape(r?.isActive === false ? 'No' : 'Yes'),
+        ])
+
+        const csv = [headers.map(csvEscape).join(','), ...lines.map((l) => l.join(','))].join('\n')
+
+        downloadTextFile(
+          csv,
+          `Programme_Details_${new Date().toISOString().slice(0, 10)}.csv`,
+        )
+
+        const msg =
+          err?.response?.status === 404
+            ? 'Export API not found. Downloaded CSV instead.'
+            : 'Export failed. Downloaded CSV instead.'
+        showToast('warning', msg)
+      } catch (e2) {
+        console.error(e2)
+        showToast('danger', err?.response?.data?.error || 'Export failed')
+      }
+    } finally {
+      setExporting(false)
     }
   }
+
+
+
 
   const onChooseFile = async (e) => {
     const file = e.target.files?.[0]
@@ -720,6 +815,7 @@ const Programmes = () => {
 
               <div className="d-flex gap-2 align-items-center">
                 <ArpButton label="Add New" icon="add" color="purple" onClick={onAddNew} />
+                <ArpIconButton icon="download" color="secondary" title="Export Data" onClick={exportProgrammeDetails} disabled={exporting || loading || rows?.length === 0} />
                 <ArpIconButton icon="view" color="purple" title="View" onClick={onView} disabled={!selectedId} />
                 <ArpIconButton icon="edit" color="info" title="Edit" onClick={onEdit} disabled={!selectedId} />
                 <ArpIconButton icon="delete" color="danger" title="Delete" onClick={onDelete} disabled={!selectedId} />

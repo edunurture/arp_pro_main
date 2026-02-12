@@ -26,7 +26,7 @@
     "zip": "git archive -o $npm_package_config_zipPrefix-$npm_package_config_theme-$npm_package_config_bundler-v$npm_package_version.zip -9 HEAD"
   },
   "dependencies": {
-    "@ckeditor/ckeditor5-build-classic": "^39.0.2",
+    "@ckeditor/ckeditor5-build-classic": "^38.1.1",
     "@ckeditor/ckeditor5-react": "^11.0.1",
     "@coreui/chartjs": "^4.2.0",
     "@coreui/coreui-pro": "^5.23.0",
@@ -57,7 +57,8 @@
     "react-redux": "^9.2.0",
     "react-router-dom": "^7.11.0",
     "redux": "5.0.1",
-    "simplebar-react": "^3.3.2"
+    "simplebar-react": "^3.3.2",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",

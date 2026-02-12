@@ -45,8 +45,9 @@ import {
  */
 const ArpDataTable = ({
   title,
-  rows,
-  columns,
+  rows = [],
+  columns = [],
+  scopedColumns = null,
   loading = false,
   headerActions = null,
   searchable = true,
@@ -59,19 +60,15 @@ const ArpDataTable = ({
   emptyText = 'No records found.',
   className = 'mb-3',
 }) => {
-  const [search, setSearch] = useState(defaultSearch)
-  
-
-  
-
-  // 🔧 Safety: ensure rows is always an array
+  const safeColumns = Array.isArray(columns) ? columns : []
   const safeRows = Array.isArray(rows) ? rows : []
-  
+
+  const [search, setSearch] = useState(defaultSearch)
   const [pageSize, setPageSize] = useState(defaultPageSize)
   const [page, setPage] = useState(1) // 1-based
   const [sort, setSort] = useState(() => {
     // pick first sortable column as default; otherwise rowKey
-    const firstSortable = columns.find((c) => c.sortable)
+    const firstSortable = safeColumns.find((c) => c.sortable)
     return { key: firstSortable?.key || rowKey, dir: 'asc' }
   })
 
@@ -93,13 +90,13 @@ const ArpDataTable = ({
   const q = String(search).toLowerCase()
 
   return list.filter((row) => JSON.stringify(row ?? {}).toLowerCase().includes(q))
-}, [safeRows, search])
+}, [rows, search])
 
   const sortedRows = useMemo(() => {
     const { key, dir } = sort || {}
     if (!key) return filteredRows
 
-    const col = columns.find((c) => c.key === key)
+    const col = safeColumns.find((c) => c.key === key)
     const sortType = col?.sortType || 'auto' // 'auto' | 'number' | 'string'
 
     const cmp = (a, b) => {
@@ -149,7 +146,7 @@ const ArpDataTable = ({
   const showingTo = Math.min(page * pageSize, total)
 
   const sortToggle = (key) => {
-    const col = columns.find((c) => c.key === key)
+    const col = safeColumns.find((c) => c.key === key)
     if (!col?.sortable) return
 
     setSort((p) => {
@@ -257,7 +254,7 @@ const ArpDataTable = ({
             <CTableRow>
               {renderSelectionHeader()}
 
-              {columns.map((c) => {
+              {safeColumns.map((c) => {
                 const clickable = !!c.sortable
                 const style = {
                   ...(c.width ? { width: c.width } : {}),
@@ -290,7 +287,7 @@ const ArpDataTable = ({
             {loading ? (
               <CTableRow>
                 <CTableDataCell
-                  colSpan={(selection ? 1 : 0) + columns.length}
+                  colSpan={(selection ? 1 : 0) + safeColumns.length}
                   className="text-center py-4"
                 >
                   <CSpinner size="sm" className="me-2" />
@@ -300,7 +297,7 @@ const ArpDataTable = ({
             ) : pageRows.length === 0 ? (
               <CTableRow>
                 <CTableDataCell
-                  colSpan={(selection ? 1 : 0) + columns.length}
+                  colSpan={(selection ? 1 : 0) + safeColumns.length}
                   className="text-center py-4"
                 >
                   {emptyText}
@@ -311,14 +308,19 @@ const ArpDataTable = ({
                 <CTableRow key={row?.[rowKey]}>
                   {renderSelectionCell(row)}
 
-                  {columns.map((c) => {
+                  {safeColumns.map((c) => {
                     const alignClass =
                       c.align === 'center'
                         ? 'text-center'
                         : c.align === 'right'
                           ? 'text-end'
                           : 'text-start'
-                    const cell = typeof c.render === 'function' ? c.render(row) : row?.[c.key]
+                    const cell =
+                      typeof scopedColumns?.[c.key] === 'function'
+                        ? scopedColumns[c.key](row)
+                        : typeof c.render === 'function'
+                          ? c.render(row)
+                          : row?.[c.key]
 
                     return (
                       <CTableDataCell key={c.key} className={alignClass}>
@@ -393,7 +395,7 @@ const ArpDataTable = ({
 
 ArpDataTable.propTypes = {
   title: PropTypes.string.isRequired,
-  rows: PropTypes.arrayOf(PropTypes.object).isRequired,
+  rows: PropTypes.arrayOf(PropTypes.object),
   columns: PropTypes.arrayOf(
     PropTypes.shape({
       key: PropTypes.string.isRequired,
@@ -407,6 +409,7 @@ ArpDataTable.propTypes = {
   ).isRequired,
   loading: PropTypes.bool,
   headerActions: PropTypes.node,
+  scopedColumns: PropTypes.objectOf(PropTypes.func),
   searchable: PropTypes.bool,
   searchPlaceholder: PropTypes.string,
   defaultSearch: PropTypes.string,
@@ -427,5 +430,25 @@ ArpDataTable.propTypes = {
   className: PropTypes.string,
 }
 
+
+
+ArpDataTable.defaultProps = {
+  rows: [],
+  columns: [],
+  scopedColumns: null,
+  loading: false,
+  headerActions: null,
+  rowKey: 'id',
+  onRowClick: null,
+  onSelectionChange: null,
+  selectionMode: 'single',
+  selectable: false,
+  selectedRowKeys: [],
+  defaultPageSize: 10,
+  pageSizeOptions: [10, 25, 50, 100],
+  defaultSearch: '',
+  emptyText: 'No Records Found',
+  className: '',
+}
 
 export default ArpDataTable

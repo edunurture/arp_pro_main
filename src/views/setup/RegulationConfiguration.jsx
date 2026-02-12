@@ -39,15 +39,14 @@ const api = axios.create({
 })
 
 const initialBatchForm = {
-  batchName: '',
   description: '',
 }
-
 const initialRegForm = {
   programmeId: '',
   regulationCode: '',
   regulationYear: '', // start year only (Option-2)
   description: '',
+  isActive: 'Yes',
 }
 
 const unwrapArray = (res) => {
@@ -64,6 +63,13 @@ export default function RegulationConfiguration() {
   // masters
   const [institutions, setInstitutions] = useState([])
   const [institutionId, setInstitutionId] = useState('')
+
+  // Derived institution object for display (e.g., Institution Code in templates)
+  const selectedInstitution = useMemo(
+    () => institutions.find((i) => String(i.id) === String(institutionId)) || null,
+    [institutions, institutionId],
+  )
+
   const [programmes, setProgrammes] = useState([])
 
   // data lists
@@ -89,14 +95,13 @@ export default function RegulationConfiguration() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null) // { type, message }
 
-  // excel import (Regulation)
+  // Excel Import (Regulation) - Import only (no preview)
   const [excelFile, setExcelFile] = useState(null)
-  const [excelKey, setExcelKey] = useState(0) // reset file input
-  const [previewRows, setPreviewRows] = useState([])
-  const [previewErrors, setPreviewErrors] = useState([])
-  const [previewSummary, setPreviewSummary] = useState(null) // { totalRows, validRows, invalidRows }
-  const [previewing, setPreviewing] = useState(false)
+  const [fileName, setFileName] = useState('')
+  const fileRef = React.useRef(null)
+  const [excelKey, setExcelKey] = useState(1)
   const [importing, setImporting] = useState(false)
+
 
   const yearOptions = useMemo(() => {
     const now = new Date()
@@ -105,19 +110,6 @@ export default function RegulationConfiguration() {
     for (let i = y - 10; i <= y + 10; i++) list.push(i)
     return list
   }, [])
-
-
-  const previewColumns = useMemo(() => {
-    if (!previewRows || previewRows.length === 0) return []
-    const first = previewRows[0] || {}
-    return Object.keys(first).map((k) => ({
-      key: k,
-      label: k
-        .replace(/([A-Z])/g, ' $1')
-        .replace(/_/g, ' ')
-        .replace(/^./, (c) => c.toUpperCase()),
-    }))
-  }, [previewRows])
 
   const showToast = (type, message) => {
     setToast({ type, message })
@@ -133,11 +125,6 @@ export default function RegulationConfiguration() {
     setRegForm(initialRegForm)
     setSelectedRegId(null)
     setSelectedBatchId(null)
-    setExcelFile(null)
-    setExcelKey((k) => k + 1)
-    setPreviewRows([])
-    setPreviewErrors([])
-    setPreviewSummary(null)
     setMode(null)
   }
 
@@ -166,137 +153,6 @@ export default function RegulationConfiguration() {
   const loadRegulations = async (instId) => {
     const res = await api.get('/api/setup/regulation', { params: instId ? { institutionId: instId } : undefined })
     setRows(unwrapArray(res))
-  }
-
-
-  // -----------------------
-  // EXCEL IMPORT (REGULATION)
-  const downloadRegulationTemplate = async () => {
-    if (!institutionId) {
-      showToast('danger', 'Institution is required')
-      return
-    }
-
-    try {
-      // Prefer backend-generated template
-      const url = `${API_BASE}/api/setup/regulation/template?institutionId=${institutionId}`
-      window.open(url, '_blank')
-      showToast('success', 'Template download started')
-    } catch (e) {
-      console.error(e)
-      showToast('danger', 'Template download failed')
-    }
-  }
-
-  const previewRegulationExcel = async () => {
-    if (!institutionId) {
-      showToast('danger', 'Institution is required')
-      return
-    }
-    if (!excelFile) {
-      showToast('danger', 'Please choose an Excel file')
-      return
-    }
-
-    setPreviewing(true)
-    try {
-      const fd = new FormData()
-      fd.append('file', excelFile)
-      fd.append('institutionId', institutionId)
-
-      const res = await axios.post(`${API_BASE}/api/setup/regulation/preview`, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-
-      // Expected (recommended):
-      // { rows: [...], errors: [...], summary: { totalRows, validRows, invalidRows } }
-      const data = res?.data || {}
-      setPreviewRows(Array.isArray(data.rows) ? data.rows : [])
-      setPreviewErrors(Array.isArray(data.errors) ? data.errors : [])
-      setPreviewSummary(data.summary || null)
-
-      if ((data.errors || []).length) {
-        showToast('danger', 'Preview completed with errors')
-      } else {
-        showToast('success', 'Preview successful')
-      }
-    } catch (e) {
-      console.error(e)
-      setPreviewRows([])
-      setPreviewErrors([])
-      setPreviewSummary(null)
-      showToast('danger', e?.response?.data?.message || 'Preview failed')
-    } finally {
-      setPreviewing(false)
-    }
-  }
-
-  const importRegulationExcel = async () => {
-    if (!institutionId) {
-      showToast('danger', 'Institution is required')
-      return
-    }
-    if (!excelFile) {
-      showToast('danger', 'Please choose an Excel file')
-      return
-    }
-
-    setImporting(true)
-    try {
-      const fd = new FormData()
-      fd.append('file', excelFile)
-      fd.append('institutionId', institutionId)
-
-      const res = await axios.post(`${API_BASE}/api/setup/regulation/import`, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        responseType: 'blob', // backend may return error excel as blob
-        validateStatus: () => true,
-      })
-
-      const ct = res?.headers?.['content-type'] || ''
-      const isExcel =
-        ct.includes('application/vnd.openxmlformats-officedocument') ||
-        ct.includes('application/vnd.ms-excel')
-
-      if (isExcel) {
-        // error sheet or result sheet
-        const blob = new Blob([res.data], { type: ct })
-        const a = document.createElement('a')
-        a.href = window.URL.createObjectURL(blob)
-        a.download = 'Regulation_Import_Errors.xlsx'
-        a.click()
-        window.URL.revokeObjectURL(a.href)
-        showToast('danger', 'Import completed with errors (downloaded error sheet)')
-      } else {
-        // try parse json blob
-        let msg = 'Import completed'
-        try {
-          const text = await res.data.text()
-          const json = JSON.parse(text)
-          msg = json?.message || msg
-          if (json?.errors?.length) {
-            showToast('danger', msg)
-          } else {
-            showToast('success', msg)
-          }
-        } catch {
-          showToast('success', msg)
-        }
-      }
-
-      await loadRegulations(institutionId)
-      // clear file + preview
-      setExcelFile(null)
-      setExcelKey((k) => k + 1)
-      setPreviewRows([])
-      setPreviewErrors([])
-      setPreviewSummary(null)
-    } catch (e) {
-      console.error(e)
-      showToast('danger', e?.response?.data?.message || 'Import failed')
-    } finally {
-      setImporting(false)
-    }
   }
 
   useEffect(() => {
@@ -372,7 +228,6 @@ export default function RegulationConfiguration() {
     setIsEdit(false)
     setEditingBatchId(row.id)
     setBatchForm({
-      batchName: row.batchName || row.name || '',
       description: row.description || '',
     })
   }
@@ -384,7 +239,6 @@ export default function RegulationConfiguration() {
     setIsEdit(true)
     setEditingBatchId(row.id)
     setBatchForm({
-      batchName: row.batchName || row.name || '',
       description: row.description || '',
     })
   }
@@ -460,7 +314,7 @@ export default function RegulationConfiguration() {
   }
 
   const validateBatch = () => {
-    if (!batchForm.batchName?.trim()) return 'Batch Name is required'
+    if (!batchForm.description?.trim()) return 'Batch Description is required'
     return null
   }
 
@@ -489,7 +343,6 @@ export default function RegulationConfiguration() {
 
           const payload = {
             institutionId,
-            batchName: batchForm.batchName?.trim(),
             description: batchForm.description?.trim() || '',
             status: true,
             isActive: true,
@@ -553,6 +406,111 @@ export default function RegulationConfiguration() {
   const onCancel = () => resetAll()
 
   // -----------------------
+  // EXCEL (REGULATION) - Import Only
+  // -----------------------
+  const downloadRegulationTemplate = async () => {
+    try {
+      if (!institutionId) {
+        showToast('danger', 'Institution is required')
+        return
+      }
+
+      const res = await axios.get(`${API_BASE}/api/setup/regulation/template`, {
+        params: { institutionId },
+        responseType: 'blob',
+        validateStatus: () => true,
+      })
+
+      const ct = res?.headers?.['content-type'] || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      const blob = new Blob([res.data], { type: ct })
+      const a = document.createElement('a')
+      a.href = window.URL.createObjectURL(blob)
+      a.download = 'Regulation_Template.xlsx'
+      a.click()
+      window.URL.revokeObjectURL(a.href)
+      showToast('success', 'Template downloaded')
+    } catch (e) {
+      console.error(e)
+      showToast('danger', makeToastError(e))
+    }
+  }
+
+  const importRegulationExcel = async () => {
+    if (!institutionId) {
+      showToast('danger', 'Institution is required')
+      return
+    }
+    if (!excelFile) {
+      showToast('danger', 'Please choose an Excel file')
+      return
+    }
+
+    setImporting(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', excelFile)
+      fd.append('institutionId', institutionId)
+
+      const res = await axios.post(`${API_BASE}/api/setup/regulation/import`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        responseType: 'blob', // success json or error excel
+        validateStatus: () => true,
+      })
+
+      const ct = res?.headers?.['content-type'] || ''
+      const isExcel =
+        ct.includes('application/vnd.openxmlformats-officedocument') ||
+        ct.includes('application/vnd.ms-excel')
+
+      if (isExcel || res.status === 422) {
+        const blob = new Blob([res.data], {
+          type: ct || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        })
+        const a = document.createElement('a')
+        a.href = window.URL.createObjectURL(blob)
+        a.download = 'Regulation_Import_Errors.xlsx'
+        a.click()
+        window.URL.revokeObjectURL(a.href)
+        showToast('danger', 'Import completed with errors (downloaded error sheet)')
+      } else {
+        // Parse JSON (returned as blob)
+        let msg = 'Import completed'
+        try {
+          const text = await res.data.text()
+          const json = JSON.parse(text)
+          if (json?.success) {
+            msg = json?.message || msg
+            showToast('success', msg)
+          } else {
+            msg = json?.error || json?.message || msg
+            showToast('danger', msg)
+          }
+        } catch {
+          showToast('success', msg)
+        }
+      }
+
+      await loadRegulations(institutionId)
+      setExcelFile(null)
+      setExcelKey((k) => k + 1)
+    } catch (e) {
+      console.error(e)
+      showToast('danger', makeToastError(e))
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  // Excel choose file (Department.jsx-style)
+  const onChooseFile = (e) => {
+    const f = e?.target?.files?.[0] || null
+    setExcelFile(f)
+    setFileName(f?.name || '')
+  }
+
+
+
+  // -----------------------
   // TABLE CONFIG
   // -----------------------
   const regColumns = useMemo(
@@ -577,19 +535,156 @@ export default function RegulationConfiguration() {
 
   const batchColumns = useMemo(
     () => [
-      { key: 'batchName', label: 'Batch Name', sortable: true, width: 220 },
-      { key: 'description', label: 'Description', sortable: true },
+            { key: 'description', label: 'Description', sortable: true },
     ],
     [],
   )
+
+  // Download Regulation Details (Condition 3)
+  async function downloadRegulationDetails() {
+    try {
+      if (!rows || rows.length === 0) return
+
+      // ✅ Export must match the Excel template columns (in the same order)
+      const TEMPLATE_HEADERS = [
+        'Institution Code',
+        'Programme Code',
+        
+        'Regulation Code',
+        'Regulation Start Year',
+        'Description',
+        'Is Active (Yes/No)',
+      ]
+
+      const tryParseJSON = (v) => {
+        if (typeof v !== 'string') return null
+        const s = v.trim()
+        if (!s.startsWith('{') && !s.startsWith('[')) return null
+        try {
+          return JSON.parse(s)
+        } catch {
+          return null
+        }
+      }
+
+      const getProgrammeCode = (r) => {
+        // common shapes: r.programmeCode, r.programme.programmeCode, r.programme as JSON string
+        if (r?.programmeCode) return String(r.programmeCode)
+        const p = r?.programme
+        if (p?.programmeCode) return String(p.programmeCode)
+        const parsed = tryParseJSON(p)
+        if (parsed?.programmeCode) return String(parsed.programmeCode)
+        if (parsed?.code) return String(parsed.code)
+        return ''
+      }
+
+      const getInstitutionCode = (r) => {
+        // Usually export is within a selected institution in UI
+        if (selectedInstitution?.code) return String(selectedInstitution.code)
+        if (r?.institutionCode) return String(r.institutionCode)
+        if (r?.institution?.code) return String(r.institution.code)
+        const parsed = tryParseJSON(r?.institution)
+        if (parsed?.code) return String(parsed.code)
+        return ''
+      }
+
+      const getYesNo = (v) => {
+        if (v === true) return 'Yes'
+        if (v === false) return 'No'
+        if (typeof v === 'string') {
+          const s = v.trim().toLowerCase()
+          if (s === 'yes' || s === 'y' || s === 'true' || s === '1') return 'Yes'
+          if (s === 'no' || s === 'n' || s === 'false' || s === '0') return 'No'
+        }
+        if (typeof v === 'number') return v === 1 ? 'Yes' : v === 0 ? 'No' : ''
+        return ''
+      }
+
+      const dataRows = rows.map((r) => [
+        getInstitutionCode(r),
+        getProgrammeCode(r),
+        '',
+        r?.regulationCode ?? r?.code ?? '',
+        r?.regulationYear ?? r?.regulationStartYear ?? r?.year ?? '',
+        r?.description ?? '',
+        getYesNo(r?.isActive ?? r?.active),
+      ])
+
+      // Prefer ExcelJS if installed, otherwise fallback to SheetJS (xlsx)
+      try {
+        const ExcelJSModule = await import('exceljs')
+        const ExcelJS = ExcelJSModule?.default || ExcelJSModule
+
+        const wb = new ExcelJS.Workbook()
+        const ws = wb.addWorksheet('Regulation Details')
+
+        ws.addRow(TEMPLATE_HEADERS)
+        ws.getRow(1).font = { bold: true }
+
+        dataRows.forEach((arr) => ws.addRow(arr))
+
+        // Auto width (simple)
+        ws.columns.forEach((col) => {
+          let maxLen = 10
+          col.eachCell({ includeEmpty: true }, (cell) => {
+            const v = cell.value ?? ''
+            const len = String(v).length
+            if (len > maxLen) maxLen = len
+          })
+          col.width = Math.min(Math.max(maxLen + 2, 12), 60)
+        })
+
+        const buffer = await wb.xlsx.writeBuffer()
+        const blob = new Blob([buffer], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'Regulation_Details.xlsx'
+        a.click()
+        URL.revokeObjectURL(url)
+        return
+      } catch (eExcelJS) {
+        // ignore and try xlsx
+      }
+
+      const XLSXModule = await import('xlsx')
+      const XLSX = XLSXModule?.default || XLSXModule
+
+      const aoa = [TEMPLATE_HEADERS, ...dataRows]
+      const ws = XLSX.utils.aoa_to_sheet(aoa)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Regulation Details')
+
+      const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+      const blob = new Blob([out], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'Regulation_Details.xlsx'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      const msg =
+        e?.message ||
+        'Excel export library not found. Please install either "exceljs" or "xlsx" in arp_admin.'
+      setToast({ type: 'danger', message: msg })
+    }
+
+  }
 
   const regHeaderActions = (
     <div className="d-flex gap-2 align-items-center">
       <ArpIconButton icon="view" color="purple" title="View" onClick={onRegView} disabled={!selectedRegId} />
       <ArpIconButton icon="edit" color="info" title="Edit" onClick={onRegEdit} disabled={!selectedRegId} />
       <ArpIconButton icon="delete" color="danger" title="Delete" onClick={onRegDelete} disabled={!selectedRegId} />
+      <ArpIconButton icon="download" color="secondary" title="Download" onClick={downloadRegulationDetails} disabled={!rows || rows.length === 0} />
     </div>
   )
+
 
   const batchHeaderActions = (
     <div className="d-flex gap-2 align-items-center">
@@ -602,6 +697,9 @@ export default function RegulationConfiguration() {
   // -----------------------
   // RENDER
   // -----------------------
+  
+  // Download Regulation Details (Condition 3)
+
   return (
     <CRow>
       <CCol xs={12}>
@@ -615,7 +713,7 @@ export default function RegulationConfiguration() {
         <CCard className="mb-3">
           <CCardHeader className="d-flex align-items-center justify-content-between">
             <strong>Regulation Configuration</strong>
-            <div className="d-flex gap-2 align-items-center flex-wrap">
+            <div className="d-flex gap-2 align-items-center">
               <ArpButton
                 icon="add"
                 label="Add Batch"
@@ -677,16 +775,7 @@ export default function RegulationConfiguration() {
             {mode === 'BATCH' && (
               <CForm>
                 <CRow className="g-3">
-                  <CCol md={6}>
-                    <CFormLabel>Batch Name</CFormLabel>
-                    <CFormInput
-                      value={batchForm.batchName}
-                      onChange={(e) => setBatchForm((p) => ({ ...p, batchName: e.target.value }))}
-                      placeholder="Enter batch name"
-                      disabled={!isEdit || saving || loading}
-                    />
-                  </CCol>
-                  <CCol md={6}>
+<CCol md={6}>
                     <CFormLabel>Description</CFormLabel>
                     <CFormTextarea
                       value={batchForm.description}
@@ -697,6 +786,7 @@ export default function RegulationConfiguration() {
                     />
                   </CCol>
                 </CRow>
+
                 <CRow className="mt-3">
                   <CCol className="d-flex justify-content-end gap-2">
                     <ArpButton
@@ -721,8 +811,14 @@ export default function RegulationConfiguration() {
             {mode === 'REG' && (
               <CForm>
                 <CRow className="g-3">
+                  {/* Template-aligned fields (Regulation_Template.xlsx) */}
                   <CCol md={4}>
-                    <CFormLabel>Programme</CFormLabel>
+                    <CFormLabel>Institution Code</CFormLabel>
+                    <CFormInput value={selectedInstitution?.code || ''} disabled />
+                  </CCol>
+
+                  <CCol md={4}>
+                    <CFormLabel>Programme Code</CFormLabel>
                     <CFormSelect
                       value={regForm.programmeId}
                       onChange={(e) => setRegForm((p) => ({ ...p, programmeId: e.target.value }))}
@@ -731,22 +827,16 @@ export default function RegulationConfiguration() {
                       <option value="">Select Programme</option>
                       {programmes.map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.programmeCode
-                            ? `${p.programmeCode} - ${p.programmeName}`
-                            : p.programmeName}
+                          {p.programmeCode ? `${p.programmeCode} - ${p.programmeName}` : p.programmeName}
                         </option>
                       ))}
                     </CFormSelect>
                   </CCol>
-
-                  <CCol md={4}>
+<CCol md={4}>
                     <CFormLabel>Regulation Code</CFormLabel>
                     <CFormInput
                       value={regForm.regulationCode}
-                      onChange={(e) =>
-                        setRegForm((p) => ({ ...p, regulationCode: e.target.value }))
-                      }
-                      placeholder="e.g., R26"
+                      onChange={(e) => setRegForm((p) => ({ ...p, regulationCode: e.target.value }))}
                       disabled={!isEdit || saving || loading}
                     />
                   </CCol>
@@ -755,9 +845,7 @@ export default function RegulationConfiguration() {
                     <CFormLabel>Regulation Start Year</CFormLabel>
                     <CFormSelect
                       value={regForm.regulationYear}
-                      onChange={(e) =>
-                        setRegForm((p) => ({ ...p, regulationYear: e.target.value }))
-                      }
+                      onChange={(e) => setRegForm((p) => ({ ...p, regulationYear: e.target.value }))}
                       disabled={!isEdit || saving || loading}
                     >
                       <option value="">Select Year</option>
@@ -769,89 +857,30 @@ export default function RegulationConfiguration() {
                     </CFormSelect>
                   </CCol>
 
+                  <CCol md={4}>
+                    <CFormLabel>Is Active (Yes/No)</CFormLabel>
+                    <CFormSelect
+                      value={regForm.isActive}
+                      onChange={(e) => setRegForm((p) => ({ ...p, isActive: e.target.value }))}
+                      disabled={!isEdit || saving || loading}
+                    >
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </CFormSelect>
+                  </CCol>
+
                   <CCol md={12}>
                     <CFormLabel>Description</CFormLabel>
-                    <CFormTextarea
+                    <CFormInput
                       value={regForm.description}
                       onChange={(e) => setRegForm((p) => ({ ...p, description: e.target.value }))}
-                      placeholder="Enter description"
                       disabled={!isEdit || saving || loading}
-                      rows={2}
                     />
                   </CCol>
                 </CRow>
 
-                  {/* Excel Import Framework (Regulation) */}
-                  <CRow className="mt-3">
-                    <CCol md={12}>
-                      <div className="d-flex flex-wrap gap-2 align-items-end">
-                        <ArpButton
-                          color="secondary"
-                          variant="outline"
-                          label="Download Template"
-                          onClick={downloadRegulationTemplate}
-                          disabled={saving || loading || previewing || importing}
-                        />
 
-                        <div style={{ minWidth: 260 }}>
-                          <CFormLabel className="mb-1">Upload Excel</CFormLabel>
-                          <CFormInput
-                            key={excelKey}
-                            type="file"
-                            accept=".xlsx,.xls"
-                            onChange={(e) => setExcelFile(e.target.files?.[0] || null)}
-                            disabled={saving || loading || previewing || importing}
-                          />
-                        </div>
-
-                        <ArpButton
-                          color="info"
-                          label={previewing ? 'Previewing...' : 'Preview'}
-                          onClick={previewRegulationExcel}
-                          disabled={!excelFile || saving || loading || previewing || importing}
-                        />
-
-                        <ArpButton
-                          color="success"
-                          label={importing ? 'Importing...' : 'Import Excel'}
-                          onClick={importRegulationExcel}
-                          disabled={!excelFile || saving || loading || previewing || importing}
-                        />
-                      </div>
-
-                      {(previewSummary || (previewErrors && previewErrors.length > 0)) && (
-                        <div className="mt-2">
-                          {previewSummary && (
-                            <small className="text-muted">
-                              Total: {previewSummary.totalRows ?? '-'} | Valid:{' '}
-                              {previewSummary.validRows ?? '-'} | Invalid:{' '}
-                              {previewSummary.invalidRows ?? '-'}
-                            </small>
-                          )}
-                          {previewErrors && previewErrors.length > 0 && (
-                            <CAlert color="danger" className="mt-2 mb-0">
-                              Preview found {previewErrors.length} error row(s). Please fix and re-upload.
-                            </CAlert>
-                          )}
-                        </div>
-                      )}
-                    </CCol>
-                  </CRow>
-
-                  {/* Preview Table */}
-                  {previewRows && previewRows.length > 0 && (
-                    <div className="mt-3">
-                      <ArpDataTable
-                        title="REGULATION EXCEL PREVIEW"
-                        rows={previewRows}
-                        columns={previewColumns}
-                        loading={previewing}
-                        searchable={true}
-                        pageSizeOptions={[5, 10, 20]}
-                        defaultPageSize={5}
-                      />
-                    </div>
-                  )}
+                {/* Excel Import (Regulation) - Import Only */}
 
                 <CRow className="mt-3">
                   <CCol className="d-flex justify-content-end gap-2">
@@ -882,7 +911,9 @@ export default function RegulationConfiguration() {
             <strong>Batch Details</strong>
           </CCardHeader>
           <CCardBody>
+
             <ArpDataTable
+
               title="BATCH DETAILS"
               rows={batches}
               columns={batchColumns}
@@ -911,6 +942,37 @@ export default function RegulationConfiguration() {
             <strong>Regulation Details</strong>
           </CCardHeader>
           <CCardBody>
+            <CCard className="mb-3 border-0">
+              <CCardBody className="p-0">
+                <div className="d-flex flex-wrap align-items-center gap-2">
+                  <ArpButton
+                    label="Download Template"
+                    icon="download"
+                    color="secondary"
+                    onClick={downloadRegulationTemplate}
+                    disabled={!institutionId || loading || saving || importing}
+                  />
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    className="form-control"
+                    style={{ maxWidth: 360 }}
+                    onChange={onChooseFile}
+                    disabled={!institutionId || loading || saving || importing}
+                  />
+                  <ArpButton
+                    label={importing ? 'Importing...' : 'Import Excel'}
+                    icon="upload"
+                    color="success"
+                    onClick={importRegulationExcel}
+                    disabled={importing || loading || saving || !fileName || !institutionId}
+                  />
+                  {(importing || loading) && <CSpinner size="sm" />}
+                </div>
+              </CCardBody>
+            </CCard>
+
             <ArpDataTable
               title="REGULATION DETAILS"
               rows={rows}
