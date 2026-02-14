@@ -1,20 +1,9 @@
-import axios from "axios";
-
-/**
- * Configure your backend base URL here.
- * Example: http://localhost:5000/api
- */
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
-
-const http = axios.create({
-  baseURL: API_BASE,
-  headers: { "Content-Type": "application/json" },
-});
+import api from './apiClient'
 
 export const institutionApi = {
-  list: async () => (await http.get("/institutions")).data,
-  get: async (id) => (await http.get(`/institutions/${id}`)).data,
-  create: async (payload) => (await http.post("/institutions", payload)).data,
-  update: async (id, payload) => (await http.put(`/institutions/${id}`, payload)).data,
-  remove: async (id) => (await http.delete(`/institutions/${id}`)).data,
-};
+  list: async () => (await api.get('/api/setup/institution')).data,
+  get: async (id) => (await api.get(`/api/setup/institution/${id}`)).data,
+  create: async (payload) => (await api.post('/api/setup/institution', payload)).data,
+  update: async (id, payload) => (await api.put(`/api/setup/institution/${id}`, payload)).data,
+  remove: async (id) => (await api.delete(`/api/setup/institution/${id}`)).data,
+}

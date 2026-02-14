@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import axios from 'axios'
 import { ArpButton, ArpIconButton } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
+import api from '../../services/apiClient'
 import {
   CCard,
   CCardHeader,
@@ -19,9 +19,6 @@ import {
   CFormSelect,
   CFormTextarea,
 } from '@coreui/react-pro'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
-const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
 
 const initialForm = {
   institutionId: '',

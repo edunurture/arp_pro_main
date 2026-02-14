@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import axios from 'axios'
 import { ArpButton, ArpIconButton } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
+import api from '../../services/apiClient'
 
 import {
   CCard,
@@ -44,9 +44,6 @@ import {
  *   GET    /api/setup/programme/template
  *   POST   /api/setup/programme/import
  */
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
-const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
 
 const initialForm = {
   institutionId: '',
@@ -437,10 +434,10 @@ const Programmes = () => {
 
 const downloadTemplate = async () => {
   try {
-    const res = await axios.get(
-      `${API_BASE}/api/setup/programme/template?ts=${Date.now()}`,
-      { responseType: 'blob' },
-    )
+    const res = await api.get('/api/setup/programme/template', {
+      params: { ts: Date.now() },
+      responseType: 'blob',
+    })
 
     const blob = new Blob([res.data], {
       type:
@@ -487,10 +484,10 @@ const downloadTemplate = async () => {
       setExporting(true)
 
       // ✅ Preferred: backend-generated Excel export
-      const res = await axios.get(
-        `${API_BASE}/api/setup/programme/export?ts=${Date.now()}`,
-        { responseType: 'blob' },
-      )
+      const res = await api.get('/api/setup/programme/export', {
+        params: { ts: Date.now() },
+        responseType: 'blob',
+      })
 
       const blob = new Blob([res.data], {
         type:

@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import axios from 'axios'
 import {
   CAlert,
   CCard,
@@ -16,6 +15,7 @@ import {
 
 import { ArpButton, ArpIconButton } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
+import api from '../../services/apiClient'
 
 /**
  * CoursesConfiguration.jsx (ARP CoreUI React Pro Standard - VERIFIED JSX)
@@ -33,13 +33,6 @@ import ArpDataTable from '../../components/common/ArpDataTable'
  * - /api/setup/regulation-map  (for semesters; adjust if needed)
  * - /api/setup/course (+ /template, /import, /export)
  */
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
-
-const api = axios.create({
-  baseURL: API_BASE,
-  withCredentials: false,
-})
 
 const initialScope = {
   institutionId: '',

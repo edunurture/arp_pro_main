@@ -1,11 +1,5 @@
 // src/services/courseService.js (cache-bust WITHOUT custom headers to avoid CORS preflight issues)
-import axios from 'axios'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
-const api = axios.create({
-  baseURL: API_BASE,
-  headers: { 'Content-Type': 'application/json' },
-})
+import api from './apiClient'
 
 // Supports: {success:true,data:[...]}, {data:[...]}, or raw [...]
 const unwrap = (payload) => {

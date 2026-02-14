@@ -6,6 +6,7 @@ const AcademicYearConfiguration = React.lazy(() => import('./views/setup/Academi
 const ClassesConfiguration = React.lazy(() => import('./views/setup/ClassesConfiguration'))
 const RegulationConfiguration = React.lazy(() => import('./views/setup/RegulationConfiguration'))
 const CoursesConfiguration = React.lazy(() => import('./views/setup/CoursesConfiguration'))
+const CAYCoursesConfiguration = React.lazy(() => import('./views/setup/CAYCoursesConfiguration'))
 const RegulationMapConfiguration = React.lazy(() => import('./views/setup/RegulationMapConfiguration'))
 const CommonScheduleConfiguration = React.lazy(() => import('./views/setup/CommonScheduleConfiguration'))
 const StudentConfiguration= React.lazy(() => import('./views/setup/StudentConfiguration'))
@@ -154,6 +155,7 @@ const routes = [
   { path: '/setup/classes', name: 'Classes', element: ClassesConfiguration },
   { path: '/setup/regulation', name: 'Regulation', element: RegulationConfiguration },
   { path: '/setup/courses', name: 'Courses Configuration', element: CoursesConfiguration },
+  { path: '/setup/cay-courses', name: 'CAY Courses', element: CAYCoursesConfiguration },
   { path: '/setup/regulation-map', name: 'Regulation Map', element: RegulationMapConfiguration },
   { path: '/setup/combined-courses', name: 'Combined Courses', element: CommonScheduleConfiguration},
   { path: '/setup/student', name: 'Student', element: StudentConfiguration },

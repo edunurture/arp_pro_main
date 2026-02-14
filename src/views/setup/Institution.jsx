@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import axios from 'axios'
 import { ArpButton } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
+import api from '../../services/apiClient'
 
 import {
   CCard,
@@ -119,11 +119,6 @@ const indianStates = [
   'Lakshadweep',
   'Puducherry',
 ]
-
-const api = axios.create({
-  baseURL: '', // ✅ Vite proxy handles /api -> http://localhost:4000
-  headers: { 'Content-Type': 'application/json' },
-})
 
 const toYesNo = (val) => (val ? 'Yes' : 'No')
 const toBool = (val) => val === 'Yes'
