@@ -43,6 +43,10 @@ const initialCalForm = {
 }
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const normalizeAcademicYear = (value) =>
+  String(value || '')
+    .trim()
+    .replace(/\s*-\s*/, ' - ')
 
 export default function AcademicYearConfiguration() {
   const [isEdit, setIsEdit] = useState(false)
@@ -214,6 +218,9 @@ export default function AcademicYearConfiguration() {
   const validateAyForm = () => {
     const errs = []
     if (!ayForm.academicYear?.trim()) errs.push('Academic Year is required')
+    if (ayForm.academicYear?.trim() && !/^\d{4}\s*-\s*\d{4}$/.test(ayForm.academicYear.trim())) {
+      errs.push('Academic Year must be in format: YYYY - YYYY')
+    }
     if (!ayForm.semesterCategory) errs.push('Semester Category (ODD/EVEN) is required')
     if (!ayForm.semesterBeginDate) errs.push('Semester Begin Date is required')
     if (!ayForm.semesterEndDate) errs.push('Semester End Date is required')
@@ -262,9 +269,22 @@ export default function AcademicYearConfiguration() {
           return
         }
 
+        const normalizedAcademicYear = normalizeAcademicYear(ayForm.academicYear)
+        const duplicateAy = ayRows.find(
+          (r) =>
+            normalizeAcademicYear(r?.academicYear) === normalizedAcademicYear &&
+            String(r?.semesterCategory || '') === String(ayForm.semesterCategory || '') &&
+            String(r?.id) !== String(editingId || ''),
+        )
+        if (duplicateAy) {
+          showAlert('danger', 'Academic Year already exists for selected Semester Category')
+          setLoading(false)
+          return
+        }
+
         const payload = {
           institutionId,
-          academicYear: ayForm.academicYear.trim(),
+          academicYear: normalizedAcademicYear,
           semesterCategory: ayForm.semesterCategory,
           semesterBeginDate: ayForm.semesterBeginDate,
           semesterEndDate: ayForm.semesterEndDate,
@@ -317,8 +337,15 @@ export default function AcademicYearConfiguration() {
       }
       resetForm()
     } catch (e2) {
-      console.error(e2)
-      showAlert('danger', e2?.response?.data?.error || 'Save failed')
+      const status = Number(e2?.response?.status || 0)
+      if (status === 409) {
+        showAlert(
+          'danger',
+          e2?.response?.data?.error || 'Academic Year already exists for selected Semester Category',
+        )
+      } else {
+        showAlert('danger', e2?.response?.data?.error || 'Save failed')
+      }
     } finally {
       setLoading(false)
     }
@@ -328,9 +355,15 @@ export default function AcademicYearConfiguration() {
   // View/Edit (AY)
   // ---------------------------
   const onViewAy = () => {
-    if (!selectedAyId) return
+    if (!selectedAyId) {
+      showAlert('danger', 'Select an Academic Year row first')
+      return
+    }
     const row = ayRows.find((r) => String(r.id) === String(selectedAyId))
-    if (!row) return
+    if (!row) {
+      showAlert('danger', 'Selected Academic Year is not available in current list')
+      return
+    }
     setMode('AY')
     setIsEdit(false)
     setEditingId(String(row.id))
@@ -490,6 +523,12 @@ export default function AcademicYearConfiguration() {
 
   return (
     <>
+      {alert.msg ? (
+        <CAlert color={alert.type || 'info'} dismissible onClose={() => setAlert({ type: '', msg: '' })}>
+          {alert.msg}
+        </CAlert>
+      ) : null}
+
       {/* Top Card: Actions & Institution */}
       <CCard className="mb-3">
         <CCardHeader>
@@ -660,7 +699,7 @@ export default function AcademicYearConfiguration() {
                         <option value="">-- Select --</option>
                         {ayRows.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.academicYear}
+                            {a.academicYearLabel || `${a.academicYear}${a.semesterCategory ? ` (${a.semesterCategory})` : ''}`}
                           </option>
                         ))}
                       </CFormSelect>
@@ -738,11 +777,11 @@ export default function AcademicYearConfiguration() {
                 <ArpButton
                   label="Save"
                   type="submit"
-                  icon="check"
+                  icon="save"
                   color="success"
                   disabled={loading}
                 />
-                <ArpButton label="Cancel" icon="close" color="danger" onClick={onCancel} />
+                <ArpButton label="Cancel" icon="cancel" color="danger" onClick={onCancel} />
               </div>
             </CForm>
           )}

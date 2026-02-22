@@ -13,9 +13,10 @@ import {
   CSpinner,
 } from '@coreui/react-pro'
 
-import { ArpButton } from '../../components/common'
+import { ArpButton, ArpIconButton } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
+import { semesterOptionsFromAcademicYear } from '../../services/lmsService'
 
 const initialScope = {
   institutionId: '',
@@ -68,6 +69,7 @@ export default function StudentConfiguration() {
   const [mappedSemesters, setMappedSemesters] = useState([])
 
   const [rows, setRows] = useState([])
+  const [selectedId, setSelectedId] = useState(null)
   const [previewSummary, setPreviewSummary] = useState(null)
   const [importSummary, setImportSummary] = useState(null)
   const [loadingMasters, setLoadingMasters] = useState(false)
@@ -108,6 +110,11 @@ export default function StudentConfiguration() {
       section: scope.section,
     }),
     [scope],
+  )
+
+  const selectedRow = useMemo(
+    () => rows.find((r) => String(r.configId) === String(selectedId)) || null,
+    [rows, selectedId],
   )
 
   const loadInstitutions = async () => {
@@ -239,6 +246,7 @@ export default function StudentConfiguration() {
       section: '',
     }))
     setRows([])
+    setSelectedId(null)
     setIsAddNew(false)
     loadDepartments(scope.institutionId)
     loadAcademicYears(scope.institutionId)
@@ -261,6 +269,7 @@ export default function StudentConfiguration() {
       section: '',
     }))
     setRows([])
+    setSelectedId(null)
     setIsAddNew(false)
     loadProgrammes(scope.institutionId, scope.departmentId)
   }, [scope.departmentId])
@@ -274,6 +283,7 @@ export default function StudentConfiguration() {
     }
     setScope((s) => ({ ...s, regulationId: '', className: '', section: '' }))
     setRows([])
+    setSelectedId(null)
     setIsAddNew(false)
     loadRegulations(scope.institutionId, scope.programmeId)
     loadClasses(scope.institutionId, scope.departmentId, scope.programmeId)
@@ -331,28 +341,21 @@ export default function StudentConfiguration() {
   }, [classes, scope.className])
 
   const semesterOptions = useMemo(() => {
-    if (mappedSemesters.length) return mappedSemesters
-
     const ay = academicYears.find((x) => String(x.id) === String(scope.academicYearId))
     if (!ay) return []
 
-    const fromChosen = Array.isArray(ay?.chosenSemesters)
-      ? ay.chosenSemesters
-      : typeof ay?.chosenSemesters === 'string'
-        ? ay.chosenSemesters.split(',')
-        : []
-
-    const normalizedChosen = fromChosen
-      .map((v) => Number(String(v).trim()))
+    const allowedByAcademicYear = semesterOptionsFromAcademicYear(ay)
+      .map((opt) => Number(opt?.value))
       .filter((n) => Number.isFinite(n) && n > 0)
 
-    if (normalizedChosen.length) return [...new Set(normalizedChosen)].sort((a, b) => a - b)
+    if (!allowedByAcademicYear.length) return []
+    if (!mappedSemesters.length) return allowedByAcademicYear
 
-    const total = Number(ay?.numberOfSemesters ?? ay?.semesters)
-    if (Number.isFinite(total) && total > 0) {
-      return Array.from({ length: total }, (_, i) => i + 1)
-    }
-    return []
+    const allowedSet = new Set(allowedByAcademicYear)
+    return [...new Set(mappedSemesters)]
+      .map((n) => Number(n))
+      .filter((n) => Number.isFinite(n) && allowedSet.has(n))
+      .sort((a, b) => a - b)
   }, [mappedSemesters, academicYears, scope.academicYearId])
 
   const loadStudents = async () => {
@@ -361,6 +364,7 @@ export default function StudentConfiguration() {
     try {
       const res = await api.get('/api/setup/student', { params: scopeParams })
       setRows(unwrapList(res))
+      setSelectedId(null)
     } catch (e) {
       setRows([])
       showMessage('danger', e?.response?.data?.error || 'Failed to load students')
@@ -375,7 +379,43 @@ export default function StudentConfiguration() {
       return
     }
     setNewStudent(initialNewStudent)
+    setSelectedId(null)
     setIsAddNew(true)
+  }
+
+  const onView = () => {
+    if (!selectedRow) return
+    setNewStudent({
+      registerNumber: selectedRow.registerNumber || '',
+      firstName: selectedRow.firstName || '',
+      gender: selectedRow.gender || '',
+    })
+    setIsAddNew(false)
+  }
+
+  const onEdit = () => {
+    if (!selectedRow) return
+    setNewStudent({
+      registerNumber: selectedRow.registerNumber || '',
+      firstName: selectedRow.firstName || '',
+      gender: selectedRow.gender || '',
+    })
+    setIsAddNew(true)
+  }
+
+  const onDelete = async () => {
+    if (!selectedRow) return
+    if (!window.confirm('Delete selected student?')) return
+    try {
+      await api.delete(`/api/setup/student/${selectedRow.configId}`, {
+        params: scopeParams,
+      })
+      showMessage('success', 'Student deleted successfully')
+      setSelectedId(null)
+      await loadStudents()
+    } catch (e) {
+      showMessage('danger', e?.response?.data?.error || 'Failed to delete student')
+    }
   }
 
   const onSaveNew = async () => {
@@ -498,6 +538,7 @@ export default function StudentConfiguration() {
 
   const onCancel = () => {
     setRows([])
+    setSelectedId(null)
     setPreviewSummary(null)
     setImportSummary(null)
     setMessage(null)
@@ -521,6 +562,14 @@ export default function StudentConfiguration() {
       { key: 'section', label: 'Section', sortable: true, width: 90, align: 'center' },
     ],
     [],
+  )
+
+  const tableActions = (
+    <div className="d-flex gap-2 align-items-center">
+      <ArpIconButton icon="view" color="purple" onClick={onView} disabled={!selectedId} />
+      <ArpIconButton icon="edit" color="info" onClick={onEdit} disabled={!selectedId} />
+      <ArpIconButton icon="delete" color="danger" onClick={onDelete} disabled={!selectedId} />
+    </div>
   )
 
   return (
@@ -591,7 +640,9 @@ export default function StudentConfiguration() {
                     <CFormSelect value={scope.academicYearId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, academicYearId: e.target.value }))}>
                       <option value="">Select Academic Year</option>
                       {academicYears.map((x) => (
-                        <option key={x.id} value={x.id}>{x.academicYear}</option>
+                        <option key={x.id} value={x.id}>
+                          {x.academicYearLabel || `${x.academicYear}${x.semesterCategory ? ` (${x.semesterCategory})` : ''}`}
+                        </option>
                       ))}
                     </CFormSelect>
                   </CCol>
@@ -739,7 +790,17 @@ export default function StudentConfiguration() {
           rows={rows}
           columns={columns}
           loading={loadingRows}
-          rowKey="id"
+          headerActions={tableActions}
+          rowKey="configId"
+          selection={{
+            type: 'radio',
+            selected: selectedId,
+            onChange: (id) => setSelectedId(id),
+            key: 'configId',
+            headerLabel: 'Select',
+            width: 60,
+            name: 'studentRow',
+          }}
           searchable
           searchPlaceholder="Search..."
           pageSizeOptions={[10, 20, 50, 100]}

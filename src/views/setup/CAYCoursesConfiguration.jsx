@@ -62,6 +62,13 @@ const parseChosenSemesters = (value) => {
   ).sort((a, b) => a - b)
 }
 
+const filterBySemesterPattern = (list, semesterPattern) => {
+  const pattern = String(semesterPattern || '').toUpperCase()
+  if (pattern === 'ODD') return list.filter((n) => Number(n) % 2 === 1)
+  if (pattern === 'EVEN') return list.filter((n) => Number(n) % 2 === 0)
+  return list
+}
+
 export default function CAYCoursesConfiguration() {
   const [scope, setScope] = useState(initialScope)
 
@@ -104,33 +111,36 @@ export default function CAYCoursesConfiguration() {
     [academicYears, scope.academicYearId],
   )
 
-  const fallbackSemesters = useMemo(
-    () => [
-      { value: '1', label: '1' },
-      { value: '2', label: '2' },
-      { value: '3', label: '3' },
-      { value: '4', label: '4' },
-      { value: '5', label: '5' },
-      { value: '6', label: '6' },
-      { value: '7', label: '7' },
-      { value: '8', label: '8' },
-    ],
-    [],
-  )
+  const fallbackSemesters = useMemo(() => {
+    const all = [1, 2, 3, 4, 5, 6, 7, 8]
+    return filterBySemesterPattern(all, scope.semesterPattern).map((n) => ({
+      value: String(n),
+      label: String(n),
+    }))
+  }, [scope.semesterPattern])
 
   const academicYearSemesterOptions = useMemo(() => {
     if (!selectedAcademicYear) return []
     let list = parseChosenSemesters(selectedAcademicYear.chosenSemesters)
     if (!list.length) return []
-    if (scope.semesterPattern === 'ODD') list = list.filter((n) => n % 2 === 1)
-    if (scope.semesterPattern === 'EVEN') list = list.filter((n) => n % 2 === 0)
+    list = filterBySemesterPattern(list, scope.semesterPattern)
     return list.map((n) => ({ value: String(n), label: String(n) }))
   }, [selectedAcademicYear, scope.semesterPattern])
 
+  const filteredMappedSemesters = useMemo(() => {
+    const nums = semesters
+      .map((s) => Number(s.value))
+      .filter((n) => Number.isFinite(n))
+    return filterBySemesterPattern(nums, scope.semesterPattern).map((n) => ({
+      value: String(n),
+      label: String(n),
+    }))
+  }, [semesters, scope.semesterPattern])
+
   const semesterOptions = academicYearSemesterOptions.length
     ? academicYearSemesterOptions
-    : semesters.length
-      ? semesters
+    : filteredMappedSemesters.length
+      ? filteredMappedSemesters
       : fallbackSemesters
 
   const showMessage = (type, text) => setMessage({ type, text })
@@ -579,7 +589,7 @@ export default function CAYCoursesConfiguration() {
                     <option value="">Select Academic Year</option>
                     {academicYears.map((x) => (
                       <option key={x.id} value={x.id}>
-                        {x.academicYear}
+                        {x.academicYearLabel || `${x.academicYear}${x.semesterCategory ? ` (${x.semesterCategory})` : ''}`}
                       </option>
                     ))}
                 </CFormSelect>

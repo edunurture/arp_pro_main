@@ -1,121 +1,158 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
+  CAlert,
   CCard,
-  CCardHeader,
   CCardBody,
-  CRow,
+  CCardHeader,
   CCol,
   CForm,
+  CFormCheck,
+  CFormInput,
   CFormLabel,
   CFormSelect,
-  CFormInput,
+  CRow,
   CTable,
-  CTableHead,
-  CTableRow,
-  CTableHeaderCell,
   CTableBody,
   CTableDataCell,
-  CFormCheck,
+  CTableHead,
+  CTableHeaderCell,
+  CTableRow,
 } from '@coreui/react-pro'
 import { ArpButton } from '../../components/common'
-
-/**
- * Converted from view_calendar.html
- * ARP Standard – View Calendar
- */
+import { lmsService, semesterPatternFromSemester } from '../../services/lmsService'
 
 const ViewCalendarConfiguration = () => {
+  const [academicYearId, setAcademicYearId] = useState('')
+  const [semester, setSemester] = useState('')
+  const [status, setStatus] = useState('Automatically Fetched')
   const [showCalendar, setShowCalendar] = useState(false)
 
-  const rows = useMemo(
-    () => [
-      {
-        id: 1,
-        date: '18 July 2022',
-        day: 'Monday',
-        dayOrder: 'I',
-        particulars: 'Odd Semester Begins (II & III Years)',
-        workingDays: 1,
-        event: 'CDC Meeting Scheduled',
-      },
-      {
-        id: 2,
-        date: '19 July 2022',
-        day: 'Tuesday',
-        dayOrder: 'II',
-        particulars: 'MCA - Orientation Programme',
-        workingDays: 2,
-        event: 'IQAC Meeting Scheduled',
-      },
-    ],
-    [],
-  )
+  const [uploads, setUploads] = useState([])
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        setUploads(await lmsService.listCalendarUploads())
+      } catch {
+        setError('Failed to load calendar uploads')
+      }
+    })()
+  }, [])
+
+  const academicYearOptions = useMemo(() => {
+    const map = new Map()
+    uploads.forEach((x) => {
+      if (!map.has(x.academicYearId)) map.set(x.academicYearId, x.academicYear)
+    })
+    return Array.from(map.entries()).map(([id, label]) => ({ id, label }))
+  }, [uploads])
+
+  const filteredUploads = useMemo(() => {
+    const pattern = semesterPatternFromSemester(semester)
+    return uploads.filter((x) => {
+      if (academicYearId && String(x.academicYearId) !== String(academicYearId)) return false
+      if (pattern && String(x.semesterPattern) !== pattern) return false
+      return true
+    })
+  }, [uploads, academicYearId, semester])
+
+  const onViewCalendar = async () => {
+    if (!filteredUploads.length) {
+      setStatus('No calendar found')
+      setRows([])
+      setShowCalendar(true)
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError('')
+      const selected = filteredUploads[0]
+      const detail = await lmsService.getCalendarUploadById(selected.id)
+      const mapped = (detail?.days || []).map((x, idx) => ({
+        id: x.id || idx + 1,
+        date: x.date || '-',
+        day: x.day || '-',
+        dayOrder: x.dayOrder || '-',
+        particulars: x.event || '-',
+        workingDays: x.workingDay ?? '-',
+        event: x.iqacNote || '-',
+      }))
+      setRows(mapped)
+      setStatus(mapped.length ? 'Calendar loaded' : 'No calendar days found')
+      setShowCalendar(true)
+    } catch (e) {
+      setError(e?.response?.data?.error || 'Failed to load calendar details')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const onReset = () => {
+    setAcademicYearId('')
+    setSemester('')
+    setStatus('Automatically Fetched')
+    setRows([])
+    setShowCalendar(false)
+    setError('')
+  }
 
   return (
     <CRow>
       <CCol xs={12}>
-        {/* HEADER */}
         <CCard className="mb-3">
           <CCardHeader>
             <strong>VIEW CALENDAR</strong>
           </CCardHeader>
         </CCard>
 
-        {/* FILTER FORM */}
         <CCard className="mb-3">
           <CCardHeader>
             <strong>View Calendar</strong>
           </CCardHeader>
           <CCardBody>
+            {error ? <CAlert color="danger">{error}</CAlert> : null}
             <CForm>
               <CRow className="g-3">
+                <CCol md={3}><CFormLabel>Academic Year</CFormLabel></CCol>
                 <CCol md={3}>
-                  <CFormLabel>Academic Year</CFormLabel>
-                </CCol>
-                <CCol md={3}>
-                  <CFormSelect>
-                    <option>Select Academic Year</option>
-                    <option>2025 - 2026</option>
-                    <option>2026 - 2027</option>
-                    <option>2027 - 2028</option>
+                  <CFormSelect value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)}>
+                    <option value="">Select Academic Year</option>
+                    {academicYearOptions.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
                   </CFormSelect>
                 </CCol>
 
+                <CCol md={3}><CFormLabel>Choose Semester</CFormLabel></CCol>
                 <CCol md={3}>
-                  <CFormLabel>Choose Semester</CFormLabel>
-                </CCol>
-                <CCol md={3}>
-                  <CFormSelect>
-                    <option>Select Semester</option>
-                    <option>Sem - 1</option>
-                    <option>Sem - 3</option>
-                    <option>Sem - 5</option>
+                  <CFormSelect value={semester} onChange={(e) => setSemester(e.target.value)}>
+                    <option value="">Select Semester</option>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((x) => (
+                      <option key={x} value={x}>{`Sem - ${x}`}</option>
+                    ))}
                   </CFormSelect>
                 </CCol>
 
-                <CCol md={3}>
-                  <CFormLabel>Status</CFormLabel>
-                </CCol>
-                <CCol md={3}>
-                  <CFormInput value="Automatically Fetched" disabled />
-                </CCol>
+                <CCol md={3}><CFormLabel>Status</CFormLabel></CCol>
+                <CCol md={3}><CFormInput value={status} disabled /></CCol>
 
-                <CCol md={3}>
-                  <CFormLabel>Action</CFormLabel>
-                </CCol>
+                <CCol md={3}><CFormLabel>Action</CFormLabel></CCol>
                 <CCol md={3}>
                   <ArpButton
-                    label="View Calendar"
+                    label={loading ? 'Loading...' : 'View Calendar'}
                     icon="view"
                     color="success"
-                    onClick={() => setShowCalendar(true)}
+                    onClick={onViewCalendar}
+                    disabled={loading}
                   />
                   <ArpButton
                     label="Reset"
                     icon="reset"
                     color="secondary"
                     className="ms-2"
-                    onClick={() => setShowCalendar(false)}
+                    onClick={onReset}
                   />
                 </CCol>
               </CRow>
@@ -123,7 +160,6 @@ const ViewCalendarConfiguration = () => {
           </CCardBody>
         </CCard>
 
-        {/* CALENDAR TABLE */}
         {showCalendar && (
           <CCard>
             <CCardHeader>

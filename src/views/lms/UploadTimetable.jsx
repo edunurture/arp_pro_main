@@ -1,72 +1,231 @@
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  CAlert,
   CCard,
-  CCardHeader,
   CCardBody,
-  CRow,
+  CCardHeader,
   CCol,
   CForm,
-  CFormLabel,
-  CFormInput,
-  CFormSelect,
-  CInputGroup,
-  CInputGroupText,
-  CTable,
-  CTableHead,
-  CTableRow,
-  CTableHeaderCell,
-  CTableBody,
-  CTableDataCell,
   CFormCheck,
-  CPagination,
-  CPaginationItem,
+  CFormInput,
+  CFormLabel,
+  CFormSelect,
   CModal,
+  CModalBody,
   CModalHeader,
   CModalTitle,
-  CModalBody,
+  CRow,
+  CTable,
+  CTableBody,
+  CTableDataCell,
+  CTableHead,
+  CTableHeaderCell,
+  CTableRow,
+  CPagination,
+  CPaginationItem,
 } from '@coreui/react-pro'
-import CIcon from '@coreui/icons-react'
-import { cilSearch } from '@coreui/icons'
 import { ArpButton, ArpIconButton, TableToolbar } from '../../components/common'
+import { lmsService, semesterOptionsFromAcademicYear } from '../../services/lmsService'
 
-/**
- * Upload Timetable Configuration
- * Converted from upload_timetable.html
- * ARP Standard – 3 Card Layout
- */
+const initialForm = {
+  institutionId: '',
+  departmentId: '',
+  programmeId: '',
+  regulationId: '',
+  academicYearId: '',
+  batchId: '',
+  semester: '',
+  programmeName: '',
+  className: '',
+  classLabel: '',
+  status: 'Automatically Fetched',
+}
 
 const UploadTimetableConfiguration = () => {
+  const [form, setForm] = useState(initialForm)
   const [showDetails, setShowDetails] = useState(false)
   const [showView, setShowView] = useState(false)
   const [showModal, setShowModal] = useState(false)
 
+  const [rows, setRows] = useState([])
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(5)
   const [selectedId, setSelectedId] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const [institutions, setInstitutions] = useState([])
+  const [departments, setDepartments] = useState([])
+  const [programmes, setProgrammes] = useState([])
+  const [regulations, setRegulations] = useState([])
+  const [academicYears, setAcademicYears] = useState([])
+  const [batches, setBatches] = useState([])
 
   const uploadRef = useRef(null)
 
-  const rows = [
-    { id: 1, class: 'I MCA - A', semester: 'Sem 1', status: 'Uploaded' },
-    { id: 2, class: 'I MBA - A', semester: 'Sem 1', status: 'Not Uploaded' },
-  ]
+  useEffect(() => {
+    ;(async () => {
+      try {
+        setInstitutions(await lmsService.listInstitutions())
+      } catch {
+        setError('Failed to load institutions')
+      }
+    })()
+  }, [])
+
+  const selectedAcademicYear = useMemo(
+    () => academicYears.find((x) => String(x.id) === String(form.academicYearId)) || null,
+    [academicYears, form.academicYearId],
+  )
+
+  const semesterOptions = useMemo(
+    () => semesterOptionsFromAcademicYear(selectedAcademicYear),
+    [selectedAcademicYear],
+  )
+
+  const selectedRow = useMemo(() => rows.find((x) => x.id === selectedId) || null, [rows, selectedId])
+
+  const onChange = (key) => async (e) => {
+    const value = e.target.value
+    setError('')
+
+    if (key === 'institutionId') {
+      setForm((p) => ({
+        ...p,
+        institutionId: value,
+        departmentId: '',
+        programmeId: '',
+        regulationId: '',
+        academicYearId: '',
+        batchId: '',
+        semester: '',
+        programmeName: '',
+      }))
+      setDepartments([])
+      setProgrammes([])
+      setRegulations([])
+      setAcademicYears([])
+      setBatches([])
+      if (!value) return
+
+      try {
+        const [d, ay, b] = await Promise.all([
+          lmsService.listDepartments(value),
+          lmsService.listAcademicYears(value),
+          lmsService.listBatches(value),
+        ])
+        setDepartments(d)
+        setAcademicYears(ay)
+        setBatches(b)
+      } catch {
+        setError('Failed to load institution scope')
+      }
+      return
+    }
+
+    if (key === 'departmentId') {
+      setForm((p) => ({ ...p, departmentId: value, programmeId: '', regulationId: '', programmeName: '' }))
+      setProgrammes([])
+      setRegulations([])
+      if (!value || !form.institutionId) return
+      try {
+        setProgrammes(await lmsService.listProgrammes(form.institutionId, value))
+      } catch {
+        setError('Failed to load programmes')
+      }
+      return
+    }
+
+    if (key === 'programmeId') {
+      const chosen = programmes.find((x) => String(x.id) === String(value))
+      setForm((p) => ({ ...p, programmeId: value, regulationId: '', programmeName: chosen?.programmeName || '' }))
+      setRegulations([])
+      if (!value || !form.institutionId) return
+      try {
+        setRegulations(await lmsService.listRegulations(form.institutionId, value))
+      } catch {
+        setError('Failed to load regulations')
+      }
+      return
+    }
+
+    setForm((p) => ({ ...p, [key]: value }))
+  }
+
+  const onSearch = async () => {
+    if (!form.institutionId || !form.academicYearId) {
+      setError('Select at least Institution and Academic Year')
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError('')
+      const data = await lmsService.listTimetables({
+        institutionId: form.institutionId,
+        academicYearId: form.academicYearId,
+        departmentId: form.departmentId,
+        programmeId: form.programmeId,
+        regulationId: form.regulationId,
+        batchId: form.batchId,
+        semester: form.semester,
+      })
+
+      const mapped = data.map((x) => ({
+        id: x.id,
+        class: `${x.programmeCode || '-'} / Sem-${x.semester || '-'}`,
+        semester: x.semester ? `Sem - ${x.semester}` : '-',
+        status: x.shifts > 0 ? 'Uploaded' : 'Not Uploaded',
+        timetableName: x.timetableName,
+        slots: x.slots || [],
+      }))
+
+      setRows(mapped)
+      setShowDetails(true)
+      setShowView(false)
+      setSelectedId(null)
+      setForm((p) => ({ ...p, status: mapped.length ? 'Timetable uploaded' : 'No timetable found' }))
+    } catch (e) {
+      setError(e?.response?.data?.error || 'Failed to load timetable data')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const onReset = () => {
+    setForm(initialForm)
+    setRows([])
+    setShowDetails(false)
+    setShowView(false)
+    setSelectedId(null)
+    setSearch('')
+    setDepartments([])
+    setProgrammes([])
+    setRegulations([])
+    setAcademicYears([])
+    setBatches([])
+    setError('')
+  }
 
   const filtered = useMemo(() => {
-    if (!search) return rows
-    return rows.filter((r) =>
-      Object.values(r).join(' ').toLowerCase().includes(search.toLowerCase()),
-    )
-  }, [search])
+    const q = String(search).toLowerCase().trim()
+    if (!q) return rows
+    return rows.filter((r) => Object.values(r).join(' ').toLowerCase().includes(q))
+  }, [rows, search])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(page, totalPages)
   const pageRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
 
+  const slotColumns = useMemo(() => {
+    const cols = selectedRow?.slots || []
+    return cols.slice(0, 6)
+  }, [selectedRow])
+
   return (
     <CRow>
       <CCol xs={12}>
-        {/* HEADER */}
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>UPLOAD TIMETABLE</strong>
@@ -79,73 +238,92 @@ const UploadTimetableConfiguration = () => {
           </CCardHeader>
         </CCard>
 
-        {/* FORM */}
         <CCard className="mb-3">
           <CCardHeader>
             <strong>Upload Timetable For</strong>
           </CCardHeader>
           <CCardBody>
+            {error ? <CAlert color="danger">{error}</CAlert> : null}
             <CForm>
               <CRow className="g-3">
-                <CCol md={3}><CFormLabel>Academic Year</CFormLabel></CCol>
+                <CCol md={3}><CFormLabel>Institution</CFormLabel></CCol>
                 <CCol md={3}>
-                  <CFormSelect>
-                    <option>2025 - 26</option>
-                    <option>2026 - 27</option>
+                  <CFormSelect value={form.institutionId} onChange={onChange('institutionId')}>
+                    <option value="">Select Institution</option>
+                    {institutions.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                   </CFormSelect>
                 </CCol>
 
-                <CCol md={3}><CFormLabel>Semester</CFormLabel></CCol>
+                <CCol md={3}><CFormLabel>Department</CFormLabel></CCol>
                 <CCol md={3}>
-                  <CFormSelect>
-                    <option>Sem - 1</option>
-                    <option>Sem - 3</option>
+                  <CFormSelect value={form.departmentId} onChange={onChange('departmentId')}>
+                    <option value="">All Departments</option>
+                    {departments.map((x) => <option key={x.id} value={x.id}>{x.departmentName}</option>)}
                   </CFormSelect>
                 </CCol>
 
                 <CCol md={3}><CFormLabel>Programme Code</CFormLabel></CCol>
                 <CCol md={3}>
-                  <CFormSelect>
-                    <option>26MCA</option>
-                    <option>26MBA</option>
+                  <CFormSelect value={form.programmeId} onChange={onChange('programmeId')}>
+                    <option value="">All Programmes</option>
+                    {programmes.map((x) => <option key={x.id} value={x.id}>{x.programmeCode}</option>)}
+                  </CFormSelect>
+                </CCol>
+
+                <CCol md={3}><CFormLabel>Regulation</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.regulationId} onChange={onChange('regulationId')}>
+                    <option value="">All Regulations</option>
+                    {regulations.map((x) => <option key={x.id} value={x.id}>{x.regulationCode}</option>)}
+                  </CFormSelect>
+                </CCol>
+
+                <CCol md={3}><CFormLabel>Academic Year</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.academicYearId} onChange={onChange('academicYearId')}>
+                    <option value="">Select Academic Year</option>
+                    {academicYears.map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.academicYearLabel || `${x.academicYear}${x.semesterCategory ? ` (${x.semesterCategory})` : ''}`}
+                      </option>
+                    ))}
+                  </CFormSelect>
+                </CCol>
+
+                <CCol md={3}><CFormLabel>Batch</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.batchId} onChange={onChange('batchId')}>
+                    <option value="">All Batches</option>
+                    {batches.map((x) => <option key={x.id} value={x.id}>{x.batchName}</option>)}
+                  </CFormSelect>
+                </CCol>
+
+                <CCol md={3}><CFormLabel>Semester</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.semester} onChange={onChange('semester')}>
+                    <option value="">All Semesters</option>
+                    {semesterOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
                   </CFormSelect>
                 </CCol>
 
                 <CCol md={3}><CFormLabel>Programme Name</CFormLabel></CCol>
-                <CCol md={3}><CFormInput value="Automatically Fetched" disabled /></CCol>
-
-                <CCol md={3}><CFormLabel>Class Name</CFormLabel></CCol>
-                <CCol md={3}>
-                  <CFormSelect>
-                    <option>I MCA</option>
-                    <option>I MBA</option>
-                  </CFormSelect>
-                </CCol>
-
-                <CCol md={3}><CFormLabel>Class Label</CFormLabel></CCol>
-                <CCol md={3}>
-                  <CFormSelect>
-                    <option>A</option>
-                    <option>B</option>
-                  </CFormSelect>
-                </CCol>
+                <CCol md={3}><CFormInput value={form.programmeName || '-'} disabled /></CCol>
 
                 <CCol md={3}><CFormLabel>Status</CFormLabel></CCol>
-                <CCol md={3}><CFormInput value="Automatically Fetched" disabled /></CCol>
+                <CCol md={3}><CFormInput value={form.status} disabled /></CCol>
 
                 <CCol md={3}><CFormLabel>Action</CFormLabel></CCol>
                 <CCol md={3} className="d-flex gap-2">
-                  <ArpButton label="Search" icon="search" color="primary" onClick={() => setShowDetails(true)} />
+                  <ArpButton label={loading ? 'Loading...' : 'Search'} icon="search" color="primary" onClick={onSearch} disabled={loading} />
                   <ArpButton label="Upload" icon="upload" color="success" onClick={() => uploadRef.current?.click()} />
                   <input ref={uploadRef} type="file" style={{ display: 'none' }} />
-                  <ArpButton label="Reset" icon="reset" color="secondary" />
+                  <ArpButton label="Reset" icon="reset" color="secondary" onClick={onReset} />
                 </CCol>
               </CRow>
             </CForm>
           </CCardBody>
         </CCard>
 
-        {/* DETAILS */}
         {showDetails && !showView && (
           <CCard>
             <CCardHeader className="d-flex justify-content-between align-items-center">
@@ -192,58 +370,53 @@ const UploadTimetableConfiguration = () => {
 
               <div className="d-flex justify-content-end mt-2">
                 <CPagination size="sm">
-                  <CPaginationItem disabled>«</CPaginationItem>
-                  <CPaginationItem active>1</CPaginationItem>
-                  <CPaginationItem disabled>»</CPaginationItem>
+                  <CPaginationItem disabled={safePage <= 1} onClick={() => setPage(1)}>Prev</CPaginationItem>
+                  <CPaginationItem active>{safePage}</CPaginationItem>
+                  <CPaginationItem disabled={safePage >= totalPages} onClick={() => setPage(totalPages)}>Next</CPaginationItem>
                 </CPagination>
               </div>
             </CCardBody>
           </CCard>
         )}
 
-        {/* VIEW TIMETABLE */}
-        {showView && (
+        {showView && selectedRow && (
           <CCard>
             <CCardHeader className="d-flex justify-content-between align-items-center">
-              <strong>View Timetable</strong>
+              <strong>View Timetable - {selectedRow.timetableName}</strong>
               <ArpButton label="Back" icon="arrow-left" color="secondary" onClick={() => setShowView(false)} />
             </CCardHeader>
             <CCardBody>
               <CTable bordered>
                 <CTableHead>
                   <CTableRow>
-                    <CTableHeaderCell>Hour</CTableHeaderCell>
-                    <CTableHeaderCell>Monday</CTableHeaderCell>
-                    <CTableHeaderCell>Tuesday</CTableHeaderCell>
-                    <CTableHeaderCell>Wednesday</CTableHeaderCell>
-                    <CTableHeaderCell>Thursday</CTableHeaderCell>
-                    <CTableHeaderCell>Friday</CTableHeaderCell>
+                    <CTableHeaderCell>Slot</CTableHeaderCell>
+                    <CTableHeaderCell>Time</CTableHeaderCell>
+                    <CTableHeaderCell>Nomenclature</CTableHeaderCell>
+                    <CTableHeaderCell>Shift</CTableHeaderCell>
                   </CTableRow>
                 </CTableHead>
                 <CTableBody>
-                  <CTableRow>
-                    <CTableDataCell>1</CTableDataCell>
-                    <CTableDataCell onClick={() => setShowModal(true)}>Maths</CTableDataCell>
-                    <CTableDataCell>OS</CTableDataCell>
-                    <CTableDataCell>DBMS</CTableDataCell>
-                    <CTableDataCell>SE</CTableDataCell>
-                    <CTableDataCell>Java</CTableDataCell>
-                  </CTableRow>
+                  {slotColumns.map((s) => (
+                    <CTableRow key={s.id}>
+                      <CTableDataCell>{s.priority}</CTableDataCell>
+                      <CTableDataCell onClick={() => setShowModal(true)} style={{ cursor: 'pointer' }}>{s.timeFrom} - {s.timeTo}</CTableDataCell>
+                      <CTableDataCell>{s.nomenclature}</CTableDataCell>
+                      <CTableDataCell>{s.shiftName}</CTableDataCell>
+                    </CTableRow>
+                  ))}
                 </CTableBody>
               </CTable>
             </CCardBody>
           </CCard>
         )}
 
-        {/* MODAL */}
         <CModal visible={showModal} onClose={() => setShowModal(false)}>
           <CModalHeader>
             <CModalTitle>Timetable Slot Details</CModalTitle>
           </CModalHeader>
           <CModalBody>
-            <p><strong>Course:</strong> Mathematics</p>
-            <p><strong>Faculty:</strong> Dr. Kumar</p>
-            <p><strong>Time:</strong> 9:00 – 10:00</p>
+            <p><strong>Timetable:</strong> {selectedRow?.timetableName || '-'}</p>
+            <p><strong>Total Slots:</strong> {selectedRow?.slots?.length || 0}</p>
           </CModalBody>
         </CModal>
       </CCol>

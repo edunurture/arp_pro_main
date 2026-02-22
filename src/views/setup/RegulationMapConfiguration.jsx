@@ -178,8 +178,10 @@ export default function RegulationMapConfiguration() {
     setAcademicYears(Array.isArray(list) ? list : [])
   }
 
-  const loadProgrammes = async () => {
-    const res = await axios.get('/api/setup/programme')
+  const loadProgrammes = async (instId) => {
+    const res = await axios.get('/api/setup/programme', {
+      params: instId ? { institutionId: instId } : undefined,
+    })
     const list = unwrapList(res)
     setProgrammes(Array.isArray(list) ? list : [])
   }
@@ -190,8 +192,10 @@ export default function RegulationMapConfiguration() {
     setBatches(Array.isArray(list) ? list : [])
   }
 
-  const loadRegulations = async () => {
-    const res = await axios.get('/api/setup/regulation')
+  const loadRegulations = async (instId) => {
+    const res = await axios.get('/api/setup/regulation', {
+      params: instId ? { institutionId: instId } : undefined,
+    })
     const list = unwrapList(res)
     setRegulations(Array.isArray(list) ? list : [])
   }
@@ -217,7 +221,12 @@ export default function RegulationMapConfiguration() {
         const instId = await loadInstitutionId()
         setInstitutionId(instId)
 
-        await Promise.all([loadAcademicYears(instId), loadProgrammes(), loadBatches(instId), loadRegulations()])
+        await Promise.all([
+          loadAcademicYears(instId),
+          loadProgrammes(instId),
+          loadBatches(instId),
+          loadRegulations(instId),
+        ])
 
         // initial table load (institutionId filter is recommended)
         if (instId) await loadMappings({ institutionId: instId })
@@ -451,7 +460,7 @@ Do you want to override and force update?`)
                     <option value="">Select Academic Year</option>
                     {academicYears.map((y) => (
                       <option key={y.id} value={y.id}>
-                        {y.academicYear}
+                        {y.academicYearLabel || `${y.academicYear}${y.semesterCategory ? ` (${y.semesterCategory})` : ''}`}
                       </option>
                     ))}
                   </CFormSelect>
@@ -574,7 +583,7 @@ Do you want to override and force update?`)
                     color="primary"
                     type="button"
                     onClick={onSearch}
-                    disabled={!isEdit || saving || loading}
+                    disabled={saving || loading}
                     title="Search"
                   />
                   <ArpButton

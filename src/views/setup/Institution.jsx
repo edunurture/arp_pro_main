@@ -1,155 +1,108 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ArpButton } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
-
 import {
+  CAlert,
   CCard,
-  CCardHeader,
   CCardBody,
-  CRow,
+  CCardHeader,
   CCol,
   CForm,
-  CFormLabel,
+  CFormFeedback,
   CFormInput,
+  CFormLabel,
   CFormSelect,
   CFormTextarea,
-  CAlert,
+  CImage,
+  CRow,
 } from '@coreui/react-pro'
-
-/**
- * ✅ IMPORTANT
- * This file assumes Vite proxy is configured in vite.config.mts:
- *  server.proxy['/api'] -> http://localhost:4000
- * So we can call relative URLs like /api/setup/institution
- */
 
 const initialForm = {
   code: '',
   name: '',
-  yearOfEstablishment: '',
-  type: '',
+  dateOfEstablishment: '',
+  typeOfInstitution: '',
   category: '',
+  aisheCode: '',
   address: '',
+  pincode: '',
+  phoneNumber: '',
+  alternateMobileNumber: '',
+  website: '',
+  emailId: '',
+  sra: '',
+  institutionPermanentId: '',
+  aicteRegNo: '',
+  logoUrl: '',
+  correspondentName: '',
+  correspondentDesignation: '',
+  principalName: '',
+  iqacCoordinatorName: '',
+  contactNumber: '',
   district: '',
   state: 'Tamil Nadu',
-  pincode: '',
-  affiliatedUniversity: '',
+  country: 'India',
+  nirfRanking: '',
   autonomousGranted: 'No',
-  isAccredited: 'No',
+  affiliatedUniversity: '',
+  universityType: '',
   accreditedBy: '',
+  accreditationCycle: '',
   isActive: true,
 }
 
-// WF05 – Institution Category dropdown
+const typeOfInstitutionOptions = ['Affiliated', 'Autonomous']
 const institutionCategoryOptions = [
-  'Govt – University',
-  'Deemed to be University',
-  'Government Institution',
-  'Private/Self-Financing Institution',
-  'Govt – Aided Institution',
+  'Self - Financing',
+  'Government',
+  'Government - Aided',
+  'Both SF & Govt. Aided',
   'Others',
 ]
-
-// ✅ From Prisma enum: InstitutionType (edit labels if your enum differs)
-const institutionTypeOptions = [
-  { value: 'ARTS_SCIENCE_COLLEGE', label: 'Arts & Science College' },
-  { value: 'ENGINEERING_COLLEGE', label: 'Engineering College' },
-  { value: 'HEALTH_SCIENCE_INSTITUTIONS', label: 'Health Science Institutions' },
-  { value: 'DEEMED_TO_BE_UNIVERSITY', label: 'Deemed to be University' },
-  { value: 'UNIVERSITY', label: 'University' },
-  { value: 'POLYTECHNIC', label: 'Polytechnic' },
-  { value: 'ITI', label: 'ITI' },
-  { value: 'SCHOOL', label: 'School' },
-  { value: 'OTHERS', label: 'Others' },
+const sraOptions = ['UGC', 'AICTE', 'MCI', 'Others']
+const nirfRankingOptions = ['Top Hundred', 'Above Hundred']
+const universityTypeOptions = [
+  'Govt. University',
+  'Central University',
+  'Private University',
+  'Deemed to be University',
 ]
+const accreditedByOptions = ['NAAC', 'NBA', 'Yet to be Accredited', 'Others']
+const accreditationCycleOptions = ['Cycle 1', 'Cycle 2', 'Cycle 3', 'Cycle 4', 'Cycle 5', 'Yet to be Accredited']
 
-// ✅ From Prisma enum: AffiliatedUniversity (edit labels if your enum differs)
-const affiliatedUniversityOptions = [
-  { value: 'ANNA_UNIVERSITY', label: 'Anna University' },
-  { value: 'UNIVERSITY_OF_MADRAS', label: 'University of Madras' },
-  { value: 'BHARATHIAR_UNIVERSITY', label: 'Bharathiar University' },
-  { value: 'BHARATHIDASAN_UNIVERSITY', label: 'Bharathidasan University' },
-  { value: 'ALAGAPPA_UNIVERSITY', label: 'Alagappa University' },
-  { value: 'OTHERS', label: 'Others' },
-]
+const toYesNo = (value) => (value ? 'Yes' : 'No')
 
-// ✅ From Prisma enum: AccreditationBody (edit if your enum differs)
-const accreditationBodyOptions = [
-  { value: 'NAAC', label: 'NAAC' },
-  { value: 'NBA', label: 'NBA' },
-  { value: 'OTHERS', label: 'Others' },
-]
-
-const indianStates = [
-  'Andhra Pradesh',
-  'Arunachal Pradesh',
-  'Assam',
-  'Bihar',
-  'Chhattisgarh',
-  'Goa',
-  'Gujarat',
-  'Haryana',
-  'Himachal Pradesh',
-  'Jharkhand',
-  'Karnataka',
-  'Kerala',
-  'Madhya Pradesh',
-  'Maharashtra',
-  'Manipur',
-  'Meghalaya',
-  'Mizoram',
-  'Nagaland',
-  'Odisha',
-  'Punjab',
-  'Rajasthan',
-  'Sikkim',
-  'Tamil Nadu',
-  'Telangana',
-  'Tripura',
-  'Uttar Pradesh',
-  'Uttarakhand',
-  'West Bengal',
-  'Andaman and Nicobar Islands',
-  'Chandigarh',
-  'Dadra and Nagar Haveli and Daman and Diu',
-  'Delhi',
-  'Jammu and Kashmir',
-  'Ladakh',
-  'Lakshadweep',
-  'Puducherry',
-]
-
-const toYesNo = (val) => (val ? 'Yes' : 'No')
-const toBool = (val) => val === 'Yes'
+const norm = (value) => String(value || '').trim()
+const isDisplayableImageSrc = (value) => /^(data:image\/|https?:\/\/|blob:)/i.test(String(value || '').trim())
+const getRawMsg = (error) =>
+  String(error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Save failed')
+const safeMsg = (raw) => {
+  const text = String(raw || '')
+  if (text.length > 220) return 'Save failed. Please verify input values and try again.'
+  return text
+}
 
 const Institution = () => {
   const [isEdit, setIsEdit] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
   const [form, setForm] = useState(initialForm)
-
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-
   const [toast, setToast] = useState(null)
-
-  const years = useMemo(() => {
-    const current = new Date().getFullYear()
-    const arr = []
-    for (let y = 1950; y <= current; y++) arr.push(String(y))
-    return arr.reverse()
-  }, [])
+  const [logoPreview, setLogoPreview] = useState('')
+  const [errors, setErrors] = useState({})
 
   const columns = [
     { key: 'code', label: 'Institution Code' },
     { key: 'name', label: 'Institution Name' },
-    { key: 'yearOfEstablishment', label: 'Year' },
-    { key: 'type', label: 'Type' },
+    { key: 'typeOfInstitution', label: 'Type' },
     { key: 'category', label: 'Category' },
     { key: 'district', label: 'District' },
     { key: 'state', label: 'State' },
-    { key: 'pincode', label: 'Pincode' },
+    { key: 'phoneNumber', label: 'Phone' },
+    { key: 'emailId', label: 'Email' },
   ]
 
   const showToast = (type, message) => {
@@ -160,61 +113,122 @@ const Institution = () => {
   const mapApiRowToForm = (row) => ({
     code: row?.code ?? '',
     name: row?.name ?? '',
-    yearOfEstablishment: row?.yearOfEstablishment ?? '',
-    type: row?.type ?? '',
+    dateOfEstablishment: row?.dateOfEstablishment ? String(row.dateOfEstablishment).slice(0, 10) : '',
+    typeOfInstitution: row?.typeOfInstitution ?? '',
     category: row?.category ?? '',
+    aisheCode: row?.aisheCode ?? '',
     address: row?.address ?? '',
+    pincode: row?.pincode ?? '',
+    phoneNumber: row?.phoneNumber ?? '',
+    alternateMobileNumber: row?.alternateMobileNumber ?? '',
+    website: row?.website ?? '',
+    emailId: row?.emailId ?? '',
+    sra: row?.sra ?? '',
+    institutionPermanentId: row?.institutionPermanentId ?? '',
+    aicteRegNo: row?.aicteRegNo ?? '',
+    logoUrl: row?.logoUrl ?? '',
+    correspondentName: row?.correspondentName ?? '',
+    correspondentDesignation: row?.correspondentDesignation ?? '',
+    principalName: row?.principalName ?? '',
+    iqacCoordinatorName: row?.iqacCoordinatorName ?? '',
+    contactNumber: row?.contactNumber ?? '',
     district: row?.district ?? '',
     state: row?.state ?? 'Tamil Nadu',
-    pincode: row?.pincode ?? '',
-    affiliatedUniversity: row?.affiliatedUniversity ?? '',
+    country: row?.country ?? 'India',
+    nirfRanking: row?.nirfRanking ?? '',
     autonomousGranted: toYesNo(row?.autonomousGranted),
-    isAccredited: toYesNo(row?.isAccredited),
-    accreditedBy: row?.accreditedBy ?? '',
+    affiliatedUniversity: row?.affiliatedUniversity ?? '',
+    universityType: row?.universityType ?? '',
+    accreditedBy: row?.accreditedByLabel ?? row?.accreditedBy ?? '',
+    accreditationCycle: row?.accreditationCycle ?? '',
     isActive: row?.isActive ?? true,
   })
 
   const buildPayloadForApi = () => {
-    const payload = {
-      name: form.name?.trim(),
-      yearOfEstablishment: form.yearOfEstablishment ? Number(form.yearOfEstablishment) : null,
-      type: form.type || null,
-      category: form.category || null,
-      address: form.address?.trim() || null,
-      district: form.district?.trim() || null,
-      state: form.state || 'Tamil Nadu',
-      pincode: form.pincode || '',
-      affiliatedUniversity: form.affiliatedUniversity || null,
-      autonomousGranted: toBool(form.autonomousGranted),
-      isAccredited: toBool(form.isAccredited),
-      accreditedBy: toBool(form.isAccredited) ? form.accreditedBy || null : null,
+    const accreditedBy = norm(form.accreditedBy)
+    const isAccredited = Boolean(accreditedBy) && accreditedBy !== 'Yet to be Accredited'
+    const accreditedByEnum = ['NAAC', 'NBA', 'OTHERS'].includes(accreditedBy.toUpperCase())
+      ? accreditedBy.toUpperCase()
+      : null
+
+    return {
+      name: norm(form.name),
+      dateOfEstablishment: norm(form.dateOfEstablishment) || null,
+      typeOfInstitution: norm(form.typeOfInstitution) || null,
+      category: norm(form.category) || null,
+      aisheCode: norm(form.aisheCode) || null,
+      address: norm(form.address) || null,
+      pincode: norm(form.pincode) || null,
+      phoneNumber: norm(form.phoneNumber) || null,
+      alternateMobileNumber: norm(form.alternateMobileNumber) || null,
+      website: norm(form.website) || null,
+      emailId: norm(form.emailId) || null,
+      sra: norm(form.sra) || null,
+      institutionPermanentId: norm(form.institutionPermanentId) || null,
+      aicteRegNo: norm(form.aicteRegNo) || null,
+      logoUrl: norm(form.logoUrl) || null,
+      correspondentName: norm(form.correspondentName) || null,
+      correspondentDesignation: norm(form.correspondentDesignation) || null,
+      principalName: norm(form.principalName) || null,
+      iqacCoordinatorName: norm(form.iqacCoordinatorName) || null,
+      contactNumber: norm(form.contactNumber) || null,
+      district: norm(form.district) || null,
+      state: norm(form.state) || null,
+      country: norm(form.country) || null,
+      nirfRanking: norm(form.nirfRanking) || null,
+      autonomousGranted: form.autonomousGranted === 'Yes',
+      affiliatedUniversity: norm(form.affiliatedUniversity) || null,
+      universityType: norm(form.universityType) || null,
+      isAccredited,
+      accreditedBy: accreditedByEnum,
+      accreditedByLabel: accreditedBy || null,
+      accreditationCycle: norm(form.accreditationCycle) || null,
       isActive: form.isActive !== false,
     }
-    return payload
   }
 
   const validateForm = () => {
-    if (!form.name?.trim()) return 'Institution Name is required'
-    if (!form.yearOfEstablishment) return 'Year of Establishment is required'
-    if (!/^[0-9]{6}$/.test(String(form.pincode || ''))) return 'Pincode must be 6 digits'
-    if (form.isAccredited === 'Yes' && !form.accreditedBy) return 'Please select Accredited By'
-    return null
+    const nextErrors = {}
+    if (!norm(form.name)) nextErrors.name = 'Institution Name is required'
+    if (!norm(form.dateOfEstablishment)) nextErrors.dateOfEstablishment = 'Date of Establishment is required'
+    if (norm(form.pincode) && !/^\d{6}$/.test(norm(form.pincode))) nextErrors.pincode = 'Pincode must be 6 digits'
+    if (norm(form.phoneNumber) && !/^\d{10}$/.test(norm(form.phoneNumber))) nextErrors.phoneNumber = 'Phone Number must be 10 digits'
+    if (norm(form.alternateMobileNumber) && !/^\d{10}$/.test(norm(form.alternateMobileNumber))) {
+      nextErrors.alternateMobileNumber = 'Alternate Mobile Number must be 10 digits'
+    }
+    if (norm(form.contactNumber) && !/^\d{10}$/.test(norm(form.contactNumber))) {
+      nextErrors.contactNumber = 'Contact Number must be 10 digits'
+    }
+    if (norm(form.emailId) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(norm(form.emailId))) {
+      nextErrors.emailId = 'Enter a valid Email ID'
+    }
+    if (!norm(form.accreditedBy)) nextErrors.accreditedBy = 'Accredited By is required'
+    if (!norm(form.accreditationCycle)) nextErrors.accreditationCycle = 'Cycle is required'
+    return nextErrors
+  }
+
+  const mapServerErrorToField = (message) => {
+    const msg = String(message || '').toLowerCase()
+    if (msg.includes('institution name')) return { name: 'Institution Name is required' }
+    if (msg.includes('date of establishment')) return { dateOfEstablishment: 'Date of Establishment is required' }
+    if (msg.includes('pincode')) return { pincode: 'Pincode is invalid' }
+    if (msg.includes('phone')) return { phoneNumber: 'Phone Number is invalid' }
+    if (msg.includes('alternate mobile')) return { alternateMobileNumber: 'Alternate Mobile Number is invalid' }
+    if (msg.includes('contact number')) return { contactNumber: 'Contact Number is invalid' }
+    if (msg.includes('email')) return { emailId: 'Email ID is invalid' }
+    if (msg.includes('accredited')) return { accreditedBy: 'Accredited By is invalid' }
+    if (msg.includes('cycle')) return { accreditationCycle: 'Cycle is invalid' }
+    return {}
   }
 
   const loadInstitutions = async () => {
     setLoading(true)
     try {
       const res = await api.get('/api/setup/institution')
-      const list = Array.isArray(res.data?.data)
-        ? res.data.data
-        : Array.isArray(res.data)
-          ? res.data
-          : []
+      const list = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : []
       setRows(list)
     } catch (err) {
-      console.error('Institution load error:', err)
-      const msg =
-        err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Failed to load data'
+      const msg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Failed to load data'
       showToast('danger', msg)
     } finally {
       setLoading(false)
@@ -228,45 +242,52 @@ const Institution = () => {
   const onAddNew = () => {
     setForm(initialForm)
     setSelectedId(null)
+    setLogoPreview('')
+    setErrors({})
     setIsEdit(true)
   }
 
   const onEdit = () => {
     if (!selectedId) return
-    const selected = rows.find((r) => r.id === selectedId)
+    const selected = rows.find((row) => row.id === selectedId)
     if (!selected) return
     setForm(mapApiRowToForm(selected))
+    setLogoPreview(isDisplayableImageSrc(selected?.logoUrl) ? selected.logoUrl : '')
+    setErrors({})
     setIsEdit(true)
   }
 
   const onCancel = () => {
     setForm(initialForm)
+    setLogoPreview('')
+    setErrors({})
     setIsEdit(false)
   }
 
-  const onSave = async (e) => {
-    e.preventDefault()
-
-    const err = validateForm()
-    if (err) return showToast('danger', err)
+  const onSave = async (event) => {
+    event.preventDefault()
+    const clientErrors = validateForm()
+    setErrors(clientErrors)
+    if (Object.keys(clientErrors).length > 0) {
+      return showToast('danger', 'Please fix the highlighted fields')
+    }
 
     setSaving(true)
     try {
       const payload = buildPayloadForApi()
-
       if (selectedId) {
         await api.put(`/api/setup/institution/${selectedId}`, payload)
       } else {
         await api.post('/api/setup/institution', payload)
       }
-
       showToast('success', 'Saved successfully')
       setIsEdit(false)
       await loadInstitutions()
     } catch (error) {
-      console.error('Institution save error:', error)
-      const msg =
-        error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Save failed'
+      const raw = getRawMsg(error)
+      const msg = safeMsg(raw)
+      const serverFieldErrors = mapServerErrorToField(raw)
+      if (Object.keys(serverFieldErrors).length) setErrors((prev) => ({ ...prev, ...serverFieldErrors }))
       showToast('danger', msg)
     } finally {
       setSaving(false)
@@ -283,27 +304,49 @@ const Institution = () => {
       setSelectedId(null)
       await loadInstitutions()
     } catch (error) {
-      console.error('Institution delete error:', error)
-      const msg =
-        error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Delete failed'
+      const msg = error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Delete failed'
       showToast('danger', msg)
     }
   }
 
   const onRowSelect = (id) => {
     setSelectedId(id)
-    const row = rows.find((r) => r.id === id)
-    if (row) setForm(mapApiRowToForm(row)) // WF18: view selected record in form
+    const row = rows.find((item) => item.id === id)
+    if (row) {
+      setForm(mapApiRowToForm(row))
+      setLogoPreview(isDisplayableImageSrc(row?.logoUrl) ? row.logoUrl : '')
+    }
   }
 
-  const onChange = (key) => (e) => {
-    const value = e?.target?.value
-    setForm((p) => {
-      const next = { ...p, [key]: value }
-      // WF13: AccreditedBy enabled only when isAccredited = Yes
-      if (key === 'isAccredited' && value !== 'Yes') next.accreditedBy = ''
+  const onChange = (key) => (event) => {
+    const value = event?.target?.value ?? ''
+    setForm((prev) => ({ ...prev, [key]: value }))
+    setErrors((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
       return next
     })
+  }
+
+  const onLogoUpload = (event) => {
+    const file = event?.target?.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      showToast('danger', 'Please upload an image file')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('danger', 'Logo size must be less than 2MB')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '')
+      setLogoPreview(dataUrl)
+      setForm((prev) => ({ ...prev, logoUrl: dataUrl }))
+    }
+    reader.readAsDataURL(file)
   }
 
   return (
@@ -311,7 +354,6 @@ const Institution = () => {
       <CCard className="mb-3">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <strong>INSTITUTION SETUP</strong>
-
           <div className="d-flex gap-2">
             <ArpButton label="Add New" icon="add" color="purple" onClick={onAddNew} />
             <ArpButton label="Edit" icon="edit" color="primary" onClick={onEdit} disabled={!selectedId} />
@@ -321,117 +363,149 @@ const Institution = () => {
 
         <CCardBody>
           {toast && <CAlert color={toast.type}>{toast.message}</CAlert>}
-
           <CForm onSubmit={onSave}>
             <CRow className="g-3">
+              <CCol md={3}><CFormLabel>Institution Code</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.code} disabled /></CCol>
+
+              <CCol md={3}><CFormLabel>Name of the Institution</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormLabel>Institution Code</CFormLabel>
-              </CCol>
-              <CCol md={3}>
-                <CFormInput value={form.code} disabled />
+                <CFormInput value={form.name} onChange={onChange('name')} disabled={!isEdit} invalid={!!errors.name} />
+                {errors.name ? <CFormFeedback invalid>{errors.name}</CFormFeedback> : null}
               </CCol>
 
+              <CCol md={3}><CFormLabel>Date of Establishment</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormLabel>Institution Name</CFormLabel>
-              </CCol>
-              <CCol md={3}>
-                <CFormInput value={form.name} onChange={onChange('name')} disabled={!isEdit} />
+                <CFormInput
+                  type="date"
+                  value={form.dateOfEstablishment}
+                  onChange={onChange('dateOfEstablishment')}
+                  disabled={!isEdit}
+                  invalid={!!errors.dateOfEstablishment}
+                />
+                {errors.dateOfEstablishment ? <CFormFeedback invalid>{errors.dateOfEstablishment}</CFormFeedback> : null}
               </CCol>
 
+              <CCol md={3}><CFormLabel>Type of the Institution</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormLabel>Year of Establishment</CFormLabel>
-              </CCol>
-              <CCol md={3}>
-                <CFormSelect value={form.yearOfEstablishment} onChange={onChange('yearOfEstablishment')} disabled={!isEdit}>
-                  <option value="">Select Year</option>
-                  {years.map((y) => (
-                    <option key={y} value={y}>
-                      {y}
-                    </option>
-                  ))}
+                <CFormSelect value={form.typeOfInstitution} onChange={onChange('typeOfInstitution')} disabled={!isEdit}>
+                  <option value="">Select Type</option>
+                  {typeOfInstitutionOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                 </CFormSelect>
               </CCol>
 
-              <CCol md={3}>
-                <CFormLabel>Type of Institution</CFormLabel>
-              </CCol>
-              <CCol md={3}>
-                <CFormSelect value={form.type} onChange={onChange('type')} disabled={!isEdit}>
-                  <option value="">Select Type of Institution</option>
-                  {institutionTypeOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </CFormSelect>
-              </CCol>
-
-              <CCol md={3}>
-                <CFormLabel>Institution Category</CFormLabel>
-              </CCol>
+              <CCol md={3}><CFormLabel>Institution Category</CFormLabel></CCol>
               <CCol md={3}>
                 <CFormSelect value={form.category} onChange={onChange('category')} disabled={!isEdit}>
-                  <option value="">Select Institution Category</option>
-                  {institutionCategoryOptions.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
+                  <option value="">Select Category</option>
+                  {institutionCategoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                 </CFormSelect>
               </CCol>
 
+              <CCol md={3}><CFormLabel>AISHE Code</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.aisheCode} onChange={onChange('aisheCode')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>Address</CFormLabel></CCol>
+              <CCol md={3}><CFormTextarea rows={2} value={form.address} onChange={onChange('address')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>Pincode</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormLabel>Address</CFormLabel>
-              </CCol>
-              <CCol md={3}>
-                <CFormTextarea value={form.address} onChange={onChange('address')} disabled={!isEdit} rows={2} />
+                <CFormInput value={form.pincode} onChange={onChange('pincode')} disabled={!isEdit} invalid={!!errors.pincode} />
+                {errors.pincode ? <CFormFeedback invalid>{errors.pincode}</CFormFeedback> : null}
               </CCol>
 
+              <CCol md={3}><CFormLabel>Phone Number</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormLabel>District</CFormLabel>
-              </CCol>
-              <CCol md={3}>
-                <CFormInput value={form.district} onChange={onChange('district')} disabled={!isEdit} />
+                <CFormInput
+                  value={form.phoneNumber}
+                  onChange={onChange('phoneNumber')}
+                  disabled={!isEdit}
+                  invalid={!!errors.phoneNumber}
+                />
+                {errors.phoneNumber ? <CFormFeedback invalid>{errors.phoneNumber}</CFormFeedback> : null}
               </CCol>
 
+              <CCol md={3}><CFormLabel>Alternate Mobile Number</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormLabel>State</CFormLabel>
+                <CFormInput
+                  value={form.alternateMobileNumber}
+                  onChange={onChange('alternateMobileNumber')}
+                  disabled={!isEdit}
+                  invalid={!!errors.alternateMobileNumber}
+                />
+                {errors.alternateMobileNumber ? <CFormFeedback invalid>{errors.alternateMobileNumber}</CFormFeedback> : null}
               </CCol>
+
+              <CCol md={3}><CFormLabel>Website</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.website} onChange={onChange('website')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>Email ID</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormSelect value={form.state} onChange={onChange('state')} disabled={!isEdit}>
-                  <option value="">Select State</option>
-                  {indianStates.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
+                <CFormInput value={form.emailId} onChange={onChange('emailId')} disabled={!isEdit} invalid={!!errors.emailId} />
+                {errors.emailId ? <CFormFeedback invalid>{errors.emailId}</CFormFeedback> : null}
+              </CCol>
+
+              <CCol md={3}><CFormLabel>SRA</CFormLabel></CCol>
+              <CCol md={3}>
+                <CFormSelect value={form.sra} onChange={onChange('sra')} disabled={!isEdit}>
+                  <option value="">Select SRA</option>
+                  {sraOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                 </CFormSelect>
               </CCol>
 
+              <CCol md={3}><CFormLabel>Institution Permanent ID</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.institutionPermanentId} onChange={onChange('institutionPermanentId')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>AICTE Reg. No</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.aicteRegNo} onChange={onChange('aicteRegNo')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>Upload Logo</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormLabel>Pincode</CFormLabel>
-              </CCol>
-              <CCol md={3}>
-                <CFormInput value={form.pincode} onChange={onChange('pincode')} disabled={!isEdit} />
+                <CFormInput type="file" accept="image/*" onChange={onLogoUpload} disabled={!isEdit} />
+                {logoPreview ? <CImage src={logoPreview} width={56} height={56} className="mt-2 border" /> : null}
               </CCol>
 
+              <CCol md={3}><CFormLabel>Name of the Correspondent</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.correspondentName} onChange={onChange('correspondentName')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>Correspondent Designation</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.correspondentDesignation} onChange={onChange('correspondentDesignation')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>Name of the Principal</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.principalName} onChange={onChange('principalName')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>Name of IQAC Coordinator / Director</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.iqacCoordinatorName} onChange={onChange('iqacCoordinatorName')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>Contact Number</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormLabel>Affiliated University</CFormLabel>
+                <CFormInput
+                  value={form.contactNumber}
+                  onChange={onChange('contactNumber')}
+                  disabled={!isEdit}
+                  invalid={!!errors.contactNumber}
+                />
+                {errors.contactNumber ? <CFormFeedback invalid>{errors.contactNumber}</CFormFeedback> : null}
               </CCol>
+
+              <CCol md={3}><CFormLabel>District</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.district} onChange={onChange('district')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>State</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.state} onChange={onChange('state')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>Country</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.country} onChange={onChange('country')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>NIRF Ranking</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormSelect value={form.affiliatedUniversity} onChange={onChange('affiliatedUniversity')} disabled={!isEdit}>
-                  <option value="">Select Affiliated University</option>
-                  {affiliatedUniversityOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
+                <CFormSelect value={form.nirfRanking} onChange={onChange('nirfRanking')} disabled={!isEdit}>
+                  <option value="">Select Ranking</option>
+                  {nirfRankingOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                 </CFormSelect>
               </CCol>
 
-              <CCol md={3}>
-                <CFormLabel>Whether Autonomous Granted?</CFormLabel>
-              </CCol>
+              <CCol md={3}><CFormLabel>Autonomous Status</CFormLabel></CCol>
               <CCol md={3}>
                 <CFormSelect value={form.autonomousGranted} onChange={onChange('autonomousGranted')} disabled={!isEdit}>
                   <option value="No">No</option>
@@ -439,32 +513,38 @@ const Institution = () => {
                 </CFormSelect>
               </CCol>
 
+              <CCol md={3}><CFormLabel>Affiliating University</CFormLabel></CCol>
+              <CCol md={3}><CFormInput value={form.affiliatedUniversity} onChange={onChange('affiliatedUniversity')} disabled={!isEdit} /></CCol>
+
+              <CCol md={3}><CFormLabel>Type of the University</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormLabel>Whether Institution got accreditation?</CFormLabel>
-              </CCol>
-              <CCol md={3}>
-                <CFormSelect value={form.isAccredited} onChange={onChange('isAccredited')} disabled={!isEdit}>
-                  <option value="No">No</option>
-                  <option value="Yes">Yes</option>
+                <CFormSelect value={form.universityType} onChange={onChange('universityType')} disabled={!isEdit}>
+                  <option value="">Select University Type</option>
+                  {universityTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                 </CFormSelect>
               </CCol>
 
+              <CCol md={3}><CFormLabel>Accredited By</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormLabel>Accredited By</CFormLabel>
+                <CFormSelect value={form.accreditedBy} onChange={onChange('accreditedBy')} disabled={!isEdit} invalid={!!errors.accreditedBy}>
+                  <option value="">Select Accreditation</option>
+                  {accreditedByOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                </CFormSelect>
+                {errors.accreditedBy ? <CFormFeedback invalid>{errors.accreditedBy}</CFormFeedback> : null}
               </CCol>
+
+              <CCol md={3}><CFormLabel>Cycle</CFormLabel></CCol>
               <CCol md={3}>
                 <CFormSelect
-                  value={form.accreditedBy}
-                  onChange={onChange('accreditedBy')}
-                  disabled={!isEdit || form.isAccredited !== 'Yes'}
+                  value={form.accreditationCycle}
+                  onChange={onChange('accreditationCycle')}
+                  disabled={!isEdit}
+                  invalid={!!errors.accreditationCycle}
                 >
-                  <option value="">Select Accredited By</option>
-                  {accreditationBodyOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
+                  <option value="">Select Cycle</option>
+                  {accreditationCycleOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                 </CFormSelect>
+                {errors.accreditationCycle ? <CFormFeedback invalid>{errors.accreditationCycle}</CFormFeedback> : null}
               </CCol>
 
               <CCol xs={12} className="d-flex justify-content-end gap-2">

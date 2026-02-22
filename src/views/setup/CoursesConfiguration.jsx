@@ -87,6 +87,20 @@ function unwrapList(res) {
   return []
 }
 
+function parseSemestersFromAyRow(row) {
+  const raw = row?.chosenSemesters
+  if (Array.isArray(raw)) {
+    return raw.map((n) => Number(n)).filter((n) => Number.isFinite(n))
+  }
+  if (typeof raw === 'string') {
+    return raw
+      .split(',')
+      .map((s) => Number(String(s).trim()))
+      .filter((n) => Number.isFinite(n))
+  }
+  return []
+}
+
 export default function CoursesConfiguration() {
   // Loading states
   const [loadingMasters, setLoadingMasters] = useState(false)
@@ -234,16 +248,34 @@ export default function CoursesConfiguration() {
 
     setLoadingMasters(true)
     try {
-      const res = await api.get('/api/setup/regulation-map', {
-        params: { institutionId, programmeId, regulationId, semesterPattern },
-      })
+      const [mapRes, ayRes] = await Promise.all([
+        api.get('/api/setup/regulation-map', {
+          params: { institutionId, programmeId, regulationId, semesterPattern },
+        }),
+        api.get('/api/setup/academic-year', {
+          headers: { 'x-institution-id': institutionId },
+        }),
+      ])
 
-      const list = unwrapList(res)
-      const distinct = Array.from(
-        new Set(list.map((x) => Number(x.semester)).filter((n) => Number.isFinite(n))),
+      const mapList = unwrapList(mapRes)
+      const mapDistinct = Array.from(
+        new Set(mapList.map((x) => Number(x.semester)).filter((n) => Number.isFinite(n))),
+      ).sort((a, b) => a - b)
+      const mapFiltered = mapDistinct.filter((n) =>
+        semesterPattern === 'ODD' ? n % 2 !== 0 : semesterPattern === 'EVEN' ? n % 2 === 0 : true,
+      )
+
+      const ayList = unwrapList(ayRes)
+      const ayConfigured = Array.from(
+        new Set(
+          ayList
+            .filter((x) => String(x?.semesterCategory || '').toUpperCase() === String(semesterPattern))
+            .flatMap((x) => parseSemestersFromAyRow(x)),
+        ),
       ).sort((a, b) => a - b)
 
-      setSemesters(distinct.map((n) => ({ value: String(n), label: String(n) })))
+      const finalSemesters = ayConfigured.length ? ayConfigured : mapFiltered
+      setSemesters(finalSemesters.map((n) => ({ value: String(n), label: String(n) })))
     } catch (e) {
       console.error(e)
       setSemesters([])
@@ -253,6 +285,13 @@ export default function CoursesConfiguration() {
       setLoadingMasters(false)
     }
   }
+
+  const fallbackSemesters =
+    scope.semesterPattern === 'ODD'
+      ? [1, 3, 5, 7]
+      : scope.semesterPattern === 'EVEN'
+        ? [2, 4, 6, 8]
+        : []
 
   // Initial load
   useEffect(() => {
@@ -876,14 +915,11 @@ setScope((s) => ({
                       ))
                     ) : (
                       <>
-                        <option value="1">1</option>
-                        <option value="2">2</option>
-                        <option value="3">3</option>
-                        <option value="4">4</option>
-                        <option value="5">5</option>
-                        <option value="6">6</option>
-                        <option value="7">7</option>
-                        <option value="8">8</option>
+                        {fallbackSemesters.map((n) => (
+                          <option key={n} value={String(n)}>
+                            {n}
+                          </option>
+                        ))}
                       </>
                     )}
                   </CFormSelect>

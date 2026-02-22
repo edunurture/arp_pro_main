@@ -13,6 +13,7 @@ const StudentConfiguration= React.lazy(() => import('./views/setup/StudentConfig
 const FacultyConfiguration= React.lazy(() => import('./views/setup/FacultyConfiguration'))
 const CalendarConfiguration= React.lazy(() => import('./views/setup/CalendarConfiguration'))
 const TimetableConfiguration = React.lazy(() => import('./views/setup/TimetableConfiguration'))
+const ClassTimetableConfiguration = React.lazy(() => import('./views/setup/ClassTimetableConfiguration'))
 const QuestionModelConfiguration = React.lazy(() => import('./views/setup/QuestionModelConfiguration'))
 const CIAComponentsConfiguration = React.lazy(() => import('./views/setup/CIAComponentsConfiguration'))
 const CIAComputationConfiguration = React.lazy(() => import('./views/setup/CIAComputationConfiguration'))
@@ -162,6 +163,7 @@ const routes = [
   { path: '/setup/faculty', name: 'Faculty', element: FacultyConfiguration },
   { path: '/setup/calendar', name: 'Calendar', element: CalendarConfiguration },
   { path: '/setup/timetable', name: 'Timetable', element: TimetableConfiguration },
+  { path: '/setup/class-timetable', name: 'Class Timetable (Legacy)', element: ClassTimetableConfiguration },
   { path: '/setup/question-models', name: 'Question Models', element: QuestionModelConfiguration },
   { path: '/setup/cia-components', name: 'CIA Components', element: CIAComponentsConfiguration },
   { path: '/setup/cia-computations', name: 'CIA Computations', element: CIAComputationConfiguration},
@@ -187,6 +189,7 @@ const routes = [
   { path: '/lms/course-allotment', name: 'Course Allotment', element: CourseAllotment },
   { path: '/lms/student-allotment', name: 'Student Allotment', element: StudentAllotment },
   { path: '/lms/upload-timetable', name: 'Upload Timetable', element: UploadTimetable },
+  { path: '/lms/class-timetable', name: 'Class Timetable', element: ClassTimetableConfiguration },
   { path: '/lms/view-timetable', name: 'View Timetable', element: ViewTimetable },
   { path: '/lms/view-calendar', name: 'View Calendar', element: ViewCalendar },
   { path: '/lms/course-contents', name: 'Course Contents', element: CourseContents },

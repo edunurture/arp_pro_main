@@ -39,6 +39,7 @@ const api = axios.create({
 })
 
 const initialBatchForm = {
+  batchName: '',
   description: '',
 }
 const initialRegForm = {
@@ -57,7 +58,9 @@ const unwrapArray = (res) => {
   return []
 }
 
-const makeToastError = (e) => e?.response?.data?.message || e?.message || 'Something went wrong'
+const makeToastError =
+  (e) => e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Something went wrong'
+const normalizeText = (v) => String(v ?? '').trim().toLowerCase()
 
 export default function RegulationConfiguration() {
   // masters
@@ -69,7 +72,6 @@ export default function RegulationConfiguration() {
     () => institutions.find((i) => String(i.id) === String(institutionId)) || null,
     [institutions, institutionId],
   )
-
   const [programmes, setProgrammes] = useState([])
 
   // data lists
@@ -89,6 +91,10 @@ export default function RegulationConfiguration() {
   // forms
   const [batchForm, setBatchForm] = useState(initialBatchForm)
   const [regForm, setRegForm] = useState(initialRegForm)
+  const selectedProgramme = useMemo(
+    () => programmes.find((p) => String(p.id) === String(regForm.programmeId)) || null,
+    [programmes, regForm.programmeId],
+  )
 
   // ui states
   const [loading, setLoading] = useState(false)
@@ -228,6 +234,7 @@ export default function RegulationConfiguration() {
     setIsEdit(false)
     setEditingBatchId(row.id)
     setBatchForm({
+      batchName: row.batchName || '',
       description: row.description || '',
     })
   }
@@ -239,6 +246,7 @@ export default function RegulationConfiguration() {
     setIsEdit(true)
     setEditingBatchId(row.id)
     setBatchForm({
+      batchName: row.batchName || '',
       description: row.description || '',
     })
   }
@@ -275,6 +283,7 @@ export default function RegulationConfiguration() {
       regulationCode: row?.regulationCode || '',
       regulationYear: row?.regulationYear ? String(row.regulationYear) : '',
       description: row?.description || '',
+      isActive: row?.isActive === false ? 'No' : 'Yes',
     })
   }
 
@@ -289,6 +298,7 @@ export default function RegulationConfiguration() {
       regulationCode: row?.regulationCode || '',
       regulationYear: row?.regulationYear ? String(row.regulationYear) : '',
       description: row?.description || '',
+      isActive: row?.isActive === false ? 'No' : 'Yes',
     })
   }
 
@@ -299,8 +309,9 @@ export default function RegulationConfiguration() {
     const run = async () => {
       setLoading(true)
       try {
-        await api.delete(`/api/setup/regulation/${selectedRegId}`)
-        showToast('success', 'Regulation deleted successfully')
+        const res = await api.delete(`/api/setup/regulation/${selectedRegId}`)
+        const msg = res?.data?.message || 'Regulation deleted successfully'
+        showToast(res?.data?.softDeleted ? 'warning' : 'success', msg)
         await loadRegulations(institutionId)
         setSelectedRegId(null)
       } catch (e) {
@@ -314,7 +325,7 @@ export default function RegulationConfiguration() {
   }
 
   const validateBatch = () => {
-    if (!batchForm.description?.trim()) return 'Batch Description is required'
+    if (!batchForm.batchName?.trim()) return 'Batch Name is required'
     return null
   }
 
@@ -341,8 +352,20 @@ export default function RegulationConfiguration() {
             return
           }
 
+          const normalizedBatchName = normalizeText(batchForm.batchName)
+          const duplicate = (Array.isArray(batches) ? batches : []).some(
+            (b) =>
+              normalizeText(b?.batchName) === normalizedBatchName &&
+              String(b?.id || '') !== String(editingBatchId || ''),
+          )
+          if (duplicate) {
+            showToast('danger', 'Batch Name already exists for this institution')
+            return
+          }
+
           const payload = {
             institutionId,
+            batchName: batchForm.batchName?.trim() || '',
             description: batchForm.description?.trim() || '',
             status: true,
             isActive: true,
@@ -375,7 +398,7 @@ export default function RegulationConfiguration() {
             regulationYear: Number(regForm.regulationYear) || null, // start year only
             description: regForm.description?.trim() || '',
             status: true,
-            isActive: true,
+            isActive: regForm.isActive === 'Yes',
           }
 
           if (editingRegId) {
@@ -523,19 +546,23 @@ export default function RegulationConfiguration() {
         sortable: true,
         width: 280,
         render: (row) => {
-          const p = row?.programme
-          if (!p) return row?.programmeName || '-'
-          return `${p?.programmeCode || ''} - ${p?.programmeName || ''}`.trim() || '-'
+          if (row?.programme?.programmeName) return row.programme.programmeName
+          if (row?.programmeName) return row.programmeName
+          const pid = String(row?.programmeId || row?.programme?.id || '')
+          const matched = programmes.find((p) => String(p?.id) === pid)
+          if (matched?.programmeName) return matched.programmeName
+          return '-'
         },
       },
       { key: 'description', label: 'Description', sortable: true },
     ],
-    [],
+    [programmes],
   )
 
   const batchColumns = useMemo(
     () => [
-            { key: 'description', label: 'Description', sortable: true },
+      { key: 'batchName', label: 'Batch Name', sortable: true, width: 180 },
+      { key: 'description', label: 'Description', sortable: true },
     ],
     [],
   )
@@ -603,7 +630,6 @@ export default function RegulationConfiguration() {
       const dataRows = rows.map((r) => [
         getInstitutionCode(r),
         getProgrammeCode(r),
-        '',
         r?.regulationCode ?? r?.code ?? '',
         r?.regulationYear ?? r?.regulationStartYear ?? r?.year ?? '',
         r?.description ?? '',
@@ -775,12 +801,21 @@ export default function RegulationConfiguration() {
             {mode === 'BATCH' && (
               <CForm>
                 <CRow className="g-3">
-<CCol md={6}>
-                    <CFormLabel>Description</CFormLabel>
+                  <CCol md={4}>
+                    <CFormLabel>Batch Name</CFormLabel>
+                    <CFormInput
+                      value={batchForm.batchName}
+                      onChange={(e) => setBatchForm((p) => ({ ...p, batchName: e.target.value }))}
+                      placeholder="Enter Batch Name"
+                      disabled={!isEdit || saving || loading}
+                    />
+                  </CCol>
+                  <CCol md={8}>
+                    <CFormLabel>Batch Description</CFormLabel>
                     <CFormTextarea
                       value={batchForm.description}
                       onChange={(e) => setBatchForm((p) => ({ ...p, description: e.target.value }))}
-                      placeholder="Enter description"
+                      placeholder="Enter Batch Description"
                       disabled={!isEdit || saving || loading}
                       rows={2}
                     />
@@ -824,15 +859,21 @@ export default function RegulationConfiguration() {
                       onChange={(e) => setRegForm((p) => ({ ...p, programmeId: e.target.value }))}
                       disabled={!isEdit || saving || loading}
                     >
-                      <option value="">Select Programme</option>
+                      <option value="">Select Programme Code</option>
                       {programmes.map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.programmeCode ? `${p.programmeCode} - ${p.programmeName}` : p.programmeName}
+                          {p.programmeCode || '-'}
                         </option>
                       ))}
                     </CFormSelect>
                   </CCol>
-<CCol md={4}>
+
+                  <CCol md={4}>
+                    <CFormLabel>Programme Name</CFormLabel>
+                    <CFormInput value={selectedProgramme?.programmeName || ''} disabled />
+                  </CCol>
+
+                  <CCol md={4}>
                     <CFormLabel>Regulation Code</CFormLabel>
                     <CFormInput
                       value={regForm.regulationCode}
@@ -931,7 +972,7 @@ export default function RegulationConfiguration() {
               pageSizeOptions={[5, 10, 20, 50]}
               defaultPageSize={10}
               searchable
-              searchPlaceholder="Search..."
+              searchPlaceholder="Search Batch Name / Description..."
               rowKey="id"
             />
           </CCardBody>
