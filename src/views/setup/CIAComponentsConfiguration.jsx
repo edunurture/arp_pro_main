@@ -116,10 +116,12 @@ export default function CIAComponentsConfiguration() {
       if (nextRows.length > 0) {
         setExamRows(nextRows)
         setSelectedExamRowId(nextRows[0].id)
+        setIsEdit(false)
       } else {
         const firstRow = createExamRow()
         setExamRows([firstRow])
         setSelectedExamRowId(firstRow.id)
+        setIsEdit(true)
       }
       setCompute((prev) => ({
         ...prev,
@@ -134,6 +136,7 @@ export default function CIAComponentsConfiguration() {
       const firstRow = createExamRow()
       setExamRows([firstRow])
       setSelectedExamRowId(firstRow.id)
+      setIsEdit(true)
     } finally {
       setLoadingComponents(false)
     }
@@ -146,13 +149,10 @@ export default function CIAComponentsConfiguration() {
       setExamRows([firstRow])
       setSelectedExamRowId(firstRow.id)
       setCompute(initialCompute)
+      setIsEdit(false)
       return
     }
-    setExamSearch('')
-    const firstRow = createExamRow()
-    setExamRows([firstRow])
-    setSelectedExamRowId(firstRow.id)
-    setCompute(initialCompute)
+    loadCIAComponents(scope.institutionId)
   }, [scope.institutionId])
 
   /* =========================
@@ -387,7 +387,7 @@ export default function CIAComponentsConfiguration() {
     <CRow>
       <CCol xs={12}>
         {/* ===================== A) HEADER ACTION CARD ===================== */}
-        <CCard className="mb-3">
+        <CCard className="mb-3 arp-cia-components-compute">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>Continuous Internal Assessment (CIA) Configurations</strong>
           </CCardHeader>
@@ -537,42 +537,42 @@ export default function CIAComponentsConfiguration() {
                   <CFormLabel>Total</CFormLabel>
                 </CCol>
                 <CCol md={3} className="d-flex align-items-center">
-                  <CFormCheck checked={compute.total} onChange={(e) => setCompute((p) => ({ ...p, total: e.target.checked }))} disabled={!isEdit} />
+                  <CFormCheck className="arp-checkbox-black" checked={compute.total} onChange={(e) => setCompute((p) => ({ ...p, total: e.target.checked }))} disabled={!isEdit} />
                 </CCol>
 
                 <CCol md={3}>
                   <CFormLabel>Best of Two</CFormLabel>
                 </CCol>
                 <CCol md={3} className="d-flex align-items-center">
-                  <CFormCheck checked={compute.bestOfTwo} onChange={(e) => setCompute((p) => ({ ...p, bestOfTwo: e.target.checked }))} disabled={!isEdit} />
+                  <CFormCheck className="arp-checkbox-black" checked={compute.bestOfTwo} onChange={(e) => setCompute((p) => ({ ...p, bestOfTwo: e.target.checked }))} disabled={!isEdit} />
                 </CCol>
 
                 <CCol md={3}>
                   <CFormLabel>Best of Three</CFormLabel>
                 </CCol>
                 <CCol md={3} className="d-flex align-items-center">
-                  <CFormCheck checked={compute.bestOfThree} onChange={(e) => setCompute((p) => ({ ...p, bestOfThree: e.target.checked }))} disabled={!isEdit} />
+                  <CFormCheck className="arp-checkbox-black" checked={compute.bestOfThree} onChange={(e) => setCompute((p) => ({ ...p, bestOfThree: e.target.checked }))} disabled={!isEdit} />
                 </CCol>
 
                 <CCol md={3}>
                   <CFormLabel>Average</CFormLabel>
                 </CCol>
                 <CCol md={3} className="d-flex align-items-center">
-                  <CFormCheck checked={compute.average} onChange={(e) => setCompute((p) => ({ ...p, average: e.target.checked }))} disabled={!isEdit} />
+                  <CFormCheck className="arp-checkbox-black" checked={compute.average} onChange={(e) => setCompute((p) => ({ ...p, average: e.target.checked }))} disabled={!isEdit} />
                 </CCol>
 
                 <CCol md={3}>
                   <CFormLabel>Convert Into</CFormLabel>
                 </CCol>
                 <CCol md={3} className="d-flex align-items-center">
-                  <CFormCheck checked={compute.convertInto} onChange={(e) => setCompute((p) => ({ ...p, convertInto: e.target.checked }))} disabled={!isEdit} />
+                  <CFormCheck className="arp-checkbox-black" checked={compute.convertInto} onChange={(e) => setCompute((p) => ({ ...p, convertInto: e.target.checked }))} disabled={!isEdit} />
                 </CCol>
 
                 <CCol md={3}>
                   <CFormLabel>Round Off</CFormLabel>
                 </CCol>
                 <CCol md={3} className="d-flex align-items-center">
-                  <CFormCheck checked={compute.roundOff} onChange={(e) => setCompute((p) => ({ ...p, roundOff: e.target.checked }))} disabled={!isEdit} />
+                  <CFormCheck className="arp-checkbox-black" checked={compute.roundOff} onChange={(e) => setCompute((p) => ({ ...p, roundOff: e.target.checked }))} disabled={!isEdit} />
                 </CCol>
 
                 {/* Buttons (match HTML placement; ARP colors) */}

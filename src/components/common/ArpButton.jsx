@@ -55,8 +55,6 @@ const COLOR_ALIASES = {
   purple: 'primary',
 }
 
-const DARK_TEXT_COLORS = new Set(['light', 'warning'])
-
 const ArpButton = ({
   label,
   icon,
@@ -69,14 +67,18 @@ const ArpButton = ({
 }) => {
   const iconSvg = ARP_ICON[icon]
   const title = DEFAULT_TITLES[icon] || label
+  const isLmsRoute =
+    typeof window !== 'undefined' &&
+    (() => {
+      const path = String(window.location?.pathname || '').toLowerCase()
+      const hash = String(window.location?.hash || '').toLowerCase()
+      return path.startsWith('/lms') || hash.includes('/lms')
+    })()
 
   // 1) Normalize unsupported colors (ex: "purple")
   const normalizedColor = COLOR_ALIASES[color] || color
 
-  // 2) Ensure professional contrast
-  const textClass = DARK_TEXT_COLORS.has(normalizedColor) ? 'text-dark' : 'text-white'
-
-  // 3) Optional: keep the "purple" visual identity even though CoreUI doesn't have a "purple" theme color.
+  // Keep the "purple" visual identity even though CoreUI doesn't have a "purple" theme color.
   // If you already have your own SCSS theme, you can remove this and set the color in CSS instead.
   const purpleStyle =
     color === 'purple'
@@ -87,16 +89,25 @@ const ArpButton = ({
         }
       : style
 
+  // LMS requirement: keep label/icon clearly visible on dark button backgrounds.
+  const enforceLmsContrast = isLmsRoute
+  const resolvedStyle = enforceLmsContrast
+    ? {
+        ...(purpleStyle || {}),
+        color: '#fff',
+      }
+    : purpleStyle
+
   return (
     <CButton
       color={normalizedColor}
       onClick={onClick}
       disabled={disabled}
-      className={[textClass, className].filter(Boolean).join(' ')}
-      style={purpleStyle}
+      className={`${className} ${enforceLmsContrast ? 'text-white' : ''}`.trim()}
+      style={resolvedStyle}
       {...rest}
     >
-      {iconSvg && <CIcon icon={iconSvg} className={['me-2', textClass].join(' ')} />}
+      {iconSvg && <CIcon icon={iconSvg} className="me-2" style={enforceLmsContrast ? { color: 'inherit' } : undefined} />}
       {label || title}
     </CButton>
   )

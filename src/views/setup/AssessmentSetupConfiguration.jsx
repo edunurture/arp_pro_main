@@ -68,7 +68,13 @@ export default function AssessmentSetupConfiguration() {
       const res = await api.get('/api/setup/academic-year', {
         headers: { 'x-institution-id': instId },
       })
-      setAcademicYears(unwrapList(res))
+      const list = unwrapList(res).map((x) => ({
+        ...x,
+        academicYearLabel:
+          x?.academicYearLabel ||
+          `${x?.academicYear || ''}${x?.semesterCategory ? ` (${String(x.semesterCategory).toUpperCase()})` : ''}`,
+      }))
+      setAcademicYears(list)
     } catch {
       setAcademicYears([])
     }
@@ -114,8 +120,22 @@ export default function AssessmentSetupConfiguration() {
       })
       const list = unwrapList(res).map((r) => ({
         ...r,
+        credit:
+          r?.credit ??
+          r?.credits ??
+          r?.courseCredit ??
+          r?.course?.credits ??
+          null,
         selectedCIAComputationId: r.ciaComputationId || '',
       }))
+      const missingCreditCodes = list
+        .filter((r) => r.credit === null || r.credit === undefined || String(r.credit).trim() === '')
+        .map((r) => r.courseCode)
+      if (missingCreditCodes.length > 0) {
+        const preview = missingCreditCodes.slice(0, 6).join(', ')
+        const suffix = missingCreditCodes.length > 6 ? ` +${missingCreditCodes.length - 6} more` : ''
+        showToast('warning', `Credit is not configured for ${missingCreditCodes.length} course(s): ${preview}${suffix}`)
+      }
       setRows(list)
       setOriginalRows(list)
       setMapStatus(computeMapStatus(list))
@@ -345,7 +365,7 @@ export default function AssessmentSetupConfiguration() {
                     <option value="">Select Academic Year</option>
                     {academicYears.map((x) => (
                       <option key={x.id} value={x.id}>
-                        {x.academicYear || x.id}
+                        {x.academicYearLabel || x.academicYear || x.id}
                       </option>
                     ))}
                   </CFormSelect>

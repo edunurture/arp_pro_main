@@ -37,6 +37,22 @@ const initialForm = {
   status: 'Course Allotment not done',
 }
 
+const parseChosenSemesters = (value) => {
+  if (Array.isArray(value)) {
+    return Array.from(
+      new Set(
+        value
+          .map((x) => Number(x))
+          .filter((n) => Number.isFinite(n) && n > 0),
+      ),
+    ).sort((a, b) => a - b)
+  }
+
+  const txt = String(value ?? '')
+  const list = txt.match(/\d+/g)?.map((x) => Number(x)) || []
+  return Array.from(new Set(list.filter((n) => Number.isFinite(n) && n > 0))).sort((a, b) => a - b)
+}
+
 const CourseAllotmentConfiguration = () => {
   const [form, setForm] = useState(initialForm)
   const [showDetails, setShowDetails] = useState(false)
@@ -52,6 +68,8 @@ const CourseAllotmentConfiguration = () => {
   const [faculties, setFaculties] = useState([])
   const [allotmentMode, setAllotmentMode] = useState('')
   const [savingAllotment, setSavingAllotment] = useState(false)
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [allotmentHistory, setAllotmentHistory] = useState([])
   const [facultySearch, setFacultySearch] = useState('')
   const [allotmentForm, setAllotmentForm] = useState({
     courseId: '',
@@ -59,6 +77,8 @@ const CourseAllotmentConfiguration = () => {
     originalFacultyId: '',
     chaptersAllocated: '',
     hoursAllocated: '',
+    commonCourse: false,
+    commonScheduleName: '',
   })
 
   const [institutions, setInstitutions] = useState([])
@@ -97,11 +117,19 @@ const CourseAllotmentConfiguration = () => {
 
   const semesterOptions = useMemo(
     () => {
+      const category = String(selectedAcademicYear?.semesterCategory || '').toUpperCase().trim()
+      const chosen = parseChosenSemesters(selectedAcademicYear?.chosenSemesters)
+      const chosenSet = new Set(chosen)
+      const allowByCategory = (n) =>
+        category === 'ODD' ? n % 2 === 1 : category === 'EVEN' ? n % 2 === 0 : true
+
       const fromMap = regulationMaps
         .filter((x) => !form.regulationId || String(x.regulationId) === String(form.regulationId))
         .filter((x) => !form.batchId || String(x.batchId) === String(form.batchId))
         .map((x) => Number(x.semester))
         .filter((x) => Number.isFinite(x) && x > 0)
+        .filter((x) => allowByCategory(x))
+        .filter((x) => (chosenSet.size ? chosenSet.has(x) : true))
 
       const unique = Array.from(new Set(fromMap)).sort((a, b) => a - b)
       if (unique.length) return unique.map((x) => ({ value: String(x), label: `Sem - ${x}` }))
@@ -132,9 +160,24 @@ const CourseAllotmentConfiguration = () => {
     const q = String(facultySearch).trim().toLowerCase()
     if (!q) return faculties
     return faculties.filter((f) =>
-      `${f.facultyCode || ''} ${f.facultyName || ''}`.toLowerCase().includes(q),
+      `${f.facultyCode || ''} ${f.facultyName || ''} ${f.departmentName || ''}`.toLowerCase().includes(q),
     )
   }, [faculties, facultySearch])
+
+  const selectedCourseForAllotment = useMemo(
+    () => courses.find((x) => String(x.courseId || x.id) === String(allotmentForm.courseId)) || null,
+    [courses, allotmentForm.courseId],
+  )
+
+  const selectedCourseTotalChapters = useMemo(() => {
+    const n = Number(selectedCourseForAllotment?.chapters)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }, [selectedCourseForAllotment])
+
+  const selectedCourseTotalHours = useMemo(() => {
+    const n = Number(selectedCourseForAllotment?.hours)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }, [selectedCourseForAllotment])
 
   useEffect(() => {
     setForm((p) => ({ ...p, semesterCategory: selectedAcademicYear?.semesterCategory || '' }))
@@ -149,7 +192,7 @@ const CourseAllotmentConfiguration = () => {
       try {
         const list = await lmsService.listFaculties({
           institutionId: form.institutionId,
-          departmentId: form.departmentId,
+          departmentId: '',
           academicYearId: form.academicYearId,
         })
         setFaculties(list)
@@ -384,6 +427,22 @@ const CourseAllotmentConfiguration = () => {
         facultyId: x.facultyId || '',
         chapters: x.chaptersAllocated ?? '-',
         hours: x.hoursAllocated ?? '-',
+        commonCourse: Boolean(x.commonCourse),
+        commonScheduleName: x.commonScheduleName || '',
+      }))
+      const courseRows = mapped.map((x, idx) => ({
+        id: `course::${x.id || idx + 1}`,
+        courseId: x.courseId || '',
+        courseOfferingId: x.id || '',
+        code: x.code || '-',
+        name: x.name || '-',
+        fid: '-',
+        fname: '-',
+        facultyId: '',
+        chapters: x.chapters ?? '-',
+        hours: x.hours ?? '-',
+        commonCourse: false,
+        commonScheduleName: '',
       }))
       let list = detailRows
       if (form.courseOfferingId) {
@@ -394,12 +453,18 @@ const CourseAllotmentConfiguration = () => {
           list = detailRows.filter((x) => String(x.courseOfferingId) === String(form.courseOfferingId))
         }
       }
+      if (!list.length) {
+        list = form.courseOfferingId
+          ? courseRows.filter((x) => String(x.courseOfferingId) === String(form.courseOfferingId))
+          : courseRows
+      }
       setRows(list)
       const hasAllotment = list.some((x) => x.facultyId)
       setForm((p) => ({ ...p, status: hasAllotment ? 'Course Allotment done' : 'Course Allotment not done' }))
       setShowDetails(true)
       setSelectedId(null)
       setAllotmentMode('')
+      setAllotmentHistory([])
       if (!mapped.length) setForm((p) => ({ ...p, status: 'Course Allotment not done' }))
     } catch (e) {
       setError(e?.response?.data?.error || 'Failed to load course allotment')
@@ -425,12 +490,15 @@ const CourseAllotmentConfiguration = () => {
     setBatches([])
     setError('')
     setAllotmentMode('')
+    setAllotmentHistory([])
     setAllotmentForm({
       courseId: '',
       facultyId: '',
       originalFacultyId: '',
       chaptersAllocated: '',
       hoursAllocated: '',
+      commonCourse: false,
+      commonScheduleName: '',
     })
   }
 
@@ -445,12 +513,15 @@ const CourseAllotmentConfiguration = () => {
     setError('')
     setSuccess('')
     setAllotmentMode('')
+    setAllotmentHistory([])
     setAllotmentForm({
       courseId: '',
       facultyId: '',
       originalFacultyId: '',
       chaptersAllocated: '',
       hoursAllocated: '',
+      commonCourse: false,
+      commonScheduleName: '',
     })
   }
 
@@ -512,6 +583,22 @@ const CourseAllotmentConfiguration = () => {
     semester: form.semester,
   })
 
+  const loadAllotmentHistory = async (courseId) => {
+    if (!courseId || !scopeReadyForTemplate) {
+      setAllotmentHistory([])
+      return
+    }
+    try {
+      setLoadingHistory(true)
+      const data = await lmsService.listCourseAllotmentHistory(buildImportScope(), courseId)
+      setAllotmentHistory(data)
+    } catch {
+      setAllotmentHistory([])
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
+
   const onAddAllocation = () => {
     if (!scopeReadyForTemplate) {
       setError('Select scope before adding course allotment')
@@ -521,16 +608,19 @@ const CourseAllotmentConfiguration = () => {
     setSuccess('')
     setAllotmentMode('ADD')
     setFacultySearch('')
+    setAllotmentHistory([])
     setAllotmentForm({
       courseId: '',
       facultyId: '',
       originalFacultyId: '',
       chaptersAllocated: '',
       hoursAllocated: '',
+      commonCourse: false,
+      commonScheduleName: '',
     })
   }
 
-  const onViewAllocation = () => {
+  const onViewAllocation = async () => {
     if (!selectedRow) return
     setAllotmentMode('VIEW')
     setFacultySearch('')
@@ -540,10 +630,13 @@ const CourseAllotmentConfiguration = () => {
       originalFacultyId: selectedRow.facultyId || '',
       chaptersAllocated: selectedRow.chapters === '-' ? '' : String(selectedRow.chapters || ''),
       hoursAllocated: selectedRow.hours === '-' ? '' : String(selectedRow.hours || ''),
+      commonCourse: Boolean(selectedRow.commonCourse),
+      commonScheduleName: selectedRow.commonScheduleName || '',
     })
+    await loadAllotmentHistory(selectedRow.courseId || '')
   }
 
-  const onEditAllocation = () => {
+  const onEditAllocation = async () => {
     if (!selectedRow) return
     setAllotmentMode('EDIT')
     setFacultySearch('')
@@ -553,7 +646,10 @@ const CourseAllotmentConfiguration = () => {
       originalFacultyId: selectedRow.facultyId || '',
       chaptersAllocated: selectedRow.chapters === '-' ? '' : String(selectedRow.chapters || ''),
       hoursAllocated: selectedRow.hours === '-' ? '' : String(selectedRow.hours || ''),
+      commonCourse: Boolean(selectedRow.commonCourse),
+      commonScheduleName: selectedRow.commonScheduleName || '',
     })
+    await loadAllotmentHistory(selectedRow.courseId || '')
   }
 
   const onDeleteAllocation = async () => {
@@ -582,12 +678,25 @@ const CourseAllotmentConfiguration = () => {
     }
     const chapters = String(allotmentForm.chaptersAllocated || '').trim()
     const hours = String(allotmentForm.hoursAllocated || '').trim()
+    const commonScheduleName = String(allotmentForm.commonScheduleName || '').trim()
     if (chapters && Number.isNaN(Number(chapters))) {
       setError('No of Chapters Allocated must be numeric')
       return
     }
     if (hours && Number.isNaN(Number(hours))) {
       setError('No of Hours Allocated must be numeric')
+      return
+    }
+    if (selectedCourseTotalChapters !== null && chapters && Number(chapters) > selectedCourseTotalChapters) {
+      setError(`No of Chapters Allocated cannot exceed Total Chapters (${selectedCourseTotalChapters})`)
+      return
+    }
+    if (selectedCourseTotalHours !== null && hours && Number(hours) > selectedCourseTotalHours) {
+      setError(`No of Hours Allocated cannot exceed Total Hours (${selectedCourseTotalHours})`)
+      return
+    }
+    if (allotmentForm.commonCourse && !commonScheduleName) {
+      setError('Common Schedule Name is required when Common Course is enabled')
       return
     }
     try {
@@ -602,6 +711,8 @@ const CourseAllotmentConfiguration = () => {
           originalFacultyId: allotmentForm.originalFacultyId || allotmentForm.facultyId,
           chaptersAllocated: chapters,
           hoursAllocated: hours,
+          commonCourse: Boolean(allotmentForm.commonCourse),
+          commonScheduleName,
         })
       } else {
         await lmsService.saveCourseAllotment(scope, {
@@ -609,18 +720,23 @@ const CourseAllotmentConfiguration = () => {
           facultyId: allotmentForm.facultyId,
           chaptersAllocated: chapters,
           hoursAllocated: hours,
+          commonCourse: Boolean(allotmentForm.commonCourse),
+          commonScheduleName,
         })
       }
       setSuccess('Course allotment record saved successfully')
       setForm((p) => ({ ...p, status: 'Course Allotment done' }))
       setAllotmentMode('')
       setFacultySearch('')
+      setAllotmentHistory([])
       setAllotmentForm({
         courseId: '',
         facultyId: '',
         originalFacultyId: '',
         chaptersAllocated: '',
         hoursAllocated: '',
+        commonCourse: false,
+        commonScheduleName: '',
       })
       await onSearch()
     } catch (e) {
@@ -762,8 +878,15 @@ const CourseAllotmentConfiguration = () => {
 
                 <CCol md={3}><CFormLabel>Action</CFormLabel></CCol>
                 <CCol md={3} className="d-flex gap-2">
-                  <ArpButton label={loading ? 'Loading...' : 'Search'} icon="search" color="primary" onClick={onSearch} disabled={loading} />
-                  <ArpButton label="Reset" icon="reset" color="secondary" onClick={onReset} />
+                  <ArpButton
+                    type="button"
+                    label={loading ? 'Loading...' : 'Search'}
+                    icon="search"
+                    color="primary"
+                    onClick={onSearch}
+                    disabled={loading}
+                  />
+                  <ArpButton type="button" label="Reset" icon="reset" color="secondary" onClick={onReset} />
                 </CCol>
               </CRow>
             </CForm>
@@ -802,6 +925,7 @@ const CourseAllotmentConfiguration = () => {
                     <CTableHeaderCell>Course Name</CTableHeaderCell>
                     <CTableHeaderCell>Faculty ID</CTableHeaderCell>
                     <CTableHeaderCell>Faculty Name</CTableHeaderCell>
+                    <CTableHeaderCell>Common</CTableHeaderCell>
                     <CTableHeaderCell>Chapters</CTableHeaderCell>
                     <CTableHeaderCell>Hours</CTableHeaderCell>
                   </CTableRow>
@@ -821,6 +945,7 @@ const CourseAllotmentConfiguration = () => {
                       <CTableDataCell>{r.name}</CTableDataCell>
                       <CTableDataCell>{r.fid}</CTableDataCell>
                       <CTableDataCell>{r.fname}</CTableDataCell>
+                      <CTableDataCell>{r.commonCourse ? 'Yes' : 'No'}</CTableDataCell>
                       <CTableDataCell>{r.chapters}</CTableDataCell>
                       <CTableDataCell>{r.hours}</CTableDataCell>
                     </CTableRow>
@@ -880,7 +1005,12 @@ const CourseAllotmentConfiguration = () => {
                       onChange={(e) => setAllotmentForm((p) => ({ ...p, facultyId: e.target.value }))}
                     >
                       <option value="">Select Faculty</option>
-                      {filteredFacultyOptions.map((x) => <option key={x.id} value={x.id}>{x.facultyCode} - {x.facultyName}</option>)}
+                      {filteredFacultyOptions.map((x) => (
+                        <option key={x.id} value={x.id}>
+                          {x.facultyCode} - {x.facultyName}
+                          {x.departmentName ? ` (${x.departmentName})` : ''}
+                        </option>
+                      ))}
                     </CFormSelect>
                   </CCol>
 
@@ -904,9 +1034,86 @@ const CourseAllotmentConfiguration = () => {
                     />
                   </CCol>
 
+                  <CCol md={3}><CFormLabel>Total Chapters (Course)</CFormLabel></CCol>
+                  <CCol md={3}>
+                    <CFormInput value={selectedCourseTotalChapters ?? '-'} disabled />
+                  </CCol>
+
+                  <CCol md={3}><CFormLabel>Total Hours (Course)</CFormLabel></CCol>
+                  <CCol md={3}>
+                    <CFormInput value={selectedCourseTotalHours ?? '-'} disabled />
+                  </CCol>
+
+                  <CCol md={3}><CFormLabel>Common Course</CFormLabel></CCol>
+                  <CCol md={3} className="d-flex align-items-center">
+                    <CFormCheck
+                      type="checkbox"
+                      checked={Boolean(allotmentForm.commonCourse)}
+                      disabled={allotmentMode === 'VIEW'}
+                      onChange={(e) => setAllotmentForm((p) => ({ ...p, commonCourse: e.target.checked }))}
+                    />
+                  </CCol>
+
+                  <CCol md={3}><CFormLabel>Common Schedule Name</CFormLabel></CCol>
+                  <CCol md={3}>
+                    <CFormInput
+                      value={allotmentForm.commonScheduleName}
+                      disabled={allotmentMode === 'VIEW'}
+                      placeholder="Common schedule label"
+                      onChange={(e) => setAllotmentForm((p) => ({ ...p, commonScheduleName: e.target.value }))}
+                    />
+                  </CCol>
+
+                  {(allotmentMode === 'VIEW' || allotmentMode === 'EDIT') && (
+                    <CCol md={12}>
+                      <CFormLabel>Allotment History</CFormLabel>
+                      {loadingHistory ? (
+                        <div className="text-muted">Loading history...</div>
+                      ) : (
+                        <CTable bordered responsive small>
+                          <CTableHead>
+                            <CTableRow>
+                              <CTableHeaderCell>Updated At</CTableHeaderCell>
+                              <CTableHeaderCell>Faculty</CTableHeaderCell>
+                              <CTableHeaderCell>Version</CTableHeaderCell>
+                              <CTableHeaderCell>Chapters</CTableHeaderCell>
+                              <CTableHeaderCell>Hours</CTableHeaderCell>
+                              <CTableHeaderCell>Status</CTableHeaderCell>
+                              <CTableHeaderCell>Carry Forward</CTableHeaderCell>
+                            </CTableRow>
+                          </CTableHead>
+                          <CTableBody>
+                            {allotmentHistory.length ? (
+                              allotmentHistory.map((h) => (
+                                <CTableRow key={h.id}>
+                                  <CTableDataCell>{h.updatedAt ? String(h.updatedAt).slice(0, 19).replace('T', ' ') : '-'}</CTableDataCell>
+                                  <CTableDataCell>{h.facultyCode || '-'} - {h.facultyName || '-'}</CTableDataCell>
+                                  <CTableDataCell>{h.versionNo || 1}</CTableDataCell>
+                                  <CTableDataCell>{h.chaptersAllocated ?? '-'}</CTableDataCell>
+                                  <CTableDataCell>{h.hoursAllocated ?? '-'}</CTableDataCell>
+                                  <CTableDataCell>{h.isActive ? 'Active' : 'Inactive'}</CTableDataCell>
+                                  <CTableDataCell>
+                                    {h?.carryForward?.fromFacultyId
+                                      ? `${h.carryForward.fromFacultyId} (${h?.carryForward?.chaptersAllocated ?? '-'} / ${h?.carryForward?.hoursAllocated ?? '-'})`
+                                      : '-'}
+                                  </CTableDataCell>
+                                </CTableRow>
+                              ))
+                            ) : (
+                              <CTableRow>
+                                <CTableDataCell colSpan={7} className="text-center text-muted">No history available</CTableDataCell>
+                              </CTableRow>
+                            )}
+                          </CTableBody>
+                        </CTable>
+                      )}
+                    </CCol>
+                  )}
+
                   <CCol md={12} className="d-flex justify-content-end gap-2">
                     {allotmentMode === 'VIEW' ? null : (
                       <ArpButton
+                        type="button"
                         label={savingAllotment ? 'Saving...' : 'Save'}
                         icon="save"
                         color="success"
@@ -915,18 +1122,22 @@ const CourseAllotmentConfiguration = () => {
                       />
                     )}
                     <ArpButton
+                      type="button"
                       label="Cancel"
                       icon="cancel"
                       color="secondary"
                       onClick={() => {
                         setAllotmentMode('')
                         setFacultySearch('')
+                        setAllotmentHistory([])
                         setAllotmentForm({
                           courseId: '',
                           facultyId: '',
                           originalFacultyId: '',
                           chaptersAllocated: '',
                           hoursAllocated: '',
+                          commonCourse: false,
+                          commonScheduleName: '',
                         })
                       }}
                     />

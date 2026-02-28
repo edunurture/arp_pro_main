@@ -127,7 +127,6 @@ const _nav = [
       { component: CNavItem, name: 'Activities', to: '/lms/activities' },
       { component: CNavItem, name: 'Learner Activities', to: '/lms/learner-activities' },
       { component: CNavItem, name: 'Assignments', to: '/lms/assignments' },
-      { component: CNavItem, name: 'Internal Assessment', to: '/lms/internal-assessment' },
     ],
   },
 

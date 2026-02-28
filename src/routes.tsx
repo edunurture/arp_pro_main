@@ -34,7 +34,6 @@ const Attendance = React.lazy(() => import('./views/lms/Attendance'))
 const LearningActivities = React.lazy(() => import('./views/lms/LearningActivities'))
 const LearnerActivities = React.lazy(() => import('./views/lms/learner-activities'))
 const Assignments = React.lazy(() => import('./views/lms/Assignments'))
-const InternalAssessment = React.lazy(() => import('./views/lms/InternalAssessment'))
 const SyllabusCompletion = React.lazy(() => import('./views/lms/SyllabusCompletion'))
 const OnlineClasses = React.lazy(() => import('./views/lms/OnlineClasses'))
 
@@ -203,7 +202,6 @@ const routes = [
   { path: '/lms/online-classes', name: 'Online Classes', element: OnlineClasses},
   { path: '/lms/activities', name: 'Activities', element: LearningActivities },
   { path: '/lms/learner-activities', name: 'Learner Activities', element: LearnerActivities },
-  { path: '/lms/internal-assessment', name: 'Internal Assessment', element: InternalAssessment},
 
   // ===== Phase 4 : Academic Events =====
   { path: '/academics/tutor-ward', name: 'Tutor Ward', element: TutorWard },

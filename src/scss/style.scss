@@ -172,6 +172,23 @@ body {
   outline-color: var(--cui-info);
 }
 
+/* CIA Components: make computation checkboxes visible on light backgrounds */
+.arp-cia-components-compute .arp-checkbox-black .form-check-input {
+  border-color: #000 !important;
+}
+
+.arp-cia-components-compute .form-check-input.arp-checkbox-black {
+  border-color: #000 !important;
+}
+
+.arp-cia-components-compute .arp-checkbox-black .form-check-input:disabled {
+  border-color: #000 !important;
+}
+
+.arp-cia-components-compute .form-check-input.arp-checkbox-black:disabled {
+  border-color: #000 !important;
+}
+
 /* ARP: Compact Radio Button for DataTables */
 .arp-radio {
   width: 12px;

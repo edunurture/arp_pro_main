@@ -114,7 +114,6 @@ const _nav: NavItem[] = [
       // If you later add a dedicated route for Learner Activities, update this path.
       { component: CNavItem, name: 'Learner Activities', to: '/lms/learner-activities' },
       { component: CNavItem, name: 'Assignments', to: '/lms/assignments' },
-      { component: CNavItem, name: 'Internal Assessment', to: '/lms/internal-assessment' },
     ],
   },
 

@@ -68,6 +68,14 @@ export default function AcademicYearConfiguration() {
 
   const [loading, setLoading] = useState(false)
   const [alert, setAlert] = useState({ type: '', msg: '' })
+  const [copyOpen, setCopyOpen] = useState(false)
+  const [copyForm, setCopyForm] = useState({
+    sourceAcademicYearId: '',
+    targetAcademicYearId: '',
+    regulationMaps: true,
+    courseOfferings: true,
+    calendarPatterns: false,
+  })
 
   const isAyMode = mode === 'AY'
   const isCalMode = mode === 'CAL'
@@ -211,6 +219,59 @@ export default function AcademicYearConfiguration() {
   }
 
   const onCancel = () => resetForm()
+
+  const onCopyConfig = async () => {
+    const sourceAcademicYearId = String(copyForm.sourceAcademicYearId || '').trim()
+    const targetAcademicYearId = String(copyForm.targetAcademicYearId || '').trim()
+    const hasAnyOption = copyForm.regulationMaps || copyForm.courseOfferings || copyForm.calendarPatterns
+
+    if (!institutionId) return showAlert('danger', 'Institution is required')
+    if (!sourceAcademicYearId || !targetAcademicYearId) {
+      return showAlert('danger', 'Select both Source and Target Academic Year')
+    }
+    if (sourceAcademicYearId === targetAcademicYearId) {
+      return showAlert('danger', 'Source and Target Academic Year cannot be the same')
+    }
+    if (!hasAnyOption) return showAlert('danger', 'Select at least one configuration to copy')
+
+    setLoading(true)
+    try {
+      const res = await api.post(
+        '/api/setup/academic-year/copy-config',
+        {
+          sourceAcademicYearId,
+          targetAcademicYearId,
+          options: {
+            regulationMaps: !!copyForm.regulationMaps,
+            courseOfferings: !!copyForm.courseOfferings,
+            calendarPatterns: !!copyForm.calendarPatterns,
+          },
+        },
+        { headers: { 'x-institution-id': institutionId } },
+      )
+      const summary = res?.data?.data?.summary || {}
+      const rm = summary?.regulationMaps || {}
+      const co = summary?.courseOfferings || {}
+      const cal = summary?.calendarPatterns || {}
+      showAlert(
+        'success',
+        `Copied successfully. RM: ${rm.created || 0} created, ${rm.reused || 0} reused | CO: ${co.created || 0} created, ${co.updated || 0} updated | CAL: ${cal.created || 0} created`,
+      )
+      setCopyOpen(false)
+      setCopyForm({
+        sourceAcademicYearId: '',
+        targetAcademicYearId: '',
+        regulationMaps: true,
+        courseOfferings: true,
+        calendarPatterns: false,
+      })
+      await loadAll()
+    } catch (e) {
+      showAlert('danger', e?.response?.data?.error || 'Copy failed')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // ---------------------------
   // Save (API)
@@ -540,6 +601,12 @@ export default function AcademicYearConfiguration() {
           <div className="d-flex gap-2 align-items-center flex-wrap">
             <ArpButton label="Add Academic Year" icon="add" color="purple" onClick={startAddAy} />
             <ArpButton label="Add Calendar Pattern" icon="add" color="info" onClick={startAddCal} />
+            <ArpButton
+              label={copyOpen ? 'Close Copy' : 'Copy ODD/EVEN Config'}
+              icon={copyOpen ? 'cancel' : 'save'}
+              color="secondary"
+              onClick={() => setCopyOpen((p) => !p)}
+            />
           </div>
         </CCardHeader>
         <CCardBody>
@@ -564,6 +631,66 @@ export default function AcademicYearConfiguration() {
               </CFormSelect>
             </CCol>
           </CRow>
+          {copyOpen ? (
+            <>
+              <hr />
+              <CRow className="g-3 align-items-end">
+                <CCol md={4}>
+                  <CFormLabel>Source Academic Year</CFormLabel>
+                  <CFormSelect
+                    value={copyForm.sourceAcademicYearId}
+                    onChange={(e) => setCopyForm((p) => ({ ...p, sourceAcademicYearId: e.target.value }))}
+                    disabled={loading}
+                  >
+                    <option value="">-- Select Source --</option>
+                    {ayRows.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.academicYearLabel || `${a.academicYear}${a.semesterCategory ? ` (${a.semesterCategory})` : ''}`}
+                      </option>
+                    ))}
+                  </CFormSelect>
+                </CCol>
+                <CCol md={4}>
+                  <CFormLabel>Target Academic Year</CFormLabel>
+                  <CFormSelect
+                    value={copyForm.targetAcademicYearId}
+                    onChange={(e) => setCopyForm((p) => ({ ...p, targetAcademicYearId: e.target.value }))}
+                    disabled={loading}
+                  >
+                    <option value="">-- Select Target --</option>
+                    {ayRows.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.academicYearLabel || `${a.academicYear}${a.semesterCategory ? ` (${a.semesterCategory})` : ''}`}
+                      </option>
+                    ))}
+                  </CFormSelect>
+                </CCol>
+                <CCol md={4} className="d-flex gap-3 flex-wrap">
+                  <CFormCheck
+                    label="Regulation Maps"
+                    checked={copyForm.regulationMaps}
+                    onChange={(e) => setCopyForm((p) => ({ ...p, regulationMaps: e.target.checked }))}
+                    disabled={loading}
+                  />
+                  <CFormCheck
+                    label="Course Offerings"
+                    checked={copyForm.courseOfferings}
+                    onChange={(e) => setCopyForm((p) => ({ ...p, courseOfferings: e.target.checked }))}
+                    disabled={loading}
+                  />
+                  <CFormCheck
+                    label="Calendar Patterns"
+                    checked={copyForm.calendarPatterns}
+                    onChange={(e) => setCopyForm((p) => ({ ...p, calendarPatterns: e.target.checked }))}
+                    disabled={loading}
+                  />
+                </CCol>
+                <CCol xs={12} className="d-flex justify-content-end">
+                  <ArpButton label="Copy Configuration" icon="save" color="success" onClick={onCopyConfig} disabled={loading} />
+                </CCol>
+              </CRow>
+            </>
+          ) : null}
         </CCardBody>
       </CCard>
 

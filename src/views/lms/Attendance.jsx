@@ -1,481 +1,613 @@
 import React, { useMemo, useState } from 'react'
 import {
+  CAlert,
+  CBadge,
+  CButton,
   CCard,
-  CCardHeader,
   CCardBody,
-  CRow,
+  CCardHeader,
   CCol,
   CForm,
+  CFormInput,
   CFormLabel,
   CFormSelect,
-  CFormInput,
-  CButton,
+  CRow,
+  CSpinner,
   CTable,
-  CTableHead,
-  CTableRow,
-  CTableHeaderCell,
   CTableBody,
   CTableDataCell,
-  CFormCheck,
-  CBadge,
-  CDropdown,
-  CDropdownToggle,
-  CDropdownMenu,
-  CDropdownItem,
-  CTooltip,
+  CTableHead,
+  CTableHeaderCell,
+  CTableRow,
 } from '@coreui/react-pro'
-import CIcon from '@coreui/icons-react'
-import { cilSearch, cilSave, cilX, cilCheckCircle } from '@coreui/icons'
+import { ArpButton } from '../../components/common'
+import { lmsService, semesterOptionsFromAcademicYear } from '../../services/lmsService'
 
-/**
- * AttendanceConfiguration_full.js
- * Converted from attendance.html (no jQuery, no DOM injection)
- * 3-stage flow:
- * 1) Search Filters
- * 2) Timetable Grid (Record Attendance per slot)
- * 3) Attendance Entry (P/A/OD/L/LA with column + row logic)
- *
- * NOTE: Replace mock data + API hooks as needed.
- */
+const STATUS_OPTIONS = ['P', 'A', 'OD', 'L', 'LA']
 
-const STATUSES = ['P', 'A', 'OD', 'L', 'LA']
+const todayIso = () => {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
-const CircleBtn = ({ color = 'primary', title, icon, onClick, disabled }) => (
-  <CButton
-    color={color}
-    className="rounded-circle d-inline-flex align-items-center justify-content-center"
-    style={{ width: 36, height: 36, padding: 0 }}
-    onClick={onClick}
-    disabled={disabled}
-    title={title}
-    type="button"
-  >
-    <CIcon icon={icon} size="sm" />
-  </CButton>
-)
+const initialForm = {
+  institutionId: '',
+  departmentId: '',
+  programmeId: '',
+  regulationId: '',
+  academicYearId: '',
+  batchId: '',
+  semester: '',
+  facultyId: '',
+  date: todayIso(),
+}
 
 const AttendanceConfiguration = () => {
-  // stage control
-  const [showTimetable, setShowTimetable] = useState(false)
-  const [showAttendance, setShowAttendance] = useState(false)
+  const [form, setForm] = useState(initialForm)
+  const [institutions, setInstitutions] = useState([])
+  const [departments, setDepartments] = useState([])
+  const [programmes, setProgrammes] = useState([])
+  const [regulations, setRegulations] = useState([])
+  const [academicYears, setAcademicYears] = useState([])
+  const [batches, setBatches] = useState([])
+  const [faculties, setFaculties] = useState([])
 
-  // selected slot for attendance
-  const [selectedSlot, setSelectedSlot] = useState(null) // { dayOrder, hour, courseCode, courseName, facultyId, facultyName }
-
-  // filters (mock)
-  const [filters, setFilters] = useState({
-    academicYear: '',
-    semester: '',
-    programmeCode: '',
-    programmeName: 'Automatically Fetched',
-    courseName: '',
-    faculty: '',
-    className: '',
-    attendanceDate: '',
+  const [sessions, setSessions] = useState([])
+  const [selectedSession, setSelectedSession] = useState(null)
+  const [roster, setRoster] = useState([])
+  const [reportRows, setReportRows] = useState([])
+  const [reportMeta, setReportMeta] = useState({
+    totalSessions: 0,
+    totalStudents: 0,
+    shortageCount: 0,
+    threshold: 75,
   })
 
-  // mock timetable data (Day Order x Hours)
-  const timetable = useMemo(() => {
-    const days = [
-      { dayOrder: 'I', label: 'Day Order - I' },
-      { dayOrder: 'II', label: 'Day Order - II' },
-      { dayOrder: 'III', label: 'Day Order - III' },
-      { dayOrder: 'IV', label: 'Day Order - IV' },
-      { dayOrder: 'V', label: 'Day Order - V' },
-    ]
-    const hours = ['1', '2', '3', '4', '5', '6']
-    return { days, hours }
+  const [loadingSessions, setLoadingSessions] = useState(false)
+  const [loadingRoster, setLoadingRoster] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
+
+  const scope = useMemo(
+    () => ({
+      institutionId: form.institutionId,
+      departmentId: form.departmentId,
+      programmeId: form.programmeId,
+      regulationId: form.regulationId,
+      academicYearId: form.academicYearId,
+      batchId: form.batchId,
+      semester: form.semester,
+    }),
+    [form],
+  )
+
+  const selectedAcademicYear = useMemo(
+    () => academicYears.find((x) => String(x.id) === String(form.academicYearId)) || null,
+    [academicYears, form.academicYearId],
+  )
+  const semesterOptions = useMemo(() => semesterOptionsFromAcademicYear(selectedAcademicYear), [selectedAcademicYear])
+
+  const rosterSummary = useMemo(() => {
+    const total = roster.length
+    const counts = { P: 0, A: 0, OD: 0, L: 0, LA: 0 }
+    roster.forEach((x) => {
+      if (counts[x.attendanceCode] !== undefined) counts[x.attendanceCode] += 1
+    })
+    const presentLike = counts.P + counts.OD + counts.L
+    const percentage = total ? Math.round((presentLike / total) * 10000) / 100 : 0
+    return { total, ...counts, percentage }
+  }, [roster])
+
+  React.useEffect(() => {
+    ;(async () => {
+      try {
+        setInstitutions(await lmsService.listInstitutions())
+      } catch {
+        setError('Failed to load institutions')
+      }
+    })()
   }, [])
 
-  const slotMeta = useMemo(
-    () => ({
-      courseCode: '23-2AA-11T',
-      courseName: 'Language - I',
-      facultyId: '23KCAS01',
-      facultyName: 'Dr. M. Elamparithi',
-      attendanceStatus: 'Attendance not Recorded',
-    }),
-    [],
-  )
+  const onChange = (key) => async (e) => {
+    const value = e.target.value
+    setError('')
+    setInfo('')
 
-  // mock students
-  const students = useMemo(
-    () => [
-      { id: '22MCA001', name: 'Student 1' },
-      { id: '22MCA002', name: 'Student 2' },
-      { id: '22MCA003', name: 'Student 3' },
-      { id: '22MCA004', name: 'Student 4' },
-      { id: '22MCA005', name: 'Student 5' },
-    ],
-    [],
-  )
-
-  // attendance state: { [studentId]: 'P'|'A'|'OD'|'L'|'LA'|null }
-  const [attendance, setAttendance] = useState({})
-
-  // helper: set exactly one status per student
-  const setStudentStatus = (studentId, status) => {
-    setAttendance((prev) => ({
-      ...prev,
-      [studentId]: prev[studentId] === status ? null : status,
-    }))
-  }
-
-  // column select: set all students to status
-  const setColumnStatus = (status) => {
-    const next = {}
-    students.forEach((s) => {
-      next[s.id] = status
-    })
-    setAttendance(next)
-  }
-
-  // compute totals + percentage (based on P vs total)
-  const totals = useMemo(() => {
-    let P = 0
-    let A = 0
-    let OD = 0
-    let L = 0
-    let LA = 0
-    students.forEach((s) => {
-      const v = attendance[s.id]
-      if (v === 'P') P += 1
-      if (v === 'A') A += 1
-      if (v === 'OD') OD += 1
-      if (v === 'L') L += 1
-      if (v === 'LA') LA += 1
-    })
-    const total = students.length
-    const pct = total ? Math.round((P / total) * 100) : 0
-    return { total, P, A, OD, L, LA, pct }
-  }, [attendance, students])
-
-  const resetAll = () => {
-    setShowTimetable(false)
-    setShowAttendance(false)
-    setSelectedSlot(null)
-    setAttendance({})
-    setFilters((f) => ({
-      ...f,
-      academicYear: '',
-      semester: '',
-      programmeCode: '',
-      programmeName: 'Automatically Fetched',
-      courseName: '',
-      faculty: '',
-      className: '',
-      attendanceDate: '',
-    }))
-  }
-
-  const onSearch = (e) => {
-    e?.preventDefault?.()
-    setShowTimetable(true)
-    setShowAttendance(false)
-    setSelectedSlot(null)
-    setAttendance({})
-  }
-
-  const onRecordAttendance = (dayOrder, hour) => {
-    const slot = {
-      dayOrder,
-      hour,
-      courseCode: slotMeta.courseCode,
-      courseName: slotMeta.courseName,
-      facultyId: slotMeta.facultyId,
-      facultyName: slotMeta.facultyName,
+    if (key === 'institutionId') {
+      setForm((p) => ({
+        ...p,
+        institutionId: value,
+        departmentId: '',
+        programmeId: '',
+        regulationId: '',
+        academicYearId: '',
+        batchId: '',
+        semester: '',
+        facultyId: '',
+      }))
+      setDepartments([])
+      setProgrammes([])
+      setRegulations([])
+      setAcademicYears([])
+      setBatches([])
+      setFaculties([])
+      setSessions([])
+      setSelectedSession(null)
+      setRoster([])
+      setReportRows([])
+      if (!value) return
+      try {
+        const [d, ay, b] = await Promise.all([
+          lmsService.listDepartments(value),
+          lmsService.listAcademicYears(value),
+          lmsService.listBatches(value),
+        ])
+        setDepartments(d)
+        setAcademicYears(ay)
+        setBatches(b)
+      } catch {
+        setError('Failed to load institution scope')
+      }
+      return
     }
-    setSelectedSlot(slot)
-    setShowAttendance(true)
-    setAttendance({}) // fresh per slot
+
+    if (key === 'departmentId') {
+      setForm((p) => ({ ...p, departmentId: value, programmeId: '', regulationId: '', facultyId: '' }))
+      setProgrammes([])
+      setRegulations([])
+      setFaculties([])
+      setSessions([])
+      setSelectedSession(null)
+      setRoster([])
+      setReportRows([])
+      if (!value || !form.institutionId) return
+      try {
+        setProgrammes(await lmsService.listProgrammes(form.institutionId, value))
+      } catch {
+        setError('Failed to load programmes')
+      }
+      return
+    }
+
+    if (key === 'programmeId') {
+      setForm((p) => ({ ...p, programmeId: value, regulationId: '' }))
+      setRegulations([])
+      setSessions([])
+      setSelectedSession(null)
+      setRoster([])
+      setReportRows([])
+      if (!value || !form.institutionId) return
+      try {
+        setRegulations(await lmsService.listRegulations(form.institutionId, value))
+      } catch {
+        setError('Failed to load regulations')
+      }
+      return
+    }
+
+    if (key === 'academicYearId') {
+      setForm((p) => ({ ...p, academicYearId: value, semester: '', facultyId: '' }))
+      setFaculties([])
+      setSessions([])
+      setSelectedSession(null)
+      setRoster([])
+      setReportRows([])
+      if (!form.institutionId || !form.departmentId || !value) return
+      try {
+        setFaculties(
+          await lmsService.listFaculties({
+            institutionId: form.institutionId,
+            departmentId: form.departmentId,
+            academicYearId: value,
+          }),
+        )
+      } catch {
+        setError('Failed to load faculties')
+      }
+      return
+    }
+
+    setForm((p) => ({ ...p, [key]: value }))
   }
 
-  const onSaveAttendance = () => {
-    // TODO: Replace with API call
-    // payload example:
-    // { filters, slot: selectedSlot, attendance }
-    // For now, just keep state.
-    // You can show a toast here in your project.
+  const validateScope = () => {
+    if (!form.institutionId || !form.departmentId || !form.programmeId || !form.regulationId) {
+      setError('Select Institution, Department, Programme and Regulation')
+      return false
+    }
+    if (!form.academicYearId || !form.batchId || !form.semester) {
+      setError('Select Academic Year, Batch and Semester')
+      return false
+    }
+    if (!form.facultyId) {
+      setError('Select faculty')
+      return false
+    }
+    if (!form.date) {
+      setError('Select attendance date')
+      return false
+    }
+    return true
+  }
+
+  const onSearchSessions = async (e) => {
+    e?.preventDefault?.()
+    setError('')
+    setInfo('')
+    if (!validateScope()) return
+
+    try {
+      setLoadingSessions(true)
+      setSelectedSession(null)
+      setRoster([])
+      setReportRows([])
+      const rows = await lmsService.getFacultyLectureSchedule(scope, {
+        facultyId: form.facultyId,
+        view: 'date',
+        date: form.date,
+      })
+      setSessions(Array.isArray(rows) ? rows : [])
+      if (!rows?.length) setInfo('No lecture sessions found for selected date')
+    } catch (err) {
+      setSessions([])
+      setError(err?.response?.data?.error || 'Failed to load lecture sessions')
+    } finally {
+      setLoadingSessions(false)
+    }
+  }
+
+  const loadCourseReport = async (session) => {
+    if (!session?.courseOfferingId) return
+    try {
+      const report = await lmsService.getAttendanceCourseReport(scope, {
+        courseOfferingId: session.courseOfferingId,
+        classId: session.classId,
+        facultyId: form.facultyId,
+        date: session.sessionDate || form.date,
+        threshold: 75,
+      })
+      const meta = report?.meta || {}
+      setReportRows(Array.isArray(report?.rows) ? report.rows : [])
+      setReportMeta({
+        totalSessions: Number(meta?.totalSessions || report?.totalSessions || 0),
+        totalStudents: Number(meta?.totalStudents || report?.totalStudents || 0),
+        shortageCount: Number(meta?.shortageCount || report?.shortageCount || 0),
+        threshold: Number(report?.filters?.threshold || report?.threshold || 75),
+      })
+    } catch {
+      setReportRows([])
+      setReportMeta({
+        totalSessions: 0,
+        totalStudents: 0,
+        shortageCount: 0,
+        threshold: 75,
+      })
+    }
+  }
+
+  const onSelectSession = async (session) => {
+    setError('')
+    setInfo('')
+    setSelectedSession(session)
+    setRoster([])
+    try {
+      setLoadingRoster(true)
+      const data = await lmsService.getLectureAttendanceRoster(session.id, scope, {
+        facultyId: form.facultyId,
+        date: session.sessionDate || form.date,
+      })
+      setRoster(Array.isArray(data?.students) ? data.students : [])
+      await loadCourseReport(session)
+    } catch (err) {
+      setRoster([])
+      setError(err?.response?.data?.error || 'Failed to load attendance roster')
+    } finally {
+      setLoadingRoster(false)
+    }
+  }
+
+  const setAllStatus = (status) => {
+    setRoster((prev) => prev.map((x) => ({ ...x, attendanceCode: status })))
+  }
+
+  const setRowStatus = (studentId, status) => {
+    setRoster((prev) =>
+      prev.map((x) => (String(x.studentId) === String(studentId) ? { ...x, attendanceCode: status } : x)),
+    )
+  }
+
+  const onSave = async () => {
+    setError('')
+    setInfo('')
+    if (!selectedSession?.id) {
+      setError('Select a lecture session first')
+      return
+    }
+    if (!roster.length) {
+      setError('No students found to mark attendance')
+      return
+    }
+    try {
+      setSaving(true)
+      await lmsService.saveLectureAttendance(selectedSession.id, scope, {
+        facultyId: form.facultyId,
+        date: selectedSession.sessionDate || form.date,
+        entries: roster.map((x) => ({
+          studentId: x.studentId,
+          attendanceCode: x.attendanceCode,
+          remarks: x.remarks || '',
+        })),
+      })
+      setInfo('Attendance saved successfully')
+      await Promise.all([onSelectSession(selectedSession), onSearchSessions()])
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to save attendance')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <CRow>
       <CCol xs={12}>
-        {/* HEADER */}
         <CCard className="mb-3">
           <CCardHeader>
-            <strong>ATTENDANCE</strong>
+            <strong>Attendance</strong>
           </CCardHeader>
         </CCard>
 
-        {/* FILTER FORM */}
+        {error ? <CAlert color="danger">{error}</CAlert> : null}
+        {info ? <CAlert color="success">{info}</CAlert> : null}
+
         <CCard className="mb-3">
-          <CCardHeader>
-            <strong>Course Selection</strong>
-          </CCardHeader>
+          <CCardHeader><strong>Lecture Scope</strong></CCardHeader>
           <CCardBody>
-            <CForm onSubmit={onSearch}>
+            <CForm onSubmit={onSearchSessions}>
               <CRow className="g-3">
+                <CCol md={3}><CFormLabel>Institution</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.institutionId} onChange={onChange('institutionId')}>
+                    <option value="">Select</option>
+                    {institutions.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                  </CFormSelect>
+                </CCol>
+
+                <CCol md={3}><CFormLabel>Department</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.departmentId} onChange={onChange('departmentId')}>
+                    <option value="">Select</option>
+                    {departments.map((x) => <option key={x.id} value={x.id}>{x.departmentName}</option>)}
+                  </CFormSelect>
+                </CCol>
+
+                <CCol md={3}><CFormLabel>Programme</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.programmeId} onChange={onChange('programmeId')}>
+                    <option value="">Select</option>
+                    {programmes.map((x) => <option key={x.id} value={x.id}>{x.programmeCode} - {x.programmeName}</option>)}
+                  </CFormSelect>
+                </CCol>
+
+                <CCol md={3}><CFormLabel>Regulation</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.regulationId} onChange={onChange('regulationId')}>
+                    <option value="">Select</option>
+                    {regulations.map((x) => <option key={x.id} value={x.id}>{x.regulationCode}</option>)}
+                  </CFormSelect>
+                </CCol>
+
                 <CCol md={3}><CFormLabel>Academic Year</CFormLabel></CCol>
                 <CCol md={3}>
-                  <CFormSelect
-                    value={filters.academicYear}
-                    onChange={(e) => setFilters((p) => ({ ...p, academicYear: e.target.value }))}
-                  >
+                  <CFormSelect value={form.academicYearId} onChange={onChange('academicYearId')}>
                     <option value="">Select</option>
-                    <option value="2025-26">2025 - 26</option>
-                    <option value="2026-27">2026 - 27</option>
+                    {academicYears.map((x) => <option key={x.id} value={x.id}>{x.academicYearLabel || x.academicYear}</option>)}
+                  </CFormSelect>
+                </CCol>
+
+                <CCol md={3}><CFormLabel>Batch</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.batchId} onChange={onChange('batchId')}>
+                    <option value="">Select</option>
+                    {batches.map((x) => <option key={x.id} value={x.id}>{x.batchName}</option>)}
                   </CFormSelect>
                 </CCol>
 
                 <CCol md={3}><CFormLabel>Semester</CFormLabel></CCol>
                 <CCol md={3}>
-                  <CFormSelect
-                    value={filters.semester}
-                    onChange={(e) => setFilters((p) => ({ ...p, semester: e.target.value }))}
-                  >
+                  <CFormSelect value={form.semester} onChange={onChange('semester')}>
                     <option value="">Select</option>
-                    <option value="Sem-1">Sem - 1</option>
-                    <option value="Sem-3">Sem - 3</option>
-                  </CFormSelect>
-                </CCol>
-
-                <CCol md={3}><CFormLabel>Programme Code</CFormLabel></CCol>
-                <CCol md={3}>
-                  <CFormSelect
-                    value={filters.programmeCode}
-                    onChange={(e) => setFilters((p) => ({ ...p, programmeCode: e.target.value }))}
-                  >
-                    <option value="">Select</option>
-                    <option value="N6MCA">N6MCA</option>
-                    <option value="N6MBA">N6MBA</option>
-                  </CFormSelect>
-                </CCol>
-
-                <CCol md={3}><CFormLabel>Programme Name</CFormLabel></CCol>
-                <CCol md={3}>
-                  <CFormInput value={filters.programmeName} disabled />
-                </CCol>
-
-                <CCol md={3}><CFormLabel>Course Name</CFormLabel></CCol>
-                <CCol md={3}>
-                  <CFormSelect
-                    value={filters.courseName}
-                    onChange={(e) => setFilters((p) => ({ ...p, courseName: e.target.value }))}
-                  >
-                    <option value="">Select</option>
-                    <option value="Language-I">Language - I</option>
-                    <option value="English-I">English - I</option>
+                    {semesterOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
                   </CFormSelect>
                 </CCol>
 
                 <CCol md={3}><CFormLabel>Faculty</CFormLabel></CCol>
                 <CCol md={3}>
-                  <CFormSelect
-                    value={filters.faculty}
-                    onChange={(e) => setFilters((p) => ({ ...p, faculty: e.target.value }))}
-                  >
+                  <CFormSelect value={form.facultyId} onChange={onChange('facultyId')}>
                     <option value="">Select</option>
-                    <option value="23KCAS01">23KCAS01 - Dr. M. Elamparithi</option>
-                    <option value="23KCAS02">23KCAS02 - Dr. M. Senthil</option>
+                    {faculties.map((x) => <option key={x.id} value={x.id}>{x.facultyCode} - {x.facultyName}</option>)}
                   </CFormSelect>
                 </CCol>
 
-                <CCol md={3}><CFormLabel>Class</CFormLabel></CCol>
+                <CCol md={3}><CFormLabel>Date</CFormLabel></CCol>
                 <CCol md={3}>
-                  <CFormSelect
-                    value={filters.className}
-                    onChange={(e) => setFilters((p) => ({ ...p, className: e.target.value }))}
-                  >
-                    <option value="">Select</option>
-                    <option value="I-MCA-A">I MCA - A</option>
-                    <option value="I-MBA-A">I MBA - A</option>
-                  </CFormSelect>
+                  <CFormInput type="date" value={form.date} onChange={onChange('date')} />
                 </CCol>
 
-                <CCol md={3}><CFormLabel>Attendance Date</CFormLabel></CCol>
-                <CCol md={3}>
-                  <CFormInput
-                    type="date"
-                    value={filters.attendanceDate}
-                    onChange={(e) => setFilters((p) => ({ ...p, attendanceDate: e.target.value }))}
-                  />
-                </CCol>
-
-                <CCol md={12} className="d-flex justify-content-end gap-2 mt-2">
-                  <CButton color="primary" type="submit" className="d-inline-flex align-items-center gap-2">
-                    <CIcon icon={cilSearch} />
-                    Search
-                  </CButton>
-                  <CButton color="secondary" type="button" onClick={resetAll} className="d-inline-flex align-items-center gap-2">
-                    <CIcon icon={cilX} />
-                    Cancel
-                  </CButton>
+                <CCol md={12} className="text-end">
+                  <ArpButton label="Search Sessions" icon="search" color="primary" type="submit" />
                 </CCol>
               </CRow>
             </CForm>
           </CCardBody>
         </CCard>
 
-        {/* TIMETABLE GRID */}
-        {showTimetable && (
+        <CCard className="mb-3">
+          <CCardHeader className="d-flex justify-content-between align-items-center">
+            <strong>Lecture Sessions</strong>
+            {loadingSessions ? <CSpinner size="sm" /> : <CBadge color="primary">Total: {sessions.length}</CBadge>}
+          </CCardHeader>
+          <CCardBody>
+            <CTable bordered hover responsive small>
+              <CTableHead>
+                <CTableRow>
+                  <CTableHeaderCell>Date</CTableHeaderCell>
+                  <CTableHeaderCell>Hour</CTableHeaderCell>
+                  <CTableHeaderCell>Course</CTableHeaderCell>
+                  <CTableHeaderCell>Class</CTableHeaderCell>
+                  <CTableHeaderCell>Attendance</CTableHeaderCell>
+                  <CTableHeaderCell>Action</CTableHeaderCell>
+                </CTableRow>
+              </CTableHead>
+              <CTableBody>
+                {sessions.length ? sessions.map((x) => (
+                  <CTableRow key={`${x.id}-${x.sessionDate}-${x.hourLabel}`}>
+                    <CTableDataCell>{x.sessionDate || '-'}</CTableDataCell>
+                    <CTableDataCell>{x.hourLabel ? `Hour ${x.hourLabel}` : '-'} ({x.timeFrom || '-'} - {x.timeTo || '-'})</CTableDataCell>
+                    <CTableDataCell>{x.courseCode} - {x.courseTitle}</CTableDataCell>
+                    <CTableDataCell>{x.className || '-'} {x.classLabel ? `(${x.classLabel})` : ''}</CTableDataCell>
+                    <CTableDataCell>
+                      <CBadge color={String(x.attendanceStatus || '').toUpperCase() === 'TAKEN' ? 'success' : 'secondary'}>
+                        {x.attendanceStatus || 'NOT_TAKEN'}
+                      </CBadge>
+                    </CTableDataCell>
+                    <CTableDataCell>
+                      <CButton size="sm" color="primary" onClick={() => onSelectSession(x)}>Mark Attendance</CButton>
+                    </CTableDataCell>
+                  </CTableRow>
+                )) : (
+                  <CTableRow>
+                    <CTableDataCell colSpan={6} className="text-center">No sessions</CTableDataCell>
+                  </CTableRow>
+                )}
+              </CTableBody>
+            </CTable>
+          </CCardBody>
+        </CCard>
+
+        {selectedSession ? (
           <CCard className="mb-3">
             <CCardHeader className="d-flex justify-content-between align-items-center">
-              <strong>Time Table</strong>
-              {selectedSlot && (
-                <CBadge color="info">
-                  Selected: Day {selectedSlot.dayOrder} | Hour {selectedSlot.hour}
-                </CBadge>
-              )}
-            </CCardHeader>
-            <CCardBody>
-              <CTable bordered responsive align="middle">
-                <CTableHead>
-                  <CTableRow>
-                    <CTableHeaderCell style={{ width: 160 }}>Day Order</CTableHeaderCell>
-                    {timetable.hours.map((h) => (
-                      <CTableHeaderCell key={h}>Hour {h}</CTableHeaderCell>
-                    ))}
-                  </CTableRow>
-                </CTableHead>
-                <CTableBody>
-                  {timetable.days.map((d) => (
-                    <CTableRow key={d.dayOrder}>
-                      <CTableDataCell>
-                        <CFormInput value={d.label} disabled />
-                      </CTableDataCell>
-                      {timetable.hours.map((h) => (
-                        <CTableDataCell key={h}>
-                          <CTooltip
-                            placement="top"
-                            content={`${slotMeta.courseName} | ${slotMeta.facultyId} - ${slotMeta.facultyName} | ${slotMeta.attendanceStatus}`}
-                          >
-                            <div className="d-flex flex-column gap-2">
-                              <CDropdown>
-                                <CDropdownToggle color="light" size="sm">
-                                  {slotMeta.courseCode}
-                                </CDropdownToggle>
-                                <CDropdownMenu>
-                                  <CDropdownItem
-                                    onClick={() => onRecordAttendance(d.dayOrder, h)}
-                                  >
-                                    Record Attendance
-                                  </CDropdownItem>
-                                </CDropdownMenu>
-                              </CDropdown>
-                              <CButton
-                                size="sm"
-                                color="primary"
-                                variant="outline"
-                                onClick={() => onRecordAttendance(d.dayOrder, h)}
-                              >
-                                Record
-                              </CButton>
-                            </div>
-                          </CTooltip>
-                        </CTableDataCell>
-                      ))}
-                    </CTableRow>
-                  ))}
-                </CTableBody>
-              </CTable>
-            </CCardBody>
-          </CCard>
-        )}
-
-        {/* ATTENDANCE ENTRY */}
-        {showAttendance && (
-          <CCard>
-            <CCardHeader className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-              <div className="d-flex align-items-center flex-wrap gap-2">
+              <div className="d-flex flex-wrap gap-2 align-items-center">
                 <strong>Attendance Entry</strong>
-                {selectedSlot && (
-                  <CBadge color="secondary">
-                    Day {selectedSlot.dayOrder} | Hour {selectedSlot.hour} | {selectedSlot.courseCode}
-                  </CBadge>
-                )}
-                <CBadge color="light" className="text-dark">
-                  Total: <strong>P</strong> : {totals.P} &nbsp;|&nbsp; <strong>A</strong> : {totals.A} &nbsp;|&nbsp; {totals.pct}%
-                </CBadge>
+                <CBadge color="info">{selectedSession.courseCode} | {selectedSession.sessionDate} | Hour {selectedSession.hourLabel || '-'}</CBadge>
+                <CBadge color="primary">P: {rosterSummary.P}</CBadge>
+                <CBadge color="danger">A: {rosterSummary.A}</CBadge>
+                <CBadge color="warning">OD/L/LA: {rosterSummary.OD + rosterSummary.L + rosterSummary.LA}</CBadge>
+                <CBadge color="dark">Present %: {rosterSummary.percentage}</CBadge>
               </div>
-
-              <div className="d-flex gap-2">
-                <CircleBtn color="success" title="Save" icon={cilSave} onClick={onSaveAttendance} />
-                <CircleBtn
-                  color="secondary"
-                  title="Close"
-                  icon={cilX}
-                  onClick={() => {
-                    setShowAttendance(false)
-                    setSelectedSlot(null)
-                    setAttendance({})
-                  }}
-                />
+              <div className="d-flex align-items-center gap-2">
+                {loadingRoster ? <CSpinner size="sm" /> : null}
+                <CButton size="sm" color="success" onClick={onSave} disabled={saving || loadingRoster}>
+                  {saving ? <CSpinner size="sm" /> : 'Save Attendance'}
+                </CButton>
               </div>
             </CCardHeader>
-
             <CCardBody>
-              {/* Column Quick Select */}
-              <div className="d-flex align-items-center flex-wrap gap-3 mb-3">
-                <CBadge color="info">Overall Attendance Details</CBadge>
-                {STATUSES.map((s) => (
-                  <CFormCheck
-                    key={s}
-                    type="checkbox"
-                    id={`col-${s}`}
-                    label={s}
-                    checked={
-                      students.length > 0 &&
-                      students.every((st) => attendance[st.id] === s)
-                    }
-                    onChange={() => setColumnStatus(s)}
-                  />
+              <div className="d-flex flex-wrap gap-2 mb-3">
+                {STATUS_OPTIONS.map((code) => (
+                  <CButton key={code} size="sm" color="secondary" variant="outline" onClick={() => setAllStatus(code)}>
+                    Set All {code}
+                  </CButton>
                 ))}
               </div>
 
-              <CTable bordered hover responsive align="middle">
+              <CTable bordered hover responsive small>
                 <CTableHead>
                   <CTableRow>
-                    <CTableHeaderCell style={{ width: 60 }}>S.No</CTableHeaderCell>
-                    <CTableHeaderCell style={{ width: 140 }}>Register No</CTableHeaderCell>
-                    <CTableHeaderCell>Student Name</CTableHeaderCell>
-                    {STATUSES.map((s) => (
-                      <CTableHeaderCell key={s} style={{ width: 80 }} className="text-center">
-                        {s}
-                      </CTableHeaderCell>
-                    ))}
+                    <CTableHeaderCell>S.No</CTableHeaderCell>
+                    <CTableHeaderCell>Register No</CTableHeaderCell>
+                    <CTableHeaderCell>Student</CTableHeaderCell>
+                    {STATUS_OPTIONS.map((code) => <CTableHeaderCell key={code} className="text-center">{code}</CTableHeaderCell>)}
                   </CTableRow>
                 </CTableHead>
                 <CTableBody>
-                  {students.map((st, idx) => (
-                    <CTableRow key={st.id}>
-                      <CTableDataCell>{idx + 1}</CTableDataCell>
-                      <CTableDataCell>{st.id}</CTableDataCell>
-                      <CTableDataCell className="d-flex align-items-center gap-2">
-                        <span>{st.name}</span>
-                        {attendance[st.id] && (
-                          <CBadge color="success" className="d-inline-flex align-items-center gap-1">
-                            <CIcon icon={cilCheckCircle} size="sm" /> {attendance[st.id]}
-                          </CBadge>
-                        )}
-                      </CTableDataCell>
-
-                      {STATUSES.map((s) => (
-                        <CTableDataCell key={s} className="text-center">
-                          <CFormCheck
-                            type="checkbox"
-                            checked={attendance[st.id] === s}
-                            onChange={() => setStudentStatus(st.id, s)}
-                          />
+                  {roster.length ? roster.map((st, index) => (
+                    <CTableRow key={st.studentId}>
+                      <CTableDataCell>{index + 1}</CTableDataCell>
+                      <CTableDataCell>{st.registerNumber || '-'}</CTableDataCell>
+                      <CTableDataCell>{st.studentName || '-'}</CTableDataCell>
+                      {STATUS_OPTIONS.map((code) => (
+                        <CTableDataCell key={code} className="text-center">
+                          <CButton
+                            size="sm"
+                            color={st.attendanceCode === code ? 'primary' : 'light'}
+                            variant={st.attendanceCode === code ? undefined : 'outline'}
+                            onClick={() => setRowStatus(st.studentId, code)}
+                          >
+                            {code}
+                          </CButton>
                         </CTableDataCell>
                       ))}
                     </CTableRow>
-                  ))}
+                  )) : (
+                    <CTableRow>
+                      <CTableDataCell colSpan={8} className="text-center">No students in roster</CTableDataCell>
+                    </CTableRow>
+                  )}
                 </CTableBody>
               </CTable>
             </CCardBody>
           </CCard>
-        )}
+        ) : null}
+
+        {selectedSession ? (
+          <CCard>
+            <CCardHeader className="d-flex flex-wrap gap-2 align-items-center">
+              <strong>Attendance Report</strong>
+              <CBadge color="primary">Sessions: {reportMeta.totalSessions}</CBadge>
+              <CBadge color="info">Students: {reportMeta.totalStudents}</CBadge>
+              <CBadge color={reportMeta.shortageCount ? 'danger' : 'success'}>
+                Shortage (&lt;{reportMeta.threshold}%): {reportMeta.shortageCount}
+              </CBadge>
+            </CCardHeader>
+            <CCardBody>
+              <CTable bordered responsive small>
+                <CTableHead>
+                  <CTableRow>
+                    <CTableHeaderCell>Register No</CTableHeaderCell>
+                    <CTableHeaderCell>Student</CTableHeaderCell>
+                    <CTableHeaderCell>Total Sessions</CTableHeaderCell>
+                    <CTableHeaderCell>Present</CTableHeaderCell>
+                    <CTableHeaderCell>Absent</CTableHeaderCell>
+                    <CTableHeaderCell>OD</CTableHeaderCell>
+                    <CTableHeaderCell>Late</CTableHeaderCell>
+                    <CTableHeaderCell>Late Absent</CTableHeaderCell>
+                    <CTableHeaderCell>Attendance %</CTableHeaderCell>
+                    <CTableHeaderCell>Alert</CTableHeaderCell>
+                  </CTableRow>
+                </CTableHead>
+                <CTableBody>
+                  {reportRows.length ? reportRows.map((x) => (
+                    <CTableRow key={x.studentId}>
+                      <CTableDataCell>{x.registerNumber || '-'}</CTableDataCell>
+                      <CTableDataCell>{x.studentName || '-'}</CTableDataCell>
+                      <CTableDataCell>{x.totalSessions || 0}</CTableDataCell>
+                      <CTableDataCell>{x.present || 0}</CTableDataCell>
+                      <CTableDataCell>{x.absent || 0}</CTableDataCell>
+                      <CTableDataCell>{x.onDuty || 0}</CTableDataCell>
+                      <CTableDataCell>{x.late || 0}</CTableDataCell>
+                      <CTableDataCell>{x.lateAbsent || 0}</CTableDataCell>
+                      <CTableDataCell>{x.percentage || 0}</CTableDataCell>
+                      <CTableDataCell>
+                        <CBadge color={x.shortage ? 'danger' : 'success'}>
+                          {x.shortage ? 'Shortage' : 'OK'}
+                        </CBadge>
+                      </CTableDataCell>
+                    </CTableRow>
+                  )) : (
+                    <CTableRow>
+                      <CTableDataCell colSpan={10} className="text-center">No report data</CTableDataCell>
+                    </CTableRow>
+                  )}
+                </CTableBody>
+              </CTable>
+            </CCardBody>
+          </CCard>
+        ) : null}
       </CCol>
     </CRow>
   )

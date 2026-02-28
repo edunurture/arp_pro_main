@@ -28,19 +28,6 @@ const roundTo = (n, d = 2) => {
   return Math.round((Number(n) + Number.EPSILON) * p) / p
 }
 const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const normalizeCredit = (credit) => {
-  const n = toNullableNum(credit)
-  if (n === null) return ''
-  return Number.isInteger(n) ? String(Math.trunc(n)) : String(n)
-}
-const generateCode = ({ ciaWeight, eseWeight, credit }) => {
-  const cia = toNullableInt(ciaWeight)
-  const ese = toNullableInt(eseWeight)
-  const c = normalizeCredit(credit)
-  if (cia === null || ese === null || !c) return ''
-  return `CIA${cia}+ESE${ese}+C${c}`
-}
-
 const evaluateExpression = (expression, valueMap = {}) => {
   const raw = String(expression || '').trim()
   if (!raw) return null
@@ -65,7 +52,7 @@ const evaluateExpression = (expression, valueMap = {}) => {
 const createRow = (overrides = {}) => ({
   id: uid(),
   examination: '',
-  minMarks: '0',
+  minMarks: '',
   maxMarks: '',
   ...overrides,
 })
@@ -148,10 +135,10 @@ export default function CIAComputationConfiguration() {
 
   const [ciaAssessmentCode, setCiaAssessmentCode] = useState('')
   const [courseType, setCourseType] = useState('Theory')
-  const [ciaWeight, setCiaWeight] = useState('25')
-  const [eseWeight, setEseWeight] = useState('75')
-  const [totalWeight, setTotalWeight] = useState('100')
-  const [credit, setCredit] = useState('4')
+  const [ciaWeight, setCiaWeight] = useState('')
+  const [eseWeight, setEseWeight] = useState('')
+  const [totalWeight, setTotalWeight] = useState('')
+  const [credit, setCredit] = useState('')
 
   const [cacRows, setCacRows] = useState([createRow()])
   const [formulaRows, setFormulaRows] = useState([createFormulaRow()])
@@ -172,10 +159,10 @@ export default function CIAComputationConfiguration() {
     setAcademicYearId('')
     setCiaAssessmentCode('')
     setCourseType('Theory')
-    setCiaWeight('25')
-    setEseWeight('75')
-    setTotalWeight('100')
-    setCredit('4')
+    setCiaWeight('')
+    setEseWeight('')
+    setTotalWeight('')
+    setCredit('')
     setCacRows([createRow()])
     setFormulaRows([createFormulaRow({ computationValue: computeValueOptions[0] || 'Convert into' })])
   }
@@ -261,13 +248,6 @@ export default function CIAComputationConfiguration() {
     loadCIAComputations(institutionId)
     loadCIAComponentExams(institutionId)
   }, [institutionId])
-
-  useEffect(() => {
-    if (!isEdit) return
-    if (ciaAssessmentCode.trim()) return
-    const generated = generateCode({ ciaWeight, eseWeight, credit })
-    if (generated) setCiaAssessmentCode(generated)
-  }, [ciaWeight, eseWeight, credit, isEdit, ciaAssessmentCode])
 
   useEffect(() => {
     const cia = toNullableInt(ciaWeight)
@@ -464,7 +444,7 @@ export default function CIAComputationConfiguration() {
     const payload = {
       institutionId,
       academicYearId: academicYearId || null,
-      ciaAssessmentCode: ciaAssessmentCode.trim() || generateCode({ ciaWeight, eseWeight, credit }),
+      ...(ciaAssessmentCode.trim() ? { ciaAssessmentCode: ciaAssessmentCode.trim() } : {}),
       pattern: {
         courseType: courseType.trim(),
         ciaWeight: ciaN,
@@ -504,10 +484,10 @@ export default function CIAComputationConfiguration() {
     setAcademicYearId(selectedRow.academicYearId || '')
     setCiaAssessmentCode(selectedRow.ciaAssessmentCode || '')
     setCourseType(selectedRow.courseType || 'Theory')
-    setCiaWeight(String(selectedRow.ciaWeight ?? '25'))
-    setEseWeight(String(selectedRow.eseWeight ?? '75'))
-    setTotalWeight(String(selectedRow.totalWeight ?? '100'))
-    setCredit(String(selectedRow.credit ?? '4'))
+    setCiaWeight(selectedRow.ciaWeight === null || selectedRow.ciaWeight === undefined ? '' : String(selectedRow.ciaWeight))
+    setEseWeight(selectedRow.eseWeight === null || selectedRow.eseWeight === undefined ? '' : String(selectedRow.eseWeight))
+    setTotalWeight(selectedRow.totalWeight === null || selectedRow.totalWeight === undefined ? '' : String(selectedRow.totalWeight))
+    setCredit(selectedRow.credit === null || selectedRow.credit === undefined ? '' : String(selectedRow.credit))
 
     const loadedRows = (selectedRow.components || []).map((x) =>
       createRow({
@@ -537,10 +517,10 @@ export default function CIAComputationConfiguration() {
     setAcademicYearId(selectedRow.academicYearId || '')
     setCiaAssessmentCode(selectedRow.ciaAssessmentCode || '')
     setCourseType(selectedRow.courseType || 'Theory')
-    setCiaWeight(String(selectedRow.ciaWeight ?? '25'))
-    setEseWeight(String(selectedRow.eseWeight ?? '75'))
-    setTotalWeight(String(selectedRow.totalWeight ?? '100'))
-    setCredit(String(selectedRow.credit ?? '4'))
+    setCiaWeight(selectedRow.ciaWeight === null || selectedRow.ciaWeight === undefined ? '' : String(selectedRow.ciaWeight))
+    setEseWeight(selectedRow.eseWeight === null || selectedRow.eseWeight === undefined ? '' : String(selectedRow.eseWeight))
+    setTotalWeight(selectedRow.totalWeight === null || selectedRow.totalWeight === undefined ? '' : String(selectedRow.totalWeight))
+    setCredit(selectedRow.credit === null || selectedRow.credit === undefined ? '' : String(selectedRow.credit))
 
     const loadedRows = (selectedRow.components || []).map((x) =>
       createRow({
@@ -581,8 +561,8 @@ export default function CIAComputationConfiguration() {
 
   const columns = useMemo(
     () => [
+      { key: 'ciaAssessmentCode', label: 'CIA Assessment Code', sortable: true, width: 200, align: 'center' },
       { key: 'academicYear', label: 'Academic Year', sortable: true, width: 160, align: 'center' },
-      { key: 'ciaAssessmentCode', label: 'CIA Assessment Code', sortable: true, width: 190, align: 'center' },
       { key: 'courseType', label: 'Course Type', sortable: true, width: 130, align: 'center' },
       { key: 'exams', label: 'No. of Exams', sortable: true, width: 130, align: 'center', sortType: 'number' },
       { key: 'status', label: 'Status', sortable: true, width: 120, align: 'center' },
@@ -624,13 +604,13 @@ export default function CIAComputationConfiguration() {
 
         <CCard className="mb-3">
           <CCardHeader>
-            <strong>CIA Computation Code Generate for</strong>
+            <strong>CIA Computation Configuration</strong>
           </CCardHeader>
           <CCardBody>
             <CForm onSubmit={onSave}>
               <CRow className="g-3">
-                <CCol md={3}><CFormLabel>Institution</CFormLabel></CCol>
-                <CCol md={3}>
+                <CCol md={2}><CFormLabel>Institution</CFormLabel></CCol>
+                <CCol md={2}>
                   <CFormSelect value={institutionId} onChange={(e) => setInstitutionId(e.target.value)}>
                     <option value="">Select Institution</option>
                     {institutions.map((inst) => (
@@ -638,8 +618,8 @@ export default function CIAComputationConfiguration() {
                     ))}
                   </CFormSelect>
                 </CCol>
-                <CCol md={3}><CFormLabel>Academic Year</CFormLabel></CCol>
-                <CCol md={3}>
+                <CCol md={2}><CFormLabel>Academic Year</CFormLabel></CCol>
+                <CCol md={2}>
                   <CFormSelect value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} disabled={!isEdit}>
                     <option value="">Select Academic Year</option>
                     {academicYears.map((x) => (
@@ -649,9 +629,12 @@ export default function CIAComputationConfiguration() {
                     ))}
                   </CFormSelect>
                 </CCol>
+                <CCol md={2}><CFormLabel>CIA Assessment Code</CFormLabel></CCol>
+                <CCol md={2}>
+                  <CFormInput value={ciaAssessmentCode} onChange={(e) => setCiaAssessmentCode(e.target.value)} disabled={!isEdit} />
+                </CCol>
 
-                <CCol md={3}><CFormLabel>Course Type</CFormLabel></CCol>
-                <CCol md={3}>
+                <CCol md={4}><CFormLabel>Course Type</CFormLabel>
                   <CFormSelect value={courseType} onChange={(e) => setCourseType(e.target.value)} disabled={!isEdit}>
                     {courseTypeOptions.map((opt) => (
                       <option key={opt} value={opt}>
@@ -660,16 +643,12 @@ export default function CIAComputationConfiguration() {
                     ))}
                   </CFormSelect>
                 </CCol>
-                <CCol md={3}><CFormLabel>CIA Assessment Code</CFormLabel></CCol>
-                <CCol md={3}>
-                  <CFormInput value={ciaAssessmentCode} onChange={(e) => setCiaAssessmentCode(e.target.value)} disabled={!isEdit} />
-                </CCol>
-
                 <CCol md={2}><CFormLabel>CIA</CFormLabel><CFormInput value={ciaWeight} onChange={(e) => setCiaWeight(sanitizeNumberText(e.target.value))} disabled={!isEdit} /></CCol>
                 <CCol md={2}><CFormLabel>ESE</CFormLabel><CFormInput value={eseWeight} onChange={(e) => setEseWeight(sanitizeNumberText(e.target.value))} disabled={!isEdit} /></CCol>
                 <CCol md={2}><CFormLabel>Total</CFormLabel><CFormInput value={totalWeight} disabled /></CCol>
                 <CCol md={2}><CFormLabel>Credit</CFormLabel><CFormInput value={credit} onChange={(e) => setCredit(sanitizeNumberText(e.target.value))} disabled={!isEdit} /></CCol>
-                <CCol md={4} className="d-flex align-items-end">
+
+                <CCol xs={12} className="d-flex align-items-end">
                   <small className="text-muted">
                     Formula Max Sum: <strong>{formulaContribution}</strong> / CIA {ciaWeight || '-'}
                   </small>
@@ -826,7 +805,7 @@ export default function CIAComputationConfiguration() {
                 </CCol>
 
                 <CCol xs={12} className="d-flex justify-content-end gap-2">
-                  <ArpButton label={saving ? 'Saving...' : 'Save'} icon="save" color="success" type="submit" disabled={!isEdit || saving || Boolean(formulaErrLive)} />
+                  <ArpButton label={saving ? 'Saving...' : 'Save'} icon="save" color="success" type="submit" disabled={!isEdit || saving} />
                   <ArpButton label="Cancel" icon="cancel" color="secondary" type="button" onClick={onCancel} />
                 </CCol>
               </CRow>

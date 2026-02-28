@@ -8,9 +8,16 @@ import {
   CFormInput,
   CFormLabel,
   CFormSelect,
+  CModal,
+  CModalBody,
+  CModalFooter,
+  CModalHeader,
+  CModalTitle,
   CRow,
   CSpinner,
 } from '@coreui/react-pro'
+import CIcon from '@coreui/icons-react'
+import { cilCheckCircle, cilXCircle } from '@coreui/icons'
 import { ArpButton } from '../../components/common'
 import api from '../../services/apiClient'
 
@@ -42,6 +49,12 @@ const unwrapList = (res) => {
   return []
 }
 
+const normalizePattern = (value) =>
+  String(value || '')
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_')
+    .trim()
+
 const createEntry = (overrides = {}) => ({
   dayOfWeek: 1,
   timetableSlotId: '',
@@ -54,10 +67,17 @@ const createEntry = (overrides = {}) => ({
   ...overrides,
 })
 
+const buildCellKey = (day, slotId) => `${day}|${slotId}`
+const isBreakSlot = (slot) =>
+  Boolean(slot?.isInterval) ||
+  /break/i.test(String(slot?.nomenclature || '')) ||
+  /break/i.test(String(slot?.shiftName || ''))
+
 export default function ClassTimetableConfiguration() {
   const [scope, setScope] = useState(initialScope)
   const [message, setMessage] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [loadingScope, setLoadingScope] = useState(false)
+  const [loadingClass, setLoadingClass] = useState(false)
   const [saving, setSaving] = useState(false)
   const [validating, setValidating] = useState(false)
   const [publishing, setPublishing] = useState(false)
@@ -79,12 +99,18 @@ export default function ClassTimetableConfiguration() {
 
   const [selectedClassId, setSelectedClassId] = useState('')
   const [selectedTimetableId, setSelectedTimetableId] = useState('')
-  const [entries, setEntries] = useState([createEntry()])
-  const [isPublished, setIsPublished] = useState(false)
+  const [entries, setEntries] = useState([])
   const [versionNo, setVersionNo] = useState(0)
+  const [isPublished, setIsPublished] = useState(false)
   const [conflicts, setConflicts] = useState([])
+
   const [dayMode, setDayMode] = useState('DAY_PATTERN')
   const [dayOptions, setDayOptions] = useState(defaultDayOptions)
+
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editorModel, setEditorModel] = useState(createEntry())
+
+  const showMessage = (type, text) => setMessage({ type, text })
 
   const scopeReady = useMemo(
     () =>
@@ -100,107 +126,93 @@ export default function ClassTimetableConfiguration() {
     [scope],
   )
 
-  const scopeParams = useMemo(
-    () => ({
-      institutionId: scope.institutionId,
-      departmentId: scope.departmentId,
-      programmeId: scope.programmeId,
-      regulationId: scope.regulationId,
-      academicYearId: scope.academicYearId,
-      batchId: scope.batchId,
-      semester: scope.semester,
-    }),
-    [scope],
+  const scopeParams = useMemo(() => ({ ...scope }), [scope])
+
+  const selectedAcademicYear = useMemo(
+    () => academicYears.find((x) => String(x.id) === String(scope.academicYearId)) || null,
+    [academicYears, scope.academicYearId],
   )
+
+  const semesterOptions = useMemo(() => {
+    const category = String(selectedAcademicYear?.semesterCategory || '').toUpperCase().trim()
+    if (category === 'ODD') return mappedSemesters.filter((n) => Number(n) % 2 === 1)
+    if (category === 'EVEN') return mappedSemesters.filter((n) => Number(n) % 2 === 0)
+    return mappedSemesters
+  }, [mappedSemesters, selectedAcademicYear])
+
+  const selectedTimetable = useMemo(
+    () => slotMasters.find((x) => String(x.id) === String(selectedTimetableId)) || null,
+    [slotMasters, selectedTimetableId],
+  )
+
+  const slotColumns = useMemo(() => {
+    const slots = Array.isArray(selectedTimetable?.slots) ? selectedTimetable.slots : []
+    return [...slots].sort((a, b) => Number(a.priority || 0) - Number(b.priority || 0))
+  }, [selectedTimetable])
+
+  const entryMap = useMemo(() => {
+    const map = new Map()
+    entries.forEach((e) => map.set(buildCellKey(Number(e.dayOfWeek), String(e.timetableSlotId)), e))
+    return map
+  }, [entries])
 
   const selectedClass = useMemo(
     () => classes.find((x) => String(x.classId) === String(selectedClassId)) || null,
     [classes, selectedClassId],
   )
 
-  const slotOptions = useMemo(() => {
-    const row = slotMasters.find((x) => String(x.id) === String(selectedTimetableId))
-    return (row?.slots || []).map((s) => ({
-      value: s.id,
-      label: `P${s.priority} | ${s.timeFrom}-${s.timeTo} | ${s.shiftName}`,
-    }))
-  }, [slotMasters, selectedTimetableId])
-
   const facultyById = useMemo(
     () => new Map(faculties.map((f) => [String(f.id), f])),
     [faculties],
   )
 
+  const offeringById = useMemo(
+    () => new Map(courseOfferings.map((o) => [String(o.id), o])),
+    [courseOfferings],
+  )
+
   const allottedFacultyByOffering = useMemo(() => {
-    const byCourseId = new Map()
+    const byCourse = new Map()
     courseAllotments.forEach((row) => {
       const courseId = String(row?.courseId || '')
       const facultyId = String(row?.facultyId || '')
       if (!courseId || !facultyId) return
-      if (!byCourseId.has(courseId)) byCourseId.set(courseId, new Map())
-      const bucket = byCourseId.get(courseId)
-      if (!bucket.has(facultyId)) {
-        bucket.set(facultyId, {
-          id: row.facultyId,
-          facultyCode: row.facultyCode || '',
-          facultyName: row.facultyName || '',
-        })
-      }
+      if (!byCourse.has(courseId)) byCourse.set(courseId, new Map())
+      byCourse.get(courseId).set(facultyId, {
+        id: row.facultyId,
+        facultyCode: row.facultyCode || '',
+        facultyName: row.facultyName || '',
+      })
     })
 
     const byOffering = new Map()
     courseOfferings.forEach((off) => {
-      const offeringId = String(off?.id || '')
       const courseId = String(off?.courseId || '')
-      if (!offeringId || !courseId) return
-      const values = byCourseId.has(courseId) ? Array.from(byCourseId.get(courseId).values()) : []
-      byOffering.set(offeringId, values)
+      byOffering.set(String(off.id), Array.from((byCourse.get(courseId) || new Map()).values()))
     })
     return byOffering
   }, [courseAllotments, courseOfferings])
 
-  const dayLabel = useMemo(() => (dayMode === 'DAY_ORDER_PATTERN' ? 'Day Order' : 'Day'), [dayMode])
-
-  const showMessage = (type, text) => setMessage({ type, text })
-
-  const clearEditor = () => {
-    setEntries([createEntry()])
-    setIsPublished(false)
-    setVersionNo(0)
-    setConflicts([])
-  }
-
-  const parseDayList = (text) =>
-    String(text || '')
-      .split(',')
-      .map((x) => x.trim())
-      .filter(Boolean)
-
-  const normalizePattern = (value) =>
-    String(value || '')
-      .toUpperCase()
-      .replace(/[\s-]+/g, '_')
-      .trim()
+  const editorFacultyOptions = useMemo(() => {
+    if (editorModel.periodType === 'BREAK') return []
+    if (editorModel.periodType === 'ACTIVITY') return faculties
+    return allottedFacultyByOffering.get(String(editorModel.courseOfferingId || '')) || []
+  }, [editorModel.periodType, editorModel.courseOfferingId, faculties, allottedFacultyByOffering])
 
   const deriveDayConfig = (rows = []) => {
-    const list = Array.isArray(rows) ? rows : []
-    const active = list.filter((x) => x && x.isActive !== false)
-
+    const active = (Array.isArray(rows) ? rows : []).filter((x) => x && x.isActive !== false)
     const dayPatternRows = active.filter((x) => normalizePattern(x?.calendarPattern).includes('DAY_PATTERN'))
     if (dayPatternRows.length) {
       const dayNames = [
         ...new Set(
           dayPatternRows
-            .flatMap((x) => parseDayList(x?.day))
-            .map((x) => x.replace(/\s+/g, ' ').trim())
+            .flatMap((x) => String(x?.day || '').split(','))
+            .map((x) => x.trim())
             .filter(Boolean),
         ),
       ]
       if (dayNames.length) {
-        return {
-          mode: 'DAY_PATTERN',
-          options: dayNames.map((d, idx) => ({ value: idx + 1, label: d })),
-        }
+        return { mode: 'DAY_PATTERN', options: dayNames.map((d, i) => ({ value: i + 1, label: d })) }
       }
       return { mode: 'DAY_PATTERN', options: defaultDayOptions }
     }
@@ -211,117 +223,45 @@ export default function ClassTimetableConfiguration() {
       const maxs = dayOrderRows.map((x) => Number(x?.maxDayOrder)).filter((n) => Number.isFinite(n))
       const min = mins.length ? Math.min(...mins) : 1
       const max = maxs.length ? Math.max(...maxs) : Math.max(min, 6)
-      const safeMin = Math.max(1, min)
-      const safeMax = Math.max(safeMin, max)
-      const options = Array.from({ length: safeMax - safeMin + 1 }, (_, i) => safeMin + i).map((n) => ({
-        value: n,
-        label: String(n),
-      }))
-      return { mode: 'DAY_ORDER_PATTERN', options }
+      return {
+        mode: 'DAY_ORDER_PATTERN',
+        options: Array.from({ length: max - min + 1 }, (_, i) => ({ value: min + i, label: String(min + i) })),
+      }
     }
 
     return {
       mode: 'DAY_ORDER_PATTERN',
-      options: Array.from({ length: 6 }, (_, i) => i + 1).map((n) => ({
-        value: n,
-        label: String(n),
-      })),
+      options: Array.from({ length: 6 }, (_, i) => ({ value: i + 1, label: String(i + 1) })),
     }
   }
 
-  const loadInstitutions = async () => {
-    try {
-      const res = await api.get('/api/setup/institution')
-      setInstitutions(unwrapList(res))
-    } catch {
-      setInstitutions([])
-      showMessage('danger', 'Failed to load institutions')
-    }
-  }
-
-  const loadDepartments = async (institutionId) => {
-    try {
-      const res = await api.get('/api/setup/department', { params: { institutionId } })
-      setDepartments(unwrapList(res))
-    } catch {
-      setDepartments([])
-    }
-  }
-
-  const loadProgrammes = async (institutionId, departmentId) => {
-    try {
-      const res = await api.get('/api/setup/programme')
-      const all = unwrapList(res)
-      setProgrammes(
-        all.filter(
-          (p) =>
-            String(p.institutionId) === String(institutionId) &&
-            String(p.departmentId) === String(departmentId),
-        ),
-      )
-    } catch {
-      setProgrammes([])
-    }
-  }
-
-  const loadRegulations = async (institutionId, programmeId) => {
-    try {
-      const res = await api.get('/api/setup/regulation', { params: { institutionId, programmeId } })
-      setRegulations(unwrapList(res))
-    } catch {
-      setRegulations([])
-    }
-  }
-
-  const loadAcademicYears = async (institutionId) => {
-    try {
-      const res = await api.get('/api/setup/academic-year', {
-        headers: { 'x-institution-id': institutionId },
-      })
-      setAcademicYears(unwrapList(res))
-    } catch {
-      setAcademicYears([])
-    }
-  }
-
-  const loadBatches = async (institutionId) => {
-    try {
-      const res = await api.get('/api/setup/batch', { params: { institutionId } })
-      setBatches(unwrapList(res))
-    } catch {
-      setBatches([])
-    }
-  }
-
-  const loadMappedSemesters = async (params) => {
-    try {
-      const res = await api.get('/api/setup/regulation-map', { params })
-      const maps = unwrapList(res).filter((m) => String(m?.status || '').toLowerCase() === 'map done')
-      const sems = [...new Set(maps.map((m) => Number(m?.semester)).filter((n) => Number.isFinite(n)))].sort(
-        (a, b) => a - b,
-      )
-      setMappedSemesters(sems)
-    } catch {
-      setMappedSemesters([])
-    }
+  const resetScopeData = () => {
+    setSlotMasters([])
+    setClasses([])
+    setCourseOfferings([])
+    setCourseAllotments([])
+    setFaculties([])
+    setRoomClasses([])
+    setSelectedClassId('')
+    setSelectedTimetableId('')
+    setEntries([])
+    setVersionNo(0)
+    setIsPublished(false)
+    setConflicts([])
   }
 
   const loadScopeData = async () => {
     if (!scopeReady) return
-    setLoading(true)
+    setLoadingScope(true)
     setConflicts([])
     try {
-      const [ttRes, classRes, offerRes, allotRes, facultyRes, roomRes, calPatternRes] = await Promise.all([
+      const [ttRes, classRes, offerRes, allotRes, facultyRes, roomRes, patternRes] = await Promise.all([
         api.get('/api/setup/timetable', { params: scopeParams }),
         api.get('/api/setup/class-timetable/classes', { params: scopeParams }),
         api.get('/api/setup/course-offering', { params: scopeParams }),
         api.get('/api/setup/course-offering/allotment/details', { params: scopeParams }),
         api.get('/api/setup/faculty', {
-          params: {
-            institutionId: scope.institutionId,
-            departmentId: scope.departmentId,
-            academicYearId: scope.academicYearId,
-          },
+          params: { institutionId: scope.institutionId, academicYearId: scope.academicYearId },
         }),
         api.get('/api/setup/class', {
           params: {
@@ -333,221 +273,66 @@ export default function ClassTimetableConfiguration() {
         api.get('/api/setup/academic-calendar-pattern'),
       ])
 
-      const tts = unwrapList(ttRes)
-      setSlotMasters(tts)
-      if (!selectedTimetableId && tts.length) setSelectedTimetableId(tts[0].id)
-
+      setSlotMasters(unwrapList(ttRes))
       setClasses(unwrapList(classRes))
       setCourseOfferings(unwrapList(offerRes))
       setCourseAllotments(unwrapList(allotRes))
       setFaculties(unwrapList(facultyRes))
       setRoomClasses(unwrapList(roomRes))
-      const allPatterns = unwrapList(calPatternRes)
-      const patterns = allPatterns.filter((x) => String(x?.academicYearId || '') === String(scope.academicYearId))
-      const usingFallback = patterns.length === 0
-      const config = deriveDayConfig(usingFallback ? allPatterns : patterns)
-      setDayMode(config.mode)
-      setDayOptions(config.options)
-      setEntries((prev) => {
-        const first = config.options?.[0]?.value || 1
-        return prev.map((x) => ({ ...x, dayOfWeek: Number(x.dayOfWeek || first) }))
-      })
-      if (usingFallback) {
-        showMessage(
-          'warning',
-          'No Calendar Pattern found for selected Academic Year. Loaded fallback Day Order from available configuration.',
-        )
-      } else {
-        showMessage('success', 'Class-wise timetable scope loaded')
-      }
+
+      const patterns = unwrapList(patternRes).filter(
+        (x) => String(x?.academicYearId || '') === String(scope.academicYearId),
+      )
+      const dayConfig = deriveDayConfig(patterns)
+      setDayMode(dayConfig.mode)
+      setDayOptions(dayConfig.options)
+
+      showMessage('success', 'Scope loaded successfully')
     } catch (e) {
-      showMessage('danger', e?.response?.data?.error || 'Failed to load scope data')
-      setSlotMasters([])
-      setClasses([])
-      setCourseOfferings([])
-      setCourseAllotments([])
-      setFaculties([])
-      setRoomClasses([])
-      setDayMode('DAY_PATTERN')
-      setDayOptions(defaultDayOptions)
+      showMessage('danger', e?.response?.data?.error || 'Failed to load scope')
+      resetScopeData()
     } finally {
-      setLoading(false)
+      setLoadingScope(false)
     }
   }
 
   const loadClassTimetable = async (classId) => {
     if (!classId || !scopeReady) return
+    setLoadingClass(true)
     try {
       const res = await api.get(`/api/setup/class-timetable/${classId}`, { params: scopeParams })
-      const data = res?.data?.data || null
-      if (!data) return clearEditor()
+      const data = res?.data?.data || {}
 
-      setSelectedTimetableId(data.timetableId || selectedTimetableId || '')
-      setVersionNo(Number(data.versionNo || 0))
-      setIsPublished(!!data.isPublished)
-      const list = Array.isArray(data.entries) ? data.entries : []
+      setSelectedTimetableId(data?.timetableId || '')
+      setVersionNo(Number(data?.versionNo || 0))
+      setIsPublished(!!data?.isPublished)
       setEntries(
-        list.length
-          ? list.map((e) =>
-              createEntry({
-                dayOfWeek:
-                  dayMode === 'DAY_ORDER_PATTERN'
-                    ? Number(e.dayOrder || e.dayOfWeek || 1)
-                    : Number(e.dayOfWeek || 1),
-                timetableSlotId: e.timetableSlotId || '',
-                periodType: e.periodType || 'THEORY',
-                courseOfferingId: e.courseOfferingId || '',
-                facultyId: e.facultyId || '',
-                roomClassId: e.roomClassId || '',
-                title: e.title || '',
-                notes: e.notes || '',
-              }),
-            )
-          : [createEntry()],
+        (Array.isArray(data?.entries) ? data.entries : []).map((e) =>
+          createEntry({
+            dayOfWeek:
+              dayMode === 'DAY_ORDER_PATTERN'
+                ? Number(e.dayOrder || e.dayOfWeek || 1)
+                : Number(e.dayOfWeek || 1),
+            timetableSlotId: e.timetableSlotId || '',
+            periodType: e.periodType || 'THEORY',
+            courseOfferingId: e.courseOfferingId || '',
+            facultyId: e.facultyId || '',
+            roomClassId: e.roomClassId || '',
+            title: e.title || '',
+            notes: e.notes || '',
+          }),
+        ),
       )
       setConflicts([])
     } catch (e) {
-      clearEditor()
-      showMessage('danger', e?.response?.data?.error || 'Failed to load selected class timetable')
+      setEntries([])
+      setVersionNo(0)
+      setIsPublished(false)
+      showMessage('danger', e?.response?.data?.error || 'Failed to load class timetable')
+    } finally {
+      setLoadingClass(false)
     }
   }
-
-  useEffect(() => {
-    loadInstitutions()
-  }, [])
-
-  useEffect(() => {
-    setScope((s) => ({
-      ...s,
-      departmentId: '',
-      programmeId: '',
-      regulationId: '',
-      academicYearId: '',
-      batchId: '',
-      semester: '',
-    }))
-    setDepartments([])
-    setProgrammes([])
-    setRegulations([])
-    setAcademicYears([])
-    setBatches([])
-    setMappedSemesters([])
-    setSelectedClassId('')
-    setSelectedTimetableId('')
-    clearEditor()
-    if (!scope.institutionId) return
-    loadDepartments(scope.institutionId)
-    loadAcademicYears(scope.institutionId)
-    loadBatches(scope.institutionId)
-  }, [scope.institutionId])
-
-  useEffect(() => {
-    setScope((s) => ({ ...s, programmeId: '', regulationId: '', semester: '' }))
-    setProgrammes([])
-    setRegulations([])
-    setMappedSemesters([])
-    setSelectedClassId('')
-    clearEditor()
-    if (!scope.institutionId || !scope.departmentId) return
-    loadProgrammes(scope.institutionId, scope.departmentId)
-  }, [scope.departmentId])
-
-  useEffect(() => {
-    setScope((s) => ({ ...s, regulationId: '', semester: '' }))
-    setRegulations([])
-    setMappedSemesters([])
-    setSelectedClassId('')
-    clearEditor()
-    if (!scope.institutionId || !scope.programmeId) return
-    loadRegulations(scope.institutionId, scope.programmeId)
-  }, [scope.programmeId])
-
-  useEffect(() => {
-    setScope((s) => ({ ...s, semester: '' }))
-    setMappedSemesters([])
-    setSelectedClassId('')
-    clearEditor()
-    if (
-      !scope.institutionId ||
-      !scope.departmentId ||
-      !scope.programmeId ||
-      !scope.regulationId ||
-      !scope.academicYearId ||
-      !scope.batchId
-    ) {
-      return
-    }
-    loadMappedSemesters({
-      institutionId: scope.institutionId,
-      departmentId: scope.departmentId,
-      programmeId: scope.programmeId,
-      regulationId: scope.regulationId,
-      academicYearId: scope.academicYearId,
-      batchId: scope.batchId,
-    })
-  }, [
-    scope.institutionId,
-    scope.departmentId,
-    scope.programmeId,
-    scope.regulationId,
-    scope.academicYearId,
-    scope.batchId,
-  ])
-
-  const onSelectClass = async (classId) => {
-    setSelectedClassId(classId)
-    await loadClassTimetable(classId)
-  }
-
-  const updateEntry = (idx, key, value) => {
-    setEntries((prev) => {
-      const next = [...prev]
-      const current = { ...next[idx], [key]: value }
-
-      if (key === 'periodType' && value === 'BREAK') {
-        current.courseOfferingId = ''
-        current.facultyId = ''
-      }
-
-      if (key === 'courseOfferingId') {
-        const allowed = allottedFacultyByOffering.get(String(value || '')) || []
-        const allowedSet = new Set(allowed.map((f) => String(f.id)))
-        if (!allowedSet.has(String(current.facultyId || ''))) {
-          current.facultyId = ''
-        }
-      }
-
-      next[idx] = current
-      return next
-    })
-  }
-
-  const facultyOptionsForEntry = (entry) => {
-    if (entry.periodType === 'BREAK') return []
-    const selectedId = String(entry.facultyId || '')
-    const fromAllotment = allottedFacultyByOffering.get(String(entry.courseOfferingId || '')) || []
-    const options = fromAllotment.map((f) => ({
-      id: f.id,
-      facultyCode: f.facultyCode || '',
-      facultyName: f.facultyName || '',
-    }))
-
-    if (selectedId && !options.some((x) => String(x.id) === selectedId)) {
-      const selected = facultyById.get(selectedId)
-      if (selected) {
-        options.push({
-          id: selected.id,
-          facultyCode: selected.facultyCode || '',
-          facultyName: `${selected.facultyName || ''} (Replacement)`,
-        })
-      }
-    }
-    return options
-  }
-
-  const addEntry = () => setEntries((prev) => [...prev, createEntry()])
-  const removeEntry = (idx) =>
-    setEntries((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)))
 
   const buildPayload = () => ({
     ...scopeParams,
@@ -566,20 +351,14 @@ export default function ClassTimetableConfiguration() {
   })
 
   const onValidate = async () => {
-    if (!scopeReady || !selectedClassId) return showMessage('danger', 'Select scope and class first')
-    if (!selectedTimetableId) return showMessage('danger', 'Select timetable (slot master) first')
+    if (!scopeReady || !selectedClassId || !selectedTimetableId) return
     setValidating(true)
     try {
       const res = await api.post(`/api/setup/class-timetable/${selectedClassId}/validate`, buildPayload())
       setConflicts(res?.data?.data?.conflicts || [])
-      if ((res?.data?.data?.conflictCount || 0) > 0) {
-        showMessage('warning', 'Validation completed with conflicts')
-      } else {
-        showMessage('success', 'Validation passed')
-      }
+      showMessage((res?.data?.data?.conflictCount || 0) > 0 ? 'warning' : 'success', 'Validation completed')
     } catch (e) {
-      const c = e?.response?.data?.details?.conflicts || []
-      setConflicts(c)
+      setConflicts(e?.response?.data?.details?.conflicts || [])
       showMessage('danger', e?.response?.data?.error || 'Validation failed')
     } finally {
       setValidating(false)
@@ -587,33 +366,32 @@ export default function ClassTimetableConfiguration() {
   }
 
   const onSave = async () => {
-    if (!scopeReady || !selectedClassId) return showMessage('danger', 'Select scope and class first')
-    if (!selectedTimetableId) return showMessage('danger', 'Select timetable (slot master) first')
+    if (!scopeReady || !selectedClassId || !selectedTimetableId) return
     setSaving(true)
     try {
       const res = await api.post(`/api/setup/class-timetable/${selectedClassId}`, buildPayload())
-      setVersionNo(Number(res?.data?.data?.versionNo || versionNo))
+      setVersionNo(Number(res?.data?.data?.versionNo || 0))
       setIsPublished(!!res?.data?.data?.isPublished)
       setConflicts([])
-      showMessage('success', res?.data?.message || 'Class timetable saved')
+      showMessage('success', res?.data?.message || 'Saved successfully')
       await loadScopeData()
+      await loadClassTimetable(selectedClassId)
     } catch (e) {
-      const c = e?.response?.data?.details?.conflicts || []
-      setConflicts(c)
-      showMessage('danger', e?.response?.data?.error || 'Failed to save class timetable')
+      setConflicts(e?.response?.data?.details?.conflicts || [])
+      showMessage('danger', e?.response?.data?.error || 'Failed to save timetable')
     } finally {
       setSaving(false)
     }
   }
 
-  const onPublishToggle = async (nextPublished) => {
-    if (!scopeReady || !selectedClassId) return showMessage('danger', 'Select class first')
+  const onPublishToggle = async () => {
+    if (!scopeReady || !selectedClassId) return
     setPublishing(true)
     try {
-      const endpoint = nextPublished ? 'publish' : 'unpublish'
+      const endpoint = isPublished ? 'unpublish' : 'publish'
       await api.post(`/api/setup/class-timetable/${selectedClassId}/${endpoint}`, scopeParams)
-      setIsPublished(nextPublished)
-      showMessage('success', nextPublished ? 'Class timetable published' : 'Class timetable unpublished')
+      setIsPublished((prev) => !prev)
+      showMessage('success', isPublished ? 'Unpublished' : 'Published')
       await loadScopeData()
     } catch (e) {
       showMessage('danger', e?.response?.data?.error || 'Failed to update publish status')
@@ -622,6 +400,166 @@ export default function ClassTimetableConfiguration() {
     }
   }
 
+  const openEditor = (day, slotId) => {
+    const existing = entryMap.get(buildCellKey(Number(day), String(slotId)))
+    setEditorModel(existing ? { ...existing } : createEntry({ dayOfWeek: Number(day), timetableSlotId: String(slotId) }))
+    setEditorOpen(true)
+  }
+
+  const saveEditor = () => {
+    const model = { ...editorModel }
+    if (model.periodType === 'BREAK') {
+      model.courseOfferingId = ''
+      model.facultyId = ''
+      model.title = ''
+    }
+    if (model.periodType === 'ACTIVITY') model.courseOfferingId = ''
+
+    const key = buildCellKey(Number(model.dayOfWeek), String(model.timetableSlotId))
+    setEntries((prev) => [...prev.filter((x) => buildCellKey(Number(x.dayOfWeek), String(x.timetableSlotId)) !== key), model])
+    setEditorOpen(false)
+  }
+
+  const clearEditorSlot = () => {
+    const key = buildCellKey(Number(editorModel.dayOfWeek), String(editorModel.timetableSlotId))
+    setEntries((prev) => prev.filter((x) => buildCellKey(Number(x.dayOfWeek), String(x.timetableSlotId)) !== key))
+    setEditorOpen(false)
+  }
+
+  const getCellHoverText = (slotEntry) => {
+    if (!slotEntry) return 'Not Scheduled'
+    const offering = offeringById.get(String(slotEntry.courseOfferingId || ''))
+    const courseName = offering?.course?.courseTitle || offering?.course?.courseCode || '-'
+    const faculty = facultyById.get(String(slotEntry.facultyId || ''))
+    const facultyName = faculty?.facultyName || '-'
+    return `Course: ${courseName} | Faculty: ${facultyName}`
+  }
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        setInstitutions(unwrapList(await api.get('/api/setup/institution')))
+      } catch {
+        setInstitutions([])
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    setScope((s) => ({
+      ...s,
+      departmentId: '',
+      programmeId: '',
+      regulationId: '',
+      academicYearId: '',
+      batchId: '',
+      semester: '',
+    }))
+    setDepartments([])
+    setAcademicYears([])
+    setBatches([])
+    setProgrammes([])
+    setRegulations([])
+    setMappedSemesters([])
+    resetScopeData()
+    if (!scope.institutionId) return
+
+    ;(async () => {
+      const [d, y, b] = await Promise.all([
+        api.get('/api/setup/department', { params: { institutionId: scope.institutionId } }),
+        api.get('/api/setup/academic-year', { headers: { 'x-institution-id': scope.institutionId } }),
+        api.get('/api/setup/batch', { params: { institutionId: scope.institutionId } }),
+      ])
+      setDepartments(unwrapList(d))
+      setAcademicYears(unwrapList(y))
+      setBatches(unwrapList(b))
+    })().catch(() => {})
+  }, [scope.institutionId])
+
+  useEffect(() => {
+    setScope((s) => ({ ...s, programmeId: '', regulationId: '', semester: '' }))
+    setProgrammes([])
+    setRegulations([])
+    setMappedSemesters([])
+    resetScopeData()
+    if (!scope.institutionId || !scope.departmentId) return
+
+    api
+      .get('/api/setup/programme')
+      .then((res) => {
+        const all = unwrapList(res)
+        setProgrammes(
+          all.filter(
+            (p) =>
+              String(p.institutionId) === String(scope.institutionId) &&
+              String(p.departmentId) === String(scope.departmentId),
+          ),
+        )
+      })
+      .catch(() => setProgrammes([]))
+  }, [scope.institutionId, scope.departmentId])
+
+  useEffect(() => {
+    setScope((s) => ({ ...s, regulationId: '', semester: '' }))
+    setRegulations([])
+    setMappedSemesters([])
+    resetScopeData()
+    if (!scope.institutionId || !scope.programmeId) return
+
+    api
+      .get('/api/setup/regulation', {
+        params: { institutionId: scope.institutionId, programmeId: scope.programmeId },
+      })
+      .then((res) => setRegulations(unwrapList(res)))
+      .catch(() => setRegulations([]))
+  }, [scope.institutionId, scope.programmeId])
+
+  useEffect(() => {
+    setScope((s) => ({ ...s, semester: '' }))
+    setMappedSemesters([])
+    resetScopeData()
+    if (
+      !scope.institutionId ||
+      !scope.departmentId ||
+      !scope.programmeId ||
+      !scope.regulationId ||
+      !scope.academicYearId ||
+      !scope.batchId
+    ) {
+      return
+    }
+
+    api
+      .get('/api/setup/regulation-map', {
+        params: {
+          institutionId: scope.institutionId,
+          departmentId: scope.departmentId,
+          programmeId: scope.programmeId,
+          regulationId: scope.regulationId,
+          academicYearId: scope.academicYearId,
+          batchId: scope.batchId,
+        },
+      })
+      .then((res) => {
+        const semesters = [...new Set(unwrapList(res).map((x) => Number(x.semester)).filter(Number.isFinite))]
+        setMappedSemesters(semesters.sort((a, b) => a - b))
+      })
+      .catch(() => setMappedSemesters([]))
+  }, [
+    scope.institutionId,
+    scope.departmentId,
+    scope.programmeId,
+    scope.regulationId,
+    scope.academicYearId,
+    scope.batchId,
+  ])
+
+  useEffect(() => {
+    if (scope.semester && !semesterOptions.includes(Number(scope.semester))) {
+      setScope((s) => ({ ...s, semester: '' }))
+    }
+  }, [semesterOptions, scope.semester])
+
   return (
     <CRow>
       <CCol xs={12}>
@@ -629,256 +567,209 @@ export default function ClassTimetableConfiguration() {
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>CLASS-WISE TIMETABLE</strong>
             <div className="d-flex gap-2">
-              <ArpButton label={loading ? 'Loading...' : 'Load Scope'} icon="search" color="info" onClick={loadScopeData} disabled={!scopeReady || loading} />
-              <ArpButton label={validating ? 'Validating...' : 'Validate'} icon="view" color="warning" onClick={onValidate} disabled={!scopeReady || !selectedClassId || validating} />
-              <ArpButton label={saving ? 'Saving...' : 'Save'} icon="save" color="success" onClick={onSave} disabled={!scopeReady || !selectedClassId || saving} />
+              <ArpButton label={loadingScope ? 'Loading...' : 'Load Scope'} icon="search" color="info" onClick={loadScopeData} disabled={!scopeReady || loadingScope} />
+              <ArpButton label={validating ? 'Validating...' : 'Validate'} icon="view" color="warning" onClick={onValidate} disabled={!selectedClassId || !selectedTimetableId || validating} />
+              <ArpButton label={saving ? 'Saving...' : 'Save'} icon="save" color="success" onClick={onSave} disabled={!selectedClassId || !selectedTimetableId || saving} />
               <ArpButton
                 label={publishing ? 'Updating...' : isPublished ? 'Unpublish' : 'Publish'}
                 icon="send"
                 color={isPublished ? 'secondary' : 'primary'}
-                onClick={() => onPublishToggle(!isPublished)}
-                disabled={!scopeReady || !selectedClassId || publishing}
+                onClick={onPublishToggle}
+                disabled={!selectedClassId || publishing}
               />
             </div>
           </CCardHeader>
           <CCardBody>
             {message ? <CAlert color={message.type}>{message.text}</CAlert> : null}
             <CRow className="g-3">
-              <CCol md={3}>
-                <CFormLabel>Institution</CFormLabel>
-                <CFormSelect value={scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, institutionId: e.target.value }))}>
-                  <option value="">Select Institution</option>
-                  {institutions.map((x) => (
-                    <option key={x.id} value={x.id}>{x.name}</option>
-                  ))}
-                </CFormSelect>
-              </CCol>
-              <CCol md={3}>
-                <CFormLabel>Department</CFormLabel>
-                <CFormSelect value={scope.departmentId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, departmentId: e.target.value }))}>
-                  <option value="">Select Department</option>
-                  {departments.map((x) => (
-                    <option key={x.id} value={x.id}>{x.departmentName}</option>
-                  ))}
-                </CFormSelect>
-              </CCol>
-              <CCol md={3}>
-                <CFormLabel>Programme</CFormLabel>
-                <CFormSelect value={scope.programmeId} disabled={!scope.departmentId} onChange={(e) => setScope((s) => ({ ...s, programmeId: e.target.value }))}>
-                  <option value="">Select Programme</option>
-                  {programmes.map((x) => (
-                    <option key={x.id} value={x.id}>{x.programmeCode} - {x.programmeName}</option>
-                  ))}
-                </CFormSelect>
-              </CCol>
-              <CCol md={3}>
-                <CFormLabel>Regulation</CFormLabel>
-                <CFormSelect value={scope.regulationId} disabled={!scope.programmeId} onChange={(e) => setScope((s) => ({ ...s, regulationId: e.target.value }))}>
-                  <option value="">Select Regulation</option>
-                  {regulations.map((x) => (
-                    <option key={x.id} value={x.id}>{x.regulationCode}</option>
-                  ))}
-                </CFormSelect>
-              </CCol>
-              <CCol md={3}>
-                <CFormLabel>Academic Year</CFormLabel>
-                <CFormSelect value={scope.academicYearId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, academicYearId: e.target.value }))}>
-                  <option value="">Select Academic Year</option>
-                  {academicYears.map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.academicYearLabel || `${x.academicYear}${x.semesterCategory ? ` (${x.semesterCategory})` : ''}`}
-                    </option>
-                  ))}
-                </CFormSelect>
-              </CCol>
-              <CCol md={3}>
-                <CFormLabel>Batch</CFormLabel>
-                <CFormSelect value={scope.batchId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, batchId: e.target.value }))}>
-                  <option value="">Select Batch</option>
-                  {batches.map((x) => (
-                    <option key={x.id} value={x.id}>{x.batchName}</option>
-                  ))}
-                </CFormSelect>
-              </CCol>
+              <CCol md={3}><CFormLabel>Institution</CFormLabel><CFormSelect value={scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, institutionId: e.target.value }))}><option value="">Select Institution</option>{institutions.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</CFormSelect></CCol>
+              <CCol md={3}><CFormLabel>Department</CFormLabel><CFormSelect value={scope.departmentId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, departmentId: e.target.value }))}><option value="">Select Department</option>{departments.map((x) => <option key={x.id} value={x.id}>{x.departmentName}</option>)}</CFormSelect></CCol>
+              <CCol md={3}><CFormLabel>Programme</CFormLabel><CFormSelect value={scope.programmeId} disabled={!scope.departmentId} onChange={(e) => setScope((s) => ({ ...s, programmeId: e.target.value }))}><option value="">Select Programme</option>{programmes.map((x) => <option key={x.id} value={x.id}>{x.programmeCode} - {x.programmeName}</option>)}</CFormSelect></CCol>
+              <CCol md={3}><CFormLabel>Regulation</CFormLabel><CFormSelect value={scope.regulationId} disabled={!scope.programmeId} onChange={(e) => setScope((s) => ({ ...s, regulationId: e.target.value }))}><option value="">Select Regulation</option>{regulations.map((x) => <option key={x.id} value={x.id}>{x.regulationCode}</option>)}</CFormSelect></CCol>
+              <CCol md={3}><CFormLabel>Academic Year</CFormLabel><CFormSelect value={scope.academicYearId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, academicYearId: e.target.value }))}><option value="">Select Academic Year</option>{academicYears.map((x) => <option key={x.id} value={x.id}>{x.academicYearLabel || x.academicYear}</option>)}</CFormSelect></CCol>
+              <CCol md={3}><CFormLabel>Batch</CFormLabel><CFormSelect value={scope.batchId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, batchId: e.target.value }))}><option value="">Select Batch</option>{batches.map((x) => <option key={x.id} value={x.id}>{x.batchName}</option>)}</CFormSelect></CCol>
               <CCol md={3}>
                 <CFormLabel>Semester</CFormLabel>
                 <CFormSelect value={scope.semester} disabled={!scope.batchId || !scope.regulationId || !scope.academicYearId} onChange={(e) => setScope((s) => ({ ...s, semester: e.target.value }))}>
                   <option value="">Select Semester</option>
-                  {mappedSemesters.map((sem) => (
-                    <option key={sem} value={String(sem)}>{sem}</option>
-                  ))}
+                  {semesterOptions.map((sem) => <option key={sem} value={String(sem)}>{sem}</option>)}
                 </CFormSelect>
               </CCol>
               <CCol md={3}>
                 <CFormLabel>Slot Master Timetable</CFormLabel>
-                <CFormSelect value={selectedTimetableId} disabled={!slotMasters.length} onChange={(e) => setSelectedTimetableId(e.target.value)}>
+                <CFormSelect value={selectedTimetableId} onChange={(e) => setSelectedTimetableId(e.target.value)} disabled={!slotMasters.length}>
                   <option value="">Select Timetable</option>
-                  {slotMasters.map((x) => (
-                    <option key={x.id} value={x.id}>{x.timetableName}</option>
-                  ))}
+                  {slotMasters.map((x) => <option key={x.id} value={x.id}>{x.timetableName}</option>)}
                 </CFormSelect>
               </CCol>
             </CRow>
           </CCardBody>
         </CCard>
 
-        <CRow className="g-3">
-          <CCol md={4}>
-            <CCard className="mb-3">
-              <CCardHeader>
-                <strong>Classes</strong>
-              </CCardHeader>
-              <CCardBody style={{ maxHeight: 540, overflow: 'auto' }}>
-                {loading ? (
-                  <div className="d-flex align-items-center gap-2">
-                    <CSpinner size="sm" />
-                    <span>Loading classes...</span>
+        <CCard className="mb-3">
+          <CCardHeader><strong>Classes</strong></CCardHeader>
+          <CCardBody>
+            {loadingClass ? <div className="d-flex align-items-center gap-2"><CSpinner size="sm" /><span>Loading class timetable...</span></div> : null}
+            <div className="d-flex gap-2 flex-wrap">
+              {classes.map((c) => (
+                <button
+                  key={c.classId}
+                  type="button"
+                  className={`btn ${String(selectedClassId) === String(c.classId) ? 'btn-primary' : 'btn-outline-primary'}`}
+                  onClick={async () => {
+                    setSelectedClassId(c.classId)
+                    await loadClassTimetable(c.classId)
+                  }}
+                >
+                  <div className="text-start">
+                    <div>{c.className} {c.classLabel || ''}</div>
+                    <small>{c.published ? 'Published' : 'Draft'} | Entries: {c.entriesCount || 0}</small>
                   </div>
-                ) : classes.length ? (
-                  <div className="list-group">
-                    {classes.map((c) => (
-                      <button
-                        key={c.classId}
-                        type="button"
-                        className={`list-group-item list-group-item-action ${String(selectedClassId) === String(c.classId) ? 'active' : ''}`}
-                        onClick={() => onSelectClass(c.classId)}
-                      >
-                        <div className="d-flex justify-content-between">
-                          <strong>{c.className} {c.classLabel || ''}</strong>
-                          <span>{c.published ? 'Published' : 'Draft'}</span>
-                        </div>
-                        <small>Entries: {c.entriesCount || 0}</small>
-                      </button>
+                </button>
+              ))}
+            </div>
+          </CCardBody>
+        </CCard>
+
+        <CCard>
+          <CCardHeader className="d-flex justify-content-between align-items-center">
+            <strong>{selectedClass ? `${selectedClass.className} ${selectedClass.classLabel || ''}` : 'Timetable Matrix'}</strong>
+            <div className="d-flex gap-3">
+              <span>Version: {versionNo}</span>
+              <span>Status: {isPublished ? 'Published' : 'Draft'}</span>
+            </div>
+          </CCardHeader>
+          <CCardBody>
+            {!selectedClassId ? (
+              <div className="text-medium-emphasis">Select a class to schedule.</div>
+            ) : !selectedTimetableId || !slotColumns.length ? (
+              <div className="text-medium-emphasis">Select Slot Master Timetable (available after Load Scope).</div>
+            ) : (
+              <div className="table-responsive" style={{ minHeight: '65vh' }}>
+                <table className="table table-bordered align-middle text-center">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 90, minWidth: 90 }}>Day Order / Time</th>
+                      {slotColumns.map((slot) => {
+                        const breakCol = isBreakSlot(slot)
+                        const shortName = breakCol
+                          ? 'Break'
+                          : String(slot?.nomenclature || slot?.shiftName || `H${slot?.priority || ''}`)
+                        const timeText = `${slot?.timeFrom || ''} - ${slot?.timeTo || ''}`.trim()
+                        return (
+                          <th
+                            key={slot.id}
+                            style={{
+                              width: breakCol ? 60 : 110,
+                              minWidth: breakCol ? 60 : 110,
+                              backgroundColor: breakCol ? '#fff3cd' : undefined,
+                              borderColor: breakCol ? '#f1d58a' : undefined,
+                            }}
+                          >
+                            <div>{shortName}</div>
+                            <small className="text-medium-emphasis">{timeText}</small>
+                          </th>
+                        )
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dayOptions.map((day) => (
+                      <tr key={day.value}>
+                        <th style={{ width: 90, minWidth: 90 }}>{day.value}</th>
+                        {slotColumns.map((slot) => {
+                          if (isBreakSlot(slot)) {
+                            return (
+                              <td
+                                key={slot.id}
+                                style={{
+                                  width: 60,
+                                  minWidth: 60,
+                                  backgroundColor: '#fff3cd',
+                                  borderColor: '#f1d58a',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Break
+                              </td>
+                            )
+                          }
+
+                          const slotEntry = entryMap.get(buildCellKey(Number(day.value), String(slot.id)))
+                          const scheduled = !!slotEntry
+                          const titleText = slotEntry?.title || (slotEntry?.periodType === 'BREAK' ? 'Break' : 'Scheduled')
+
+                          return (
+                            <td
+                              key={slot.id}
+                              style={{
+                                backgroundColor: scheduled ? '#eaf2fb' : '#ffffff',
+                                borderColor: scheduled ? '#b9d0ea' : undefined,
+                              }}
+                            >
+                              <button
+                                type="button"
+                                className="btn btn-link p-0 text-decoration-none"
+                                onClick={() => openEditor(day.value, slot.id)}
+                                title={getCellHoverText(slotEntry)}
+                              >
+                                <div className="d-flex flex-column align-items-center">
+                                  <CIcon icon={scheduled ? cilCheckCircle : cilXCircle} size="xl" className={scheduled ? 'text-success' : 'text-medium-emphasis'} />
+                                  <small className="mt-1 fw-semibold">{scheduled ? titleText : 'Not Scheduled'}</small>
+                                </div>
+                              </button>
+                            </td>
+                          )
+                        })}
+                      </tr>
                     ))}
-                  </div>
-                ) : (
-                  <div className="text-medium-emphasis">No classes available for selected scope.</div>
-                )}
-              </CCardBody>
-            </CCard>
-          </CCol>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CCardBody>
+        </CCard>
 
-          <CCol md={8}>
-            <CCard className="mb-3">
-              <CCardHeader className="d-flex justify-content-between align-items-center">
-                <strong>
-                  {selectedClass ? `Editor: ${selectedClass.className} ${selectedClass.classLabel || ''}` : 'Editor'}
-                </strong>
-                <div className="d-flex gap-3">
-                  <span>Version: {versionNo}</span>
-                  <span>Status: {isPublished ? 'Published' : 'Draft'}</span>
-                </div>
-              </CCardHeader>
-              <CCardBody>
-                {!selectedClassId ? (
-                  <div className="text-medium-emphasis">Select a class to edit timetable.</div>
-                ) : (
-                  <>
-                    <div className="table-responsive">
-                      <table className="table table-bordered align-middle">
-                        <thead>
-                          <tr>
-                            <th style={{ width: 64 }}>#</th>
-                            <th style={{ width: 120 }}>{dayLabel}</th>
-                            <th style={{ minWidth: 220 }}>Slot</th>
-                            <th style={{ width: 130 }}>Type</th>
-                            <th style={{ minWidth: 220 }}>Course</th>
-                            <th style={{ minWidth: 200 }}>Faculty</th>
-                            <th style={{ minWidth: 180 }}>Room</th>
-                            <th style={{ minWidth: 160 }}>Title</th>
-                            <th style={{ minWidth: 160 }}>Notes</th>
-                            <th style={{ width: 90 }}>Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {entries.map((e, idx) => (
-                            <tr key={idx}>
-                              <td>{idx + 1}</td>
-                              <td>
-                                <CFormSelect value={String(e.dayOfWeek)} onChange={(ev) => updateEntry(idx, 'dayOfWeek', Number(ev.target.value))}>
-                                  {dayOptions.map((d) => (
-                                    <option key={d.value} value={d.value}>{d.label}</option>
-                                  ))}
-                                </CFormSelect>
-                              </td>
-                              <td>
-                                <CFormSelect value={e.timetableSlotId} onChange={(ev) => updateEntry(idx, 'timetableSlotId', ev.target.value)}>
-                                  <option value="">Select Slot</option>
-                                  {slotOptions.map((s) => (
-                                    <option key={s.value} value={s.value}>{s.label}</option>
-                                  ))}
-                                </CFormSelect>
-                              </td>
-                              <td>
-                                <CFormSelect value={e.periodType} onChange={(ev) => updateEntry(idx, 'periodType', ev.target.value)}>
-                                  {periodTypes.map((p) => (
-                                    <option key={p} value={p}>{p}</option>
-                                  ))}
-                                </CFormSelect>
-                              </td>
-                              <td>
-                                <CFormSelect value={e.courseOfferingId} disabled={e.periodType === 'BREAK'} onChange={(ev) => updateEntry(idx, 'courseOfferingId', ev.target.value)}>
-                                  <option value="">Select Course</option>
-                                  {courseOfferings.map((c) => (
-                                    <option key={c.id} value={c.id}>{c.course?.courseCode || ''} - {c.course?.courseTitle || ''}</option>
-                                  ))}
-                                </CFormSelect>
-                              </td>
-                              <td>
-                                <CFormSelect
-                                  value={e.facultyId}
-                                  disabled={e.periodType === 'BREAK' || !e.courseOfferingId}
-                                  onChange={(ev) => updateEntry(idx, 'facultyId', ev.target.value)}
-                                >
-                                  <option value="">Select Faculty</option>
-                                  {facultyOptionsForEntry(e).map((f) => (
-                                    <option key={f.id} value={f.id}>{f.facultyCode} - {f.facultyName}</option>
-                                  ))}
-                                </CFormSelect>
-                              </td>
-                              <td>
-                                <CFormSelect value={e.roomClassId} onChange={(ev) => updateEntry(idx, 'roomClassId', ev.target.value)}>
-                                  <option value="">Select Room</option>
-                                  {roomClasses.map((r) => (
-                                    <option key={r.id} value={r.id}>{r.className} {r.classLabel || ''} ({r.roomNumber || '-'})</option>
-                                  ))}
-                                </CFormSelect>
-                              </td>
-                              <td>
-                                <CFormInput value={e.title} onChange={(ev) => updateEntry(idx, 'title', ev.target.value)} />
-                              </td>
-                              <td>
-                                <CFormInput value={e.notes} onChange={(ev) => updateEntry(idx, 'notes', ev.target.value)} />
-                              </td>
-                              <td>
-                                <ArpButton label="Del" color="danger" onClick={() => removeEntry(idx)} />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <ArpButton label="Add Entry" icon="add" color="secondary" onClick={addEntry} />
-                  </>
-                )}
-              </CCardBody>
-            </CCard>
-
-            {conflicts.length ? (
-              <CAlert color="warning">
-                <strong>Conflicts ({conflicts.length})</strong>
-                <ul className="mb-0">
-                  {conflicts.map((c, idx) => (
-                    <li key={idx}>
-                      [{c.type}] {c.message || 'Conflict'}
-                    </li>
-                  ))}
-                </ul>
-              </CAlert>
-            ) : null}
-          </CCol>
-        </CRow>
+        {conflicts.length ? (
+          <CAlert color="warning" className="mt-3">
+            <strong>Conflicts ({conflicts.length})</strong>
+            <ul className="mb-0">
+              {conflicts.map((c, i) => <li key={i}>[{c.type}] {c.message || 'Conflict'}</li>)}
+            </ul>
+          </CAlert>
+        ) : null}
       </CCol>
+
+      <CModal visible={editorOpen} onClose={() => setEditorOpen(false)} size="lg" alignment="center">
+        <CModalHeader><CModalTitle>Allocate Slot</CModalTitle></CModalHeader>
+        <CModalBody>
+          <CRow className="g-3">
+            <CCol md={4}><CFormLabel>Course Type</CFormLabel><CFormSelect value={editorModel.periodType} onChange={(e) => setEditorModel((m) => ({ ...m, periodType: e.target.value, courseOfferingId: e.target.value === 'ACTIVITY' || e.target.value === 'BREAK' ? '' : m.courseOfferingId, facultyId: e.target.value === 'BREAK' ? '' : m.facultyId }))}>{periodTypes.map((p) => <option key={p} value={p}>{p}</option>)}</CFormSelect></CCol>
+            <CCol md={8}>
+              <CFormLabel>{editorModel.periodType === 'ACTIVITY' ? 'Activity Name' : 'Course'}</CFormLabel>
+              {editorModel.periodType === 'ACTIVITY' ? (
+                <CFormInput value={editorModel.title} onChange={(e) => setEditorModel((m) => ({ ...m, title: e.target.value }))} placeholder="Library / Sports / Activity" />
+              ) : (
+                <CFormSelect value={editorModel.courseOfferingId} disabled={editorModel.periodType === 'BREAK'} onChange={(e) => setEditorModel((m) => ({ ...m, courseOfferingId: e.target.value, facultyId: '' }))}>
+                  <option value="">Select Course</option>
+                  {courseOfferings.map((c) => <option key={c.id} value={c.id}>{c.course?.courseCode || ''} - {c.course?.courseTitle || ''}</option>)}
+                </CFormSelect>
+              )}
+            </CCol>
+            <CCol md={6}><CFormLabel>Faculty</CFormLabel><CFormSelect value={editorModel.facultyId} disabled={editorModel.periodType === 'BREAK' || (editorModel.periodType !== 'ACTIVITY' && !editorModel.courseOfferingId)} onChange={(e) => setEditorModel((m) => ({ ...m, facultyId: e.target.value }))}><option value="">Select Faculty</option>{editorFacultyOptions.map((f) => <option key={f.id} value={f.id}>{f.facultyCode || ''} - {f.facultyName || ''}</option>)}</CFormSelect></CCol>
+            <CCol md={6}><CFormLabel>Room</CFormLabel><CFormSelect value={editorModel.roomClassId} onChange={(e) => setEditorModel((m) => ({ ...m, roomClassId: e.target.value }))}><option value="">Select Room</option>{roomClasses.map((r) => <option key={r.id} value={r.id}>{r.className} {r.classLabel || ''} ({r.roomNumber || '-'})</option>)}</CFormSelect></CCol>
+            <CCol md={6}><CFormLabel>Display Title</CFormLabel><CFormInput value={editorModel.title} disabled={editorModel.periodType === 'ACTIVITY'} onChange={(e) => setEditorModel((m) => ({ ...m, title: e.target.value }))} /></CCol>
+            <CCol md={6}><CFormLabel>Notes</CFormLabel><CFormInput value={editorModel.notes} onChange={(e) => setEditorModel((m) => ({ ...m, notes: e.target.value }))} /></CCol>
+          </CRow>
+        </CModalBody>
+        <CModalFooter className="d-flex justify-content-between">
+          <ArpButton label="Not Scheduled" color="danger" onClick={clearEditorSlot} />
+          <div className="d-flex gap-2">
+            <ArpButton label="Cancel" color="secondary" onClick={() => setEditorOpen(false)} />
+            <ArpButton label="Save Slot" color="primary" onClick={saveEditor} />
+          </div>
+        </CModalFooter>
+      </CModal>
     </CRow>
   )
 }
