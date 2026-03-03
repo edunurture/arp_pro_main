@@ -1,4 +1,5 @@
 import api from './apiClient'
+import { API_BASE } from './apiClient'
 
 const toArray = (payload) => {
   if (Array.isArray(payload)) return payload
@@ -86,6 +87,38 @@ export const lmsService = {
     }),
 
   listStudents: async (scope) => toArray((await api.get('/api/setup/student', { params: scope })).data),
+  listStudentProfiles: async (filters = {}) =>
+    toArray((await api.get('/api/setup/student-profile/students', { params: filters })).data),
+  getStudentProfilesSearchData: async (filters = {}) =>
+    (await api.get('/api/setup/student-profile/students', { params: filters })).data,
+
+  getStudentProfileBasic: async (registerNumber) =>
+    toObject(await api.get('/api/setup/student-profile/basic', { params: { registerNumber } })),
+
+  getStudentProfileAcademic: async (registerNumber, category = '') =>
+    toObject(await api.get('/api/setup/student-profile/academic', { params: { registerNumber, category } })),
+
+  getStudentProfileExtraCurricular: async (registerNumber, category = '') =>
+    toObject(await api.get('/api/setup/student-profile/extra-curricular', { params: { registerNumber, category } })),
+
+  getStudentProfilePlacements: async (registerNumber) =>
+    toObject(await api.get('/api/setup/student-profile/placements', { params: { registerNumber } })),
+
+  getStudentProfileProgression: async (registerNumber) =>
+    toObject(await api.get('/api/setup/student-profile/progression', { params: { registerNumber } })),
+  getStudentProfileRecordDocument: async (moduleName, recordId) =>
+    toObject(await api.get(`/api/setup/student-profile/${moduleName}/${recordId}/document`)),
+
+  uploadStudentProfileRecordDocument: async (moduleName, recordId, payload = {}) => {
+    const fd = new FormData()
+    Object.entries(payload || {}).forEach(([k, v]) => {
+      if (v === undefined || v === null || v === '') return
+      fd.append(k, v)
+    })
+    return api.post(`/api/setup/student-profile/${moduleName}/${recordId}/document`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
   listStudentAllotments: async (scope) =>
     toArray((await api.get('/api/setup/student-allotment', { params: scope })).data),
   listStudentAllotmentsAllCourses: async (scope) =>
@@ -412,6 +445,14 @@ export const semesterPatternFromSemester = (semester) => {
   return n % 2 === 0 ? 'EVEN' : 'ODD'
 }
 
+export const resolveMediaUrl = (filePath) => {
+  const raw = String(filePath || '').trim()
+  if (!raw) return ''
+  if (/^https?:\/\//i.test(raw)) return raw
+  if (API_BASE) return `${API_BASE}${raw.startsWith('/') ? '' : '/'}${raw}`
+  return raw
+}
+
 export const semesterOptionsFromAcademicYear = (academicYear) => {
   const chosen = academicYear?.chosenSemesters
   const maxSem = Number(academicYear?.numberOfSemesters ?? academicYear?.semesters ?? 8)
@@ -437,3 +478,4 @@ export const semesterOptionsFromAcademicYear = (academicYear) => {
 
   return byCategory.map((x) => ({ value: String(x), label: `Sem - ${x}` }))
 }
+

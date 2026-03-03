@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   CCard,
   CCardHeader,
@@ -31,7 +32,9 @@ const ARP_ICONS = {
   USER: cilUser,
   VIEW: cilZoom,
 }
-import { ArpButton, ArpPagination } from '../../components/common'
+import { ArpButton, ArpPagination, ArpIconButton } from '../../components/common'
+import { lmsService } from '../../services/lmsService'
+import './student-info-theme.css'
 
 /**
  * Student Profile (converted from basic_profile.html)
@@ -295,8 +298,26 @@ const circleBtnStyle = {
 }
 
 const badgeColor = (status) => (status === 'Active' ? 'success' : 'secondary')
+const safeText = (v) => {
+  const text = String(v ?? '').trim()
+  return text || 'XX'
+}
+const programmeDisplayText = (s) => {
+  const code = String(s?.programmeCode || s?.programme || '').trim()
+  const name = String(s?.programmeName || '').trim()
+  if (code && name && code.toLowerCase() !== name.toLowerCase()) return `${code} - ${name}`
+  return safeText(code || name)
+}
+const currentClassSectionSemText = (s) => {
+  const klass = String(s?.klass || '').trim()
+  const section = String(s?.section || '').trim()
+  const sem = String(s?.sem || '').trim()
+  const classSection = [klass, section].filter(Boolean).join(' - ')
+  return [classSection || 'XX', sem ? `Sem ${sem}` : 'Sem XX'].join(' | ')
+}
 
 const StudentProfile = () => {
+  const location = useLocation()
   // Phase 1 inputs
   const [searchReg, setSearchReg] = useState('')
   const [programme, setProgramme] = useState('')
@@ -304,8 +325,9 @@ const StudentProfile = () => {
   const [section, setSection] = useState('')
 
   // Data + selection
-  const [students] = useState(studentsSeed)
+  const [students, setStudents] = useState(studentsSeed)
   const [selectedReg, setSelectedReg] = useState(null)
+  const [selectedStudentProfile, setSelectedStudentProfile] = useState(null)
 
   // Phase visibility
   const [showStudents, setShowStudents] = useState(false)
@@ -321,6 +343,7 @@ const StudentProfile = () => {
 
   // Documents
   const [selectedDoc, setSelectedDoc] = useState(null)
+  const [docSearch, setDocSearch] = useState('')
 
   // Students list pagination (lightweight, API-ready)
   const [page, setPage] = useState(1)
@@ -344,23 +367,132 @@ const StudentProfile = () => {
   const endIdx = Math.min(startIdx + pageSize, total)
   const pageRows = useMemo(() => filteredStudents.slice(startIdx, endIdx), [filteredStudents, startIdx, endIdx])
 
-  const selectedStudent = useMemo(
-    () => students.find((s) => s.reg === selectedReg) || null,
-    [students, selectedReg],
-  )
+  const selectedStudent = useMemo(() => {
+    if (
+      selectedStudentProfile &&
+      String(selectedStudentProfile.reg || '').toLowerCase() === String(selectedReg || '').toLowerCase()
+    ) {
+      return selectedStudentProfile
+    }
+    return students.find((s) => s.reg === selectedReg) || null
+  }, [students, selectedReg, selectedStudentProfile])
 
-  const onFindStudents = () => {
+  const loadStudents = async (filters = {}) => {
+    try {
+      const rows = await lmsService.listStudentProfiles({
+        registerNumber: filters.registerNumber ?? searchReg,
+        programme: filters.programme ?? programme,
+        className: filters.className ?? klass,
+        section: filters.section ?? section,
+      })
+      const mapped = rows.map((r) => ({
+        reg: r.reg || r.regNo || r.registerNumber || '',
+        name: r.name || r.firstName || '',
+        gender: r.gender || '',
+        sem: r.sem || r.semester || '',
+        programme: r.programme || '',
+        programmeCode: r.programmeCode || r.programme || '',
+        programmeName: r.programmeName || '',
+        klass: r.klass || r.className || '',
+        section: r.section || '',
+        status: r.status || 'Active',
+        email: r.email || '',
+        yearSpan: r.yearSpan || '',
+        basic: {
+          regno: r.reg || r.regNo || r.registerNumber || '',
+          fname: r.name || r.firstName || '',
+          lname: '',
+          dob: '',
+          gender: r.gender || '',
+          email: r.email || '',
+          alt_email: '',
+          contact: r.contact || r.mobile || '',
+          whatsapp: '',
+          religious: '',
+          communal: '',
+          citizen: '',
+          blood: '',
+          address: '',
+        },
+        personal: {},
+        institute: {},
+        education: {},
+        other: {},
+      }))
+      setStudents(mapped)
+      return mapped
+    } catch {
+      setStudents([])
+      return []
+    }
+  }
+
+  const onFindStudents = async () => {
+    await loadStudents()
     setShowStudents(true)
     setShowProfile(false)
     setShowCategory(false)
     setActiveCategory(null)
     setSelectedReg(null)
+    setSelectedStudentProfile(null)
     setSelectedDoc(null)
     setPage(1)
   }
 
-  const onViewProfile = () => {
+  useEffect(() => {
+    const stateReg = String(location?.state?.registerNumber || '').trim()
+    const queryReg = new URLSearchParams(location.search).get('registerNumber') || ''
+    const registerNumber = String(stateReg || queryReg).trim()
+    if (!registerNumber) return
+
+    let cancelled = false
+
+    const bootstrapSelectedStudent = async () => {
+      setSearchReg(registerNumber)
+      const mapped = await loadStudents({ registerNumber, programme: '', className: '', section: '' })
+      if (cancelled) return
+
+      setShowStudents(true)
+      setShowCategory(false)
+      setActiveCategory(null)
+      setSelectedDoc(null)
+      setPage(1)
+
+      const selected =
+        mapped.find((s) => String(s.reg || '').toLowerCase() === registerNumber.toLowerCase()) ||
+        mapped[0] ||
+        null
+      if (!selected?.reg) {
+        setSelectedReg(null)
+        setSelectedStudentProfile(null)
+        setShowProfile(false)
+        return
+      }
+
+      setSelectedReg(selected.reg)
+      try {
+        const payload = await lmsService.getStudentProfileBasic(selected.reg)
+        if (!cancelled) setSelectedStudentProfile(payload || null)
+      } catch {
+        if (!cancelled) setSelectedStudentProfile(null)
+      }
+      if (!cancelled) setShowProfile(true)
+    }
+
+    bootstrapSelectedStudent()
+    return () => {
+      cancelled = true
+    }
+  }, [location.search, location.state])
+
+  const onViewProfile = async () => {
     if (!selectedReg) return
+    try {
+      const payload = await lmsService.getStudentProfileBasic(selectedReg)
+      if (payload) setSelectedStudentProfile(payload)
+    } catch {
+      setSelectedStudentProfile(null)
+    }
     setShowProfile(true)
     setShowCategory(false)
     setActiveCategory(null)
@@ -380,16 +512,48 @@ const StudentProfile = () => {
 
   const onPrint = () => window.print()
   const onDownload = () => window.alert('Preparing download... (demo)')
+  const onViewDocument = () => {
+    if (!selectedDoc) {
+      window.alert('Please select a document first.')
+      return
+    }
+    window.alert(`View: ${selectedDoc}`)
+  }
+  const onDownloadDocument = () => {
+    if (!selectedDoc) {
+      window.alert('Please select a document first.')
+      return
+    }
+    window.alert(`Download: ${selectedDoc}`)
+  }
+  const onPrintDocument = () => {
+    if (!selectedDoc) {
+      window.alert('Please select a document first.')
+      return
+    }
+    window.alert(`Print: ${selectedDoc}`)
+  }
   const onEdit = () => window.alert('Fields are read-only in this demo')
   const onSave = () => window.alert('Saved (demo)')
   const onCancel = () => setActiveCategory(null)
 
-  const programmes = useMemo(() => ['MBA', 'MCA'], [])
-  const classes = useMemo(() => ['I-MBA', 'I-MCA'], [])
-  const sections = useMemo(() => ['A', 'B'], [])
+  const programmes = useMemo(() => [...new Set(students.map((s) => s.programme).filter(Boolean))], [students])
+  const classes = useMemo(() => [...new Set(students.map((s) => s.klass).filter(Boolean))], [students])
+  const sections = useMemo(() => [...new Set(students.map((s) => s.section).filter(Boolean))], [students])
+  const filteredDocumentNames = useMemo(() => {
+    const q = String(docSearch || '').trim().toLowerCase()
+    const names = docsPairs.flatMap(([left, right]) => [left, right]).filter(Boolean)
+    if (!q) return names
+    return names.filter((name) => String(name).toLowerCase().includes(q))
+  }, [docSearch])
+  const docNamePairs = useMemo(() => {
+    const out = []
+    for (let i = 0; i < filteredDocumentNames.length; i += 2) out.push([filteredDocumentNames[i], filteredDocumentNames[i + 1] || null])
+    return out
+  }, [filteredDocumentNames])
 
   return (
-    <CRow>
+    <CRow className="student-info-screen">
       <CCol xs={12}>
         {/* ================= FIND STUDENTS ================= */}
         <CCard className="mb-3">
@@ -549,7 +713,7 @@ const StudentProfile = () => {
                         <CTableDataCell>{s.name}</CTableDataCell>
                         <CTableDataCell>{s.gender}</CTableDataCell>
                         <CTableDataCell>{s.sem}</CTableDataCell>
-                        <CTableDataCell>{s.programme}</CTableDataCell>
+                        <CTableDataCell>{programmeDisplayText(s)}</CTableDataCell>
                         <CTableDataCell>{s.klass}</CTableDataCell>
                         <CTableDataCell>{s.section}</CTableDataCell>
                         <CTableDataCell>
@@ -609,17 +773,17 @@ const StudentProfile = () => {
 
                   <CTableRow>
                     <CTableDataCell>
-                      {selectedStudent.reg} | {selectedStudent.programme} | {selectedStudent.sem} SEM |{' '}
-                      {selectedStudent.yearSpan}
+                      {safeText(selectedStudent.reg)} | {programmeDisplayText(selectedStudent)} |{' '}
+                      {currentClassSectionSemText(selectedStudent)} | {safeText(selectedStudent.yearSpan)}
                     </CTableDataCell>
                     <CTableDataCell colSpan={5}></CTableDataCell>
                   </CTableRow>
 
                   <CTableRow>
                     <CTableDataCell>
-                      {selectedStudent.email}
+                      {safeText(selectedStudent.email)}
                       {' | '}
-                      {selectedStudent.basic?.contact || ''}
+                      {safeText(selectedStudent.basic?.contact || selectedStudent.contact)}
                     </CTableDataCell>
 
                     <CTableDataCell colSpan={2} className="fw-semibold">
@@ -1343,10 +1507,17 @@ const StudentProfile = () => {
                       <div className="d-flex justify-content-between align-items-center mb-2">
                         <h6 className="mb-0">View Documents</h6>
                         <div className="d-flex gap-2">
-                          <CButton color="primary" size="sm" style={circleBtnStyle} title="View">
-                            <CIcon icon={ARP_ICONS.VIEW} />
-                          </CButton>
-</div>
+                          <ArpIconButton icon="view" color="primary" size={32} onClick={onViewDocument} />
+                          <ArpIconButton icon="download" color="success" size={32} onClick={onDownloadDocument} />
+                          <ArpIconButton icon="print" color="warning" size={32} onClick={onPrintDocument} />
+                        </div>
+                      </div>
+                      <div className="mb-2">
+                        <CFormInput
+                          value={docSearch}
+                          onChange={(e) => setDocSearch(e.target.value)}
+                          placeholder="Search document..."
+                        />
                       </div>
 
                       <CTable bordered responsive align="middle" className="mb-2">
@@ -1359,7 +1530,7 @@ const StudentProfile = () => {
                           </CTableRow>
                         </CTableHead>
                         <CTableBody>
-                          {docsPairs.map(([left, right]) => (
+                          {docNamePairs.map(([left, right]) => (
                             <CTableRow key={`${left}-${right}`}>
                               <CTableDataCell className="text-center">
                                 <input
@@ -1371,14 +1542,16 @@ const StudentProfile = () => {
                               </CTableDataCell>
                               <CTableDataCell>{left}</CTableDataCell>
                               <CTableDataCell className="text-center">
-                                <input
-                                  type="radio"
-                                  name="docSelect"
-                                  checked={selectedDoc === right}
-                                  onChange={() => setSelectedDoc(right)}
-                                />
+                                {right ? (
+                                  <input
+                                    type="radio"
+                                    name="docSelect"
+                                    checked={selectedDoc === right}
+                                    onChange={() => setSelectedDoc(right)}
+                                  />
+                                ) : null}
                               </CTableDataCell>
-                              <CTableDataCell>{right}</CTableDataCell>
+                              <CTableDataCell>{right || ''}</CTableDataCell>
                             </CTableRow>
                           ))}
                         </CTableBody>

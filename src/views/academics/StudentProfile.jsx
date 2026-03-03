@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   CCard,
   CCardHeader,
@@ -19,8 +20,11 @@ import {
 } from '@coreui/react-pro'
 
 import { ArpButton, ArpIconButton } from '../../components/common'
+import { lmsService } from '../../services/lmsService'
+import '../studprofile/student-info-theme.css'
 
 const StudentProfile = () => {
+  const navigate = useNavigate()
   // Matches HTML: Advanced Search toggles extra fields; Search reveals list
   const [isAdvanced, setIsAdvanced] = useState(false)
   const [showList, setShowList] = useState(false)
@@ -41,22 +45,13 @@ const StudentProfile = () => {
   const [pageSize, setPageSize] = useState(10)
   const [page, setPage] = useState(1)
 
-  const rows = useMemo(
-    () => [
-      {
-        id: 1,
-        className: 'I BCom',
-        section: 'A',
-        regNo: '10BCM01',
-        name: 'Priya .G',
-        gender: 'Female',
-        mobile: '9865481917',
-        email: 'Priya_g@gmail.com',
-        status: 'Active',
-      },
-    ],
-    [],
-  )
+  const [rows, setRows] = useState([])
+  const [academicYearOptions, setAcademicYearOptions] = useState([])
+  const [semesterOptions, setSemesterOptions] = useState([])
+  const [departmentOptions, setDepartmentOptions] = useState([])
+  const [programmeOptions, setProgrammeOptions] = useState([])
+  const [classOptions, setClassOptions] = useState([])
+  const [sectionOptions, setSectionOptions] = useState([])
 
   const filteredRows = useMemo(() => {
     const q = (listSearch || '').toLowerCase().trim()
@@ -73,11 +68,65 @@ const StudentProfile = () => {
   }, [filteredRows, currentPage, pageSize])
   const onChange = (key) => (e) => setForm((p) => ({ ...p, [key]: e.target.value }))
 
-  const onSearch = () => {
+  const applyOptions = (meta) => {
+    const opts = meta?.options || {}
+    setAcademicYearOptions(Array.isArray(opts.academicYears) ? opts.academicYears : [])
+    setSemesterOptions(Array.isArray(opts.semesters) ? opts.semesters : [])
+    setDepartmentOptions(Array.isArray(opts.departments) ? opts.departments : [])
+    setProgrammeOptions(Array.isArray(opts.programmes) ? opts.programmes : [])
+    setClassOptions(Array.isArray(opts.classes) ? opts.classes : [])
+    setSectionOptions(Array.isArray(opts.sections) ? opts.sections : [])
+  }
+
+  const onSearch = async () => {
+    try {
+      const payload = await lmsService.getStudentProfilesSearchData({
+        registerNumber: form.registerNumber,
+        firstName: form.studentName,
+        academicYear: form.academicYear,
+        semester: form.semester,
+        department: form.department,
+        programme: form.programme,
+        className: form.className,
+        section: form.section,
+      })
+      const data = Array.isArray(payload?.data) ? payload.data : []
+      applyOptions(payload?.meta)
+      setRows(
+        data.map((r, idx) => ({
+          id: r.regNo || r.reg || r.registerNumber || r.id || idx + 1,
+          className: r.className || r.klass || '',
+          section: r.section || '',
+          regNo: r.regNo || r.reg || r.registerNumber || '',
+          name: r.name || r.firstName || '',
+          gender: r.gender || '',
+          mobile: r.mobile || r.contact || '',
+          email: r.email || '',
+          status: r.status || 'Active',
+          programmeCode: r.programmeCode || '',
+          programmeName: r.programmeName || '',
+          programmeDisplay:
+            r.programmeCode && r.programmeName && r.programmeCode !== r.programmeName
+              ? `${r.programmeCode} - ${r.programmeName}`
+              : r.programmeCode || r.programmeName || r.programme || '',
+        })),
+      )
+    } catch {
+      setRows([])
+    }
     // HTML showStudentList()
     setShowList(true)
     setSelectedId(null)
     setPage(1)
+  }
+
+  const onViewSelected = () => {
+    const selected = rows.find((r) => String(r.id) === String(selectedId))
+    const registerNumber = String(selected?.regNo || '').trim()
+    if (!registerNumber) return
+    navigate(`/student-profile/basic-profile?registerNumber=${encodeURIComponent(registerNumber)}`, {
+      state: { registerNumber },
+    })
   }
 
   const onCancel = () => {
@@ -99,8 +148,25 @@ const StudentProfile = () => {
     setPage(1)
   }
 
+  useEffect(() => {
+    const bootstrapSearchOptions = async () => {
+      try {
+        const payload = await lmsService.getStudentProfilesSearchData({})
+        applyOptions(payload?.meta)
+      } catch {
+        setAcademicYearOptions([])
+        setSemesterOptions([])
+        setDepartmentOptions([])
+        setProgrammeOptions([])
+        setClassOptions([])
+        setSectionOptions([])
+      }
+    }
+    bootstrapSearchOptions()
+  }, [])
+
   return (
-    <>
+    <div className="student-info-screen">
       {/* 1) Header Action Card */}
       <CCard className="mb-3">
         <CCardHeader className="d-flex justify-content-between align-items-center">
@@ -155,8 +221,11 @@ const StudentProfile = () => {
                 <CCol md={3}>
                   <CFormSelect value={form.academicYear} onChange={onChange('academicYear')}>
                     <option value="">Select</option>
-                    <option value="2025 - 26">2025 – 26</option>
-                    <option value="2026 - 27">2026 – 27</option>
+                    {academicYearOptions.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
                   </CFormSelect>
                 </CCol>
 
@@ -166,8 +235,11 @@ const StudentProfile = () => {
                 <CCol md={3}>
                   <CFormSelect value={form.semester} onChange={onChange('semester')}>
                     <option value="">Select</option>
-                    <option value="Sem - 1">Sem – 1</option>
-                    <option value="Sem - 3">Sem – 3</option>
+                    {semesterOptions.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
                   </CFormSelect>
                 </CCol>
 
@@ -177,8 +249,11 @@ const StudentProfile = () => {
                 <CCol md={3}>
                   <CFormSelect value={form.department} onChange={onChange('department')}>
                     <option value="">Select Department</option>
-                    <option value="Commerce">Commerce</option>
-                    <option value="Computer Science">Computer Science</option>
+                    {departmentOptions.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
                   </CFormSelect>
                 </CCol>
 
@@ -188,8 +263,11 @@ const StudentProfile = () => {
                 <CCol md={3}>
                   <CFormSelect value={form.programme} onChange={onChange('programme')}>
                     <option value="">Select</option>
-                    <option value="N6MCA">N6MCA</option>
-                    <option value="N6MBA">N6MBA</option>
+                    {programmeOptions.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
                   </CFormSelect>
                 </CCol>
 
@@ -199,8 +277,11 @@ const StudentProfile = () => {
                 <CCol md={3}>
                   <CFormSelect value={form.className} onChange={onChange('className')}>
                     <option value="">Select</option>
-                    <option value="I BCom">I BCom</option>
-                    <option value="IBBA">IBBA</option>
+                    {classOptions.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
                   </CFormSelect>
                 </CCol>
 
@@ -210,8 +291,11 @@ const StudentProfile = () => {
                 <CCol md={3}>
                   <CFormSelect value={form.section} onChange={onChange('section')}>
                     <option value="">Select</option>
-                    <option value="A">A</option>
-                    <option value="B">B</option>
+                    {sectionOptions.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
                   </CFormSelect>
                 </CCol>
               </>
@@ -264,7 +348,7 @@ const StudentProfile = () => {
 
               <CTooltip content="View Profile">
                 <span className="d-inline-block">
-                  <ArpIconButton icon="view" color="primary" disabled={!selectedId} />
+                  <ArpIconButton icon="view" color="primary" disabled={!selectedId} onClick={onViewSelected} />
                 </span>
               </CTooltip>
             </div>
@@ -315,10 +399,10 @@ const StudentProfile = () => {
                       <CFormInput size="sm" value={r.gender} readOnly className="bg-light" />
                     </CTableDataCell>
                     <CTableDataCell>
-                      <CFormInput size="sm" value={r.mobile} readOnly className="bg-light" />
+                      <CFormInput size="sm" value={r.mobile || 'XX'} readOnly className="bg-light" />
                     </CTableDataCell>
                     <CTableDataCell>
-                      <CFormInput size="sm" value={r.email} readOnly className="bg-light" />
+                      <CFormInput size="sm" value={r.email || 'XX'} readOnly className="bg-light" />
                     </CTableDataCell>
                     <CTableDataCell>
                       <CFormInput size="sm" value={r.status} readOnly className="bg-light" />
@@ -369,8 +453,9 @@ const StudentProfile = () => {
           </CCardBody>
         </CCard>
       )}
-    </>
+    </div>
   )
 }
 
 export default StudentProfile
+

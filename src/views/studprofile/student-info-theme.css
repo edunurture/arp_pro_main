@@ -1,0 +1,18 @@
+.student-info-screen,
+.student-info-screen .form-control,
+.student-info-screen .form-select,
+.student-info-screen .btn,
+.student-info-screen table,
+.student-info-screen .table,
+.student-info-screen .card,
+.student-info-screen .dropdown-menu {
+  font-family: var(--cui-font-sans-serif, "Segoe UI", Tahoma, Geneva, Verdana, sans-serif);
+  font-size: 0.9rem;
+}
+
+.student-info-screen .form-select,
+.student-info-screen .form-control,
+.student-info-screen .input-group-text {
+  font-size: 0.9rem;
+  line-height: 1.35;
+}

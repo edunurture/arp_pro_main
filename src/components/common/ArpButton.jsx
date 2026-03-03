@@ -89,9 +89,9 @@ const ArpButton = ({
         }
       : style
 
-  // LMS requirement: keep label/icon clearly visible on dark button backgrounds.
-  const enforceLmsContrast = isLmsRoute
-  const resolvedStyle = enforceLmsContrast
+  // Keep label/icon in white for icon buttons across modules.
+  const enforceIconContrast = Boolean(iconSvg) || isLmsRoute
+  const resolvedStyle = enforceIconContrast
     ? {
         ...(purpleStyle || {}),
         color: '#fff',
@@ -103,11 +103,11 @@ const ArpButton = ({
       color={normalizedColor}
       onClick={onClick}
       disabled={disabled}
-      className={`${className} ${enforceLmsContrast ? 'text-white' : ''}`.trim()}
+      className={`${className} ${enforceIconContrast ? 'text-white' : ''}`.trim()}
       style={resolvedStyle}
       {...rest}
     >
-      {iconSvg && <CIcon icon={iconSvg} className="me-2" style={enforceLmsContrast ? { color: 'inherit' } : undefined} />}
+      {iconSvg && <CIcon icon={iconSvg} className="me-2" style={enforceIconContrast ? { color: 'inherit' } : undefined} />}
       {label || title}
     </CButton>
   )

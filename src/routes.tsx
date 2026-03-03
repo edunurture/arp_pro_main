@@ -54,10 +54,8 @@ const DocumentsSetup = React.lazy(() => import('./views/accreditation/DocumentsS
 const ExpertPanelSetup = React.lazy(() => import('./views/accreditation/ExpertPanelSetup'))
 
 // Academics components
-const TutorWard = React.lazy(() => import('./views/academics/TutorWard'))
-const WardEnrollment = React.lazy(() => import('./views/academics/WardEnrollment'))
+const MentorMenteeLifecycle = React.lazy(() => import('./views/academics/MentorMenteeLifecycle'))
 const WardProfile = React.lazy(() => import('./views/academics/WardProfile'))
-const WardMeetings = React.lazy(() => import('./views/academics/WardMeetings'))
 const AcademicEvents = React.lazy(() => import('./views/academics/AcademicEvents'))
 const StudentProfile = React.lazy(() => import('./views/academics/StudentProfile'))
 const FacultyProfile = React.lazy(() => import('./views/academics/FacultyProfile'))
@@ -204,10 +202,11 @@ const routes = [
   { path: '/lms/learner-activities', name: 'Learner Activities', element: LearnerActivities },
 
   // ===== Phase 4 : Academic Events =====
-  { path: '/academics/tutor-ward', name: 'Tutor Ward', element: TutorWard },
-  { path: '/academics/ward-enrollment', name: 'Ward Enrollment', element: WardEnrollment },
+  { path: '/academics/mentor-mentee', name: 'Mentor-Mentee Lifecycle', element: MentorMenteeLifecycle },
+  { path: '/academics/tutor-ward', name: 'Mentor-Mentee Lifecycle', element: MentorMenteeLifecycle },
+  { path: '/academics/ward-enrollment', name: 'Mentor-Mentee Lifecycle', element: MentorMenteeLifecycle },
+  { path: '/academics/ward-meetings', name: 'Mentor-Mentee Lifecycle', element: MentorMenteeLifecycle },
   { path: '/academics/ward-profile', name: 'Ward Profile', element: WardProfile },
-  { path: '/academics/ward-meetings', name: 'Ward Meetings', element: WardMeetings },
   { path: '/academics/academic-events', name: 'Academic Events', element: AcademicEvents },
   { path: '/academics/student-profile', name: 'Student Profile', element: StudentProfile },
   { path: '/academics/faculty-profile', name: 'Faculty Profile', element: FacultyProfile },

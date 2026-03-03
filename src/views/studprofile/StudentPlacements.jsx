@@ -21,7 +21,9 @@ import {
 } from '@coreui/react-pro'
 import CIcon from '@coreui/icons-react'
 import { cilSearch, cilUser, cilZoom, cilCloudDownload } from '@coreui/icons'
-import { ArpButton, ArpPagination } from '../../components/common'
+import { ArpButton, ArpPagination, ArpIconButton } from '../../components/common'
+import { lmsService, resolveMediaUrl } from '../../services/lmsService'
+import './student-info-theme.css'
 
 /**
  * Student Placements (converted from student_placements.html)
@@ -62,6 +64,23 @@ const avatarStyle = {
 }
 
 const badgeColor = (status) => (status === 'Active' ? 'success' : 'secondary')
+const safeText = (v) => {
+  const text = String(v ?? '').trim()
+  return text || 'XX'
+}
+const programmeDisplayText = (s) => {
+  const code = String(s?.programmeCode || s?.programme || '').trim()
+  const name = String(s?.programmeName || '').trim()
+  if (code && name && code.toLowerCase() !== name.toLowerCase()) return `${code} - ${name}`
+  return safeText(code || name)
+}
+const currentClassSectionSemText = (s) => {
+  const klass = String(s?.klass || '').trim()
+  const section = String(s?.section || '').trim()
+  const sem = String(s?.sem || '').trim()
+  const classSection = [klass, section].filter(Boolean).join(' - ')
+  return [classSection || 'XX', sem ? `Sem ${sem}` : 'Sem XX'].join(' | ')
+}
 
 const studentsSeed = [
   {
@@ -144,18 +163,21 @@ const StudentPlacements = () => {
   const [selectedReg, setSelectedReg] = useState(null)
   const [selectedPlacementId, setSelectedPlacementId] = useState(null)
   const [docCategory, setDocCategory] = useState(docCategories[0])
+  const [docSearch, setDocSearch] = useState('')
 
   // Pagination (students list)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [students, setStudents] = useState(studentsSeed)
+  const [placementRows, setPlacementRows] = useState(placementsSeed)
 
-  const programmes = useMemo(() => ['MBA', 'MCA'], [])
-  const classes = useMemo(() => ['I-MBA', 'I-MCA'], [])
-  const sections = useMemo(() => ['A', 'B'], [])
+  const programmes = useMemo(() => [...new Set(students.map((s) => s.programme).filter(Boolean))], [students])
+  const classes = useMemo(() => [...new Set(students.map((s) => s.klass).filter(Boolean))], [students])
+  const sections = useMemo(() => [...new Set(students.map((s) => s.section).filter(Boolean))], [students])
 
   const filteredStudents = useMemo(() => {
     const q = String(searchReg || '').trim().toLowerCase()
-    return studentsSeed.filter((s) => {
+    return students.filter((s) => {
       if (programme && s.programme !== programme) return false
       if (klass && s.klass !== klass) return false
       if (section && s.section !== section) return false
@@ -171,13 +193,62 @@ const StudentPlacements = () => {
   const endIdx = Math.min(startIdx + pageSize, total)
   const pageRows = useMemo(() => filteredStudents.slice(startIdx, endIdx), [filteredStudents, startIdx, endIdx])
 
-  const selectedStudent = useMemo(
-    () => studentsSeed.find((s) => s.reg === selectedReg) || null,
-    [selectedReg],
+  const selectedStudent = useMemo(() => students.find((s) => s.reg === selectedReg) || null, [students, selectedReg])
+  const selectedPlacement = useMemo(
+    () => placementRows.find((p) => String(p.id) === String(selectedPlacementId)) || null,
+    [placementRows, selectedPlacementId],
   )
+  const placementDocCategories = useMemo(
+    () => [...new Set([...docCategories, ...placementRows.map((p) => p.documentCategory).filter(Boolean)])],
+    [placementRows],
+  )
+  const filteredPlacementDocs = useMemo(
+    () => {
+      const q = String(docSearch || '').trim().toLowerCase()
+      return placementRows.filter((r) => {
+        if (docCategory && r.documentCategory !== docCategory) return false
+        if (!q) return true
+        const name = String(r.fileName || `${r.company || 'Placement'} - Document`).toLowerCase()
+        return name.includes(q)
+      })
+    },
+    [placementRows, docCategory, docSearch],
+  )
+  const placementDocPairs = useMemo(() => {
+    const out = []
+    for (let i = 0; i < filteredPlacementDocs.length; i += 2) out.push([filteredPlacementDocs[i], filteredPlacementDocs[i + 1] || null])
+    return out
+  }, [filteredPlacementDocs])
 
   // ---------- Handlers (mirror HTML script) ----------
-  const onFindStudents = () => {
+  const onFindStudents = async () => {
+    try {
+      const rows = await lmsService.listStudentProfiles({
+        registerNumber: searchReg,
+        programme,
+        className: klass,
+        section,
+      })
+      setStudents(
+        rows.map((r) => ({
+          reg: r.reg || r.regNo || r.registerNumber || '',
+          name: r.name || r.firstName || '',
+          gender: r.gender || '',
+          sem: r.sem || r.semester || '',
+          programme: r.programme || '',
+          programmeCode: r.programmeCode || r.programme || '',
+          programmeName: r.programmeName || '',
+          klass: r.klass || r.className || '',
+          section: r.section || '',
+          status: r.status || 'Active',
+          email: r.email || '',
+          yearSpan: r.yearSpan || '',
+          contact: r.contact || r.mobile || '',
+        })),
+      )
+    } catch {
+      setStudents([])
+    }
     setShowStudents(true)
     setShowProfile(false)
     setShowPlacement(false)
@@ -203,10 +274,21 @@ const StudentPlacements = () => {
     setShowDocs(false)
   }
 
-  const onViewPlacement = () => {
+  const onViewPlacement = async () => {
     if (!selectedReg) {
       window.alert('Please select a student first.')
       return
+    }
+    try {
+      const payload = await lmsService.getStudentProfilePlacements(selectedReg)
+      const rows = Array.isArray(payload?.records) && payload.records.length ? payload.records : placementsSeed
+      setPlacementRows(rows)
+      setSelectedPlacementId(rows[0]?.id || null)
+      setDocCategory(rows[0]?.documentCategory || docCategories[0])
+    } catch {
+      setPlacementRows(placementsSeed)
+      setSelectedPlacementId(placementsSeed[0]?.id || null)
+      setDocCategory(placementsSeed[0]?.documentCategory || docCategories[0])
     }
     setShowPlacement(true)
     setShowDocs(false)
@@ -214,10 +296,49 @@ const StudentPlacements = () => {
 
   const onGlobalDocsView = () => setShowDocs(true)
   const onCloseDocs = () => setShowDocs(false)
-  const onDownload = () => window.alert('Download (demo)')
+  const resolvePlacementDocumentRecord = () => {
+    if (selectedPlacement?.id) return selectedPlacement
+    const byCategory = placementRows.find((r) => String(r.documentCategory || '') === String(docCategory || ''))
+    return byCategory || placementRows[0] || null
+  }
+
+  const openPlacementDocument = async (action = 'view', explicitRecord = null) => {
+    const record = explicitRecord || resolvePlacementDocumentRecord()
+    if (!record?.id) {
+      window.alert('Please select a placement record first.')
+      return
+    }
+    try {
+      const meta = await lmsService.getStudentProfileRecordDocument('placements', record.id)
+      const url = resolveMediaUrl(meta?.filePath || record.filePath)
+      if (!url) {
+        window.alert('No document available for the selected record.')
+        return
+      }
+      if (action === 'download') {
+        const link = document.createElement('a')
+        link.href = url
+        link.download = meta?.fileName || record.fileName || 'document'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        return
+      }
+      if (action === 'print') {
+        const win = window.open(url, '_blank', 'noopener,noreferrer')
+        if (win) {
+          win.onload = () => win.print()
+        }
+        return
+      }
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch {
+      window.alert('Failed to load document metadata.')
+    }
+  }
 
   return (
-    <CRow>
+    <CRow className="student-info-screen">
       <CCol xs={12}>
         {/* ================= PHASE 1: STUDENT PLACEMENT SEARCH ================= */}
         <CCard className="mb-3">
@@ -367,7 +488,7 @@ const StudentPlacements = () => {
                         <CTableDataCell>{s.name}</CTableDataCell>
                         <CTableDataCell>{s.gender}</CTableDataCell>
                         <CTableDataCell>{s.sem}</CTableDataCell>
-                        <CTableDataCell>{s.programme}</CTableDataCell>
+                        <CTableDataCell>{programmeDisplayText(s)}</CTableDataCell>
                         <CTableDataCell>{s.klass}</CTableDataCell>
                         <CTableDataCell>{s.section}</CTableDataCell>
                         <CTableDataCell>
@@ -418,14 +539,15 @@ const StudentPlacements = () => {
 
                   <CTableRow>
                     <CTableDataCell>
-                      {selectedStudent.reg} | {selectedStudent.programme} | {selectedStudent.sem} | {selectedStudent.yearSpan}
+                      {safeText(selectedStudent.reg)} | {programmeDisplayText(selectedStudent)} |{' '}
+                      {currentClassSectionSemText(selectedStudent)} | {safeText(selectedStudent.yearSpan)}
                     </CTableDataCell>
                     <CTableDataCell colSpan={5}></CTableDataCell>
                   </CTableRow>
 
                   <CTableRow>
                     <CTableDataCell>
-                      {selectedStudent.email} | {selectedStudent.contact}
+                      {safeText(selectedStudent.email)} | {safeText(selectedStudent.contact)}
                     </CTableDataCell>
                     <CTableDataCell colSpan={4}></CTableDataCell>
                     <CTableDataCell className="text-center">
@@ -469,7 +591,7 @@ const StudentPlacements = () => {
                 </CTableHead>
 
                 <CTableBody>
-                  {placementsSeed.map((p) => (
+                  {placementRows.map((p) => (
                     <CTableRow key={p.id}>
                       <CTableDataCell className="text-center">
                         <input
@@ -506,14 +628,14 @@ const StudentPlacements = () => {
                   Document Category
                 </CCol>
                 <CCol xs={12} md={6}>
-                  View / Download Document
+                  View / Download / Print
                 </CCol>
               </CRow>
 
               <CRow className="g-2 align-items-center">
                 <CCol xs={12} md={6}>
                   <CFormSelect value={docCategory} onChange={(e) => setDocCategory(e.target.value)}>
-                    {docCategories.map((d) => (
+                    {placementDocCategories.map((d) => (
                       <option key={d} value={d}>
                         {d}
                       </option>
@@ -521,15 +643,64 @@ const StudentPlacements = () => {
                   </CFormSelect>
                 </CCol>
 
-                <CCol xs={12} md={6} className="d-flex gap-3 align-items-center">
-                  <CButton color="primary" style={circleBtnStyle} title="View" onClick={() => window.alert('View (demo)')}>
-                    <CIcon icon={ARP_ICONS.VIEW} />
-                  </CButton>
-                  <CButton color="success" style={circleBtnStyle} title="Download" onClick={onDownload}>
-                    <CIcon icon={ARP_ICONS.DOWNLOAD} />
-                  </CButton>
+                <CCol xs={12} md={6} className="d-flex gap-2 align-items-center">
+                  <ArpIconButton icon="view" color="primary" size={32} onClick={() => openPlacementDocument('view')} />
+                  <ArpIconButton icon="download" color="success" size={32} onClick={() => openPlacementDocument('download')} />
+                  <ArpIconButton icon="print" color="warning" size={32} onClick={() => openPlacementDocument('print')} />
                 </CCol>
               </CRow>
+              <CRow className="g-2 align-items-center mt-2">
+                <CCol xs={12}>
+                  <CFormInput
+                    value={docSearch}
+                    onChange={(e) => setDocSearch(e.target.value)}
+                    placeholder="Search document..."
+                  />
+                </CCol>
+              </CRow>
+
+              <CTable bordered responsive align="middle" className="mt-3">
+                <CTableHead color="light">
+                  <CTableRow>
+                    <CTableHeaderCell style={{ width: 70 }}>Select</CTableHeaderCell>
+                    <CTableHeaderCell>Document</CTableHeaderCell>
+                    <CTableHeaderCell style={{ width: 70 }}>Select</CTableHeaderCell>
+                    <CTableHeaderCell>Document</CTableHeaderCell>
+                  </CTableRow>
+                </CTableHead>
+                <CTableBody>
+                  {placementDocPairs.map(([left, right], idx) => (
+                    <CTableRow key={`placement-doc-pair-${idx}`}>
+                      <CTableDataCell className="text-center">
+                        {left ? (
+                          <input
+                            type="radio"
+                            name="placementDocSelect"
+                            checked={selectedPlacementId === left.id}
+                            onChange={() => setSelectedPlacementId(left.id)}
+                          />
+                        ) : null}
+                      </CTableDataCell>
+                      <CTableDataCell>
+                        {left ? safeText(left.fileName || `${left.company || 'Placement'} - Document`) : ''}
+                      </CTableDataCell>
+                      <CTableDataCell className="text-center">
+                        {right ? (
+                          <input
+                            type="radio"
+                            name="placementDocSelect"
+                            checked={selectedPlacementId === right.id}
+                            onChange={() => setSelectedPlacementId(right.id)}
+                          />
+                        ) : null}
+                      </CTableDataCell>
+                      <CTableDataCell>
+                        {right ? safeText(right.fileName || `${right.company || 'Placement'} - Document`) : ''}
+                      </CTableDataCell>
+                    </CTableRow>
+                  ))}
+                </CTableBody>
+              </CTable>
 
               <div className="text-end mt-3">
                 <CButton color="danger" size="sm" onClick={onCloseDocs}>

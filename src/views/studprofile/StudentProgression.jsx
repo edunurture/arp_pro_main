@@ -22,6 +22,9 @@ import {
 import CardShell from 'src/components/common/CardShell'
 import ArpActionToolbar from 'src/components/common/ArpActionToolbar'
 import IconCircleButton from 'src/components/common/IconCircleButton'
+import { ArpIconButton } from '../../components/common'
+import { lmsService, resolveMediaUrl } from '../../services/lmsService'
+import './student-info-theme.css'
 
 const avatarStyle = {
   width: 120,
@@ -32,6 +35,23 @@ const avatarStyle = {
 }
 
 const docCategories = ['Category -1', 'Category -2', 'Category -3']
+const safeText = (v) => {
+  const text = String(v ?? '').trim()
+  return text || 'XX'
+}
+const programmeDisplayText = (s) => {
+  const code = String(s?.programmeCode || s?.programme || '').trim()
+  const name = String(s?.programmeName || '').trim()
+  if (code && name && code.toLowerCase() !== name.toLowerCase()) return `${code} - ${name}`
+  return safeText(code || name)
+}
+const currentClassSectionSemText = (s) => {
+  const klass = String(s?.klass || '').trim()
+  const section = String(s?.section || '').trim()
+  const sem = String(s?.sem || '').trim()
+  const classSection = [klass, section].filter(Boolean).join(' - ')
+  return [classSection || 'XX', sem ? `Sem ${sem}` : 'Sem XX'].join(' | ')
+}
 
 const StudentProgression = () => {
   // Phase visibility
@@ -52,7 +72,9 @@ const StudentProgression = () => {
 
   // Selections
   const [selectedReg, setSelectedReg] = useState(null)
+  const [selectedProgressionId, setSelectedProgressionId] = useState(null)
   const [docCategory, setDocCategory] = useState(docCategories[0])
+  const [docSearch, setDocSearch] = useState('')
 
   const studentsSeed = useMemo(
     () => [
@@ -95,21 +117,76 @@ const StudentProgression = () => {
     [],
   )
 
+  const [students, setStudents] = useState(studentsSeed)
+  const [progressionRows, setProgressionRows] = useState(progressionSeed)
+  const selectedProgression = useMemo(
+    () => progressionRows.find((r) => String(r.id) === String(selectedProgressionId)) || null,
+    [progressionRows, selectedProgressionId],
+  )
+  const progressionDocCategories = useMemo(
+    () => [...new Set([...docCategories, ...progressionRows.map((r) => r.documentCategory).filter(Boolean)])],
+    [progressionRows],
+  )
+  const filteredProgressionDocs = useMemo(
+    () => {
+      const q = String(docSearch || '').trim().toLowerCase()
+      return progressionRows.filter((r) => {
+        if (docCategory && r.documentCategory !== docCategory) return false
+        if (!q) return true
+        const name = String(r.fileName || `${r.inst || 'Progression'} - Document`).toLowerCase()
+        return name.includes(q)
+      })
+    },
+    [progressionRows, docCategory, docSearch],
+  )
+  const progressionDocPairs = useMemo(() => {
+    const out = []
+    for (let i = 0; i < filteredProgressionDocs.length; i += 2) out.push([filteredProgressionDocs[i], filteredProgressionDocs[i + 1] || null])
+    return out
+  }, [filteredProgressionDocs])
+
   const filteredStudents = useMemo(() => {
     const q = String(filters.regNo || '').trim().toLowerCase()
-    return studentsSeed.filter((s) => {
+    return students.filter((s) => {
       if (filters.programme && s.programme !== filters.programme) return false
       if (filters.className && s.klass !== filters.className) return false
       if (filters.section && s.section !== filters.section) return false
       if (q && !String(s.reg).toLowerCase().includes(q)) return false
       return true
     })
-  }, [filters, studentsSeed])
+  }, [filters, students])
 
-  const selectedStudent = useMemo(() => studentsSeed.find((s) => s.reg === selectedReg) || null, [studentsSeed, selectedReg])
+  const selectedStudent = useMemo(() => students.find((s) => s.reg === selectedReg) || null, [students, selectedReg])
 
   // ---------- Handlers (mirror HTML behavior) ----------
-  const onSearch = () => {
+  const onSearch = async () => {
+    try {
+      const rows = await lmsService.listStudentProfiles({
+        registerNumber: filters.regNo,
+        programme: filters.programme,
+        className: filters.className,
+        section: filters.section,
+      })
+      setStudents(
+        rows.map((r) => ({
+          reg: r.reg || r.regNo || r.registerNumber || '',
+          name: r.name || r.firstName || '',
+          gender: r.gender || '',
+          sem: r.sem || r.semester || '',
+          programme: r.programme || '',
+          programmeCode: r.programmeCode || r.programme || '',
+          programmeName: r.programmeName || '',
+          klass: r.klass || r.className || '',
+          section: r.section || '',
+          status: r.status || 'Active',
+          email: r.email || '',
+          yearSpan: r.yearSpan || '',
+          contact: r.contact || r.mobile || '',
+        })),
+      )
+    } catch {
+      setStudents([])
+    }
     setShowList(true)
     setShowProfile(false)
     setShowProgression(false)
@@ -119,6 +196,8 @@ const StudentProgression = () => {
 
   const onReset = () => {
     setFilters({ regNo: '', programme: '', className: '', section: '' })
+    setSelectedProgressionId(null)
+    setDocCategory(docCategories[0])
   }
 
   const onViewProfile = () => {
@@ -131,17 +210,72 @@ const StudentProgression = () => {
     setShowDocument(false)
   }
 
-  const onViewProgression = () => {
+  const onViewProgression = async () => {
     if (!selectedReg) {
       window.alert('Please select a student first.')
       return
+    }
+    try {
+      const payload = await lmsService.getStudentProfileProgression(selectedReg)
+      const baseRows = Array.isArray(payload?.records) && payload.records.length ? payload.records : progressionSeed
+      const rows = baseRows.map((r, idx) => ({ ...r, id: r.id || `progression-${idx + 1}` }))
+      setProgressionRows(rows)
+      setSelectedProgressionId(rows[0]?.id || null)
+      setDocCategory(rows[0]?.documentCategory || docCategories[0])
+    } catch {
+      const rows = progressionSeed.map((r, idx) => ({ ...r, id: r.id || `progression-${idx + 1}` }))
+      setProgressionRows(rows)
+      setSelectedProgressionId(rows[0]?.id || null)
+      setDocCategory(rows[0]?.documentCategory || docCategories[0])
     }
     setShowProgression(true)
     setShowDocument(false)
   }
 
+  const resolveProgressionDocumentRecord = () => {
+    if (selectedProgression?.id) return selectedProgression
+    const byCategory = progressionRows.find((r) => String(r.documentCategory || '') === String(docCategory || ''))
+    return byCategory || progressionRows[0] || null
+  }
+
+  const openProgressionDocument = async (action = 'view', explicitRecord = null) => {
+    const record = explicitRecord || resolveProgressionDocumentRecord()
+    if (!record?.id) {
+      window.alert('Please select a progression record first.')
+      return
+    }
+    try {
+      const meta = await lmsService.getStudentProfileRecordDocument('progression', record.id)
+      const url = resolveMediaUrl(meta?.filePath || record.filePath)
+      if (!url) {
+        window.alert('No document available for the selected record.')
+        return
+      }
+      if (action === 'download') {
+        const link = document.createElement('a')
+        link.href = url
+        link.download = meta?.fileName || record.fileName || 'document'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        return
+      }
+      if (action === 'print') {
+        const win = window.open(url, '_blank', 'noopener,noreferrer')
+        if (win) {
+          win.onload = () => win.print()
+        }
+        return
+      }
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch {
+      window.alert('Failed to load document metadata.')
+    }
+  }
+
   return (
-    <CardShell title="Student Progression" breadcrumb={['Setup', 'Student Progression']}>
+    <div className="student-info-screen">
+      <CardShell title="Student Progression" breadcrumb={['Setup', 'Student Progression']}>
       {/* Find Students */}
       <CCard className="mb-3">
         <CCardHeader>Find Students</CCardHeader>
@@ -270,7 +404,7 @@ const StudentProgression = () => {
                       <CTableDataCell>{s.name}</CTableDataCell>
                       <CTableDataCell>{s.gender}</CTableDataCell>
                       <CTableDataCell>{s.sem}</CTableDataCell>
-                      <CTableDataCell>{s.programme}</CTableDataCell>
+                      <CTableDataCell>{programmeDisplayText(s)}</CTableDataCell>
                       <CTableDataCell>{s.klass}</CTableDataCell>
                       <CTableDataCell>{s.section}</CTableDataCell>
                       <CTableDataCell>{s.status}</CTableDataCell>
@@ -308,14 +442,15 @@ const StudentProgression = () => {
 
                 <CTableRow>
                   <CTableDataCell>
-                    {selectedStudent.reg} | {selectedStudent.programme} | {selectedStudent.sem} | {selectedStudent.yearSpan}
+                    {safeText(selectedStudent.reg)} | {programmeDisplayText(selectedStudent)} |{' '}
+                    {currentClassSectionSemText(selectedStudent)} | {safeText(selectedStudent.yearSpan)}
                   </CTableDataCell>
                   <CTableDataCell colSpan={5}></CTableDataCell>
                 </CTableRow>
 
                 <CTableRow>
                   <CTableDataCell>
-                    {selectedStudent.email} | {selectedStudent.contact}
+                    {safeText(selectedStudent.email)} | {safeText(selectedStudent.contact)}
                   </CTableDataCell>
                   <CTableDataCell colSpan={4}></CTableDataCell>
                   <CTableDataCell className="text-center">
@@ -353,10 +488,15 @@ const StudentProgression = () => {
                 </CTableRow>
               </CTableHead>
               <CTableBody>
-                {progressionSeed.map((p, idx) => (
-                  <CTableRow key={`${p.inst}-${idx}`}>
+                {progressionRows.map((p, idx) => (
+                  <CTableRow key={p.id || `${p.inst}-${idx}`}>
                     <CTableDataCell className="text-center">
-                      <input type="radio" name="sp-progressionSelect" defaultChecked={idx === 0} />
+                      <input
+                        type="radio"
+                        name="sp-progressionSelect"
+                        checked={selectedProgressionId === p.id}
+                        onChange={() => setSelectedProgressionId(p.id)}
+                      />
                     </CTableDataCell>
                     <CTableDataCell>{p.inst}</CTableDataCell>
                     <CTableDataCell>{p.join}</CTableDataCell>
@@ -380,14 +520,14 @@ const StudentProgression = () => {
                       Document Category
                     </CCol>
                     <CCol xs={12} md={6}>
-                      View / Download Document
+                      View / Download / Print
                     </CCol>
                   </CRow>
 
                   <CRow className="g-2 align-items-center">
                     <CCol xs={12} md={6}>
                       <CFormSelect value={docCategory} onChange={(e) => setDocCategory(e.target.value)}>
-                        {docCategories.map((d) => (
+                        {progressionDocCategories.map((d) => (
                           <option key={d} value={d}>
                             {d}
                           </option>
@@ -395,25 +535,64 @@ const StudentProgression = () => {
                       </CFormSelect>
                     </CCol>
 
-                    <CCol xs={12} md={6} className="d-flex gap-3 align-items-center">
-                      <CButton
-                        color="primary"
-                        style={{ width: 32, height: 32, padding: 0, borderRadius: '50%' }}
-                        title="View"
-                        onClick={() => window.alert('View (demo)')}
-                      >
-                        <IconCircleButton icon="cilEye" tooltip="View" />
-                      </CButton>
-                      <CButton
-                        color="success"
-                        style={{ width: 32, height: 32, padding: 0, borderRadius: '50%' }}
-                        title="Download"
-                        onClick={() => window.alert('Download (demo)')}
-                      >
-                        <IconCircleButton icon="cilCloudDownload" tooltip="Download" />
-                      </CButton>
+                    <CCol xs={12} md={6} className="d-flex gap-2 align-items-center">
+                      <ArpIconButton icon="view" color="primary" size={32} onClick={() => openProgressionDocument('view')} />
+                      <ArpIconButton icon="download" color="success" size={32} onClick={() => openProgressionDocument('download')} />
+                      <ArpIconButton icon="print" color="warning" size={32} onClick={() => openProgressionDocument('print')} />
                     </CCol>
                   </CRow>
+                  <CRow className="g-2 align-items-center mt-2">
+                    <CCol xs={12}>
+                      <CFormInput
+                        value={docSearch}
+                        onChange={(e) => setDocSearch(e.target.value)}
+                        placeholder="Search document..."
+                      />
+                    </CCol>
+                  </CRow>
+
+                  <CTable bordered responsive align="middle" className="mt-3">
+                    <CTableHead color="light">
+                      <CTableRow>
+                        <CTableHeaderCell style={{ width: 70 }}>Select</CTableHeaderCell>
+                        <CTableHeaderCell>Document</CTableHeaderCell>
+                        <CTableHeaderCell style={{ width: 70 }}>Select</CTableHeaderCell>
+                        <CTableHeaderCell>Document</CTableHeaderCell>
+                      </CTableRow>
+                    </CTableHead>
+                    <CTableBody>
+                      {progressionDocPairs.map(([left, right], idx) => (
+                        <CTableRow key={`progression-doc-pair-${idx}`}>
+                          <CTableDataCell className="text-center">
+                            {left ? (
+                              <input
+                                type="radio"
+                                name="progressionDocSelect"
+                                checked={selectedProgressionId === left.id}
+                                onChange={() => setSelectedProgressionId(left.id)}
+                              />
+                            ) : null}
+                          </CTableDataCell>
+                          <CTableDataCell>
+                            {left ? safeText(left.fileName || `${left.inst || 'Progression'} - Document`) : ''}
+                          </CTableDataCell>
+                          <CTableDataCell className="text-center">
+                            {right ? (
+                              <input
+                                type="radio"
+                                name="progressionDocSelect"
+                                checked={selectedProgressionId === right.id}
+                                onChange={() => setSelectedProgressionId(right.id)}
+                              />
+                            ) : null}
+                          </CTableDataCell>
+                          <CTableDataCell>
+                            {right ? safeText(right.fileName || `${right.inst || 'Progression'} - Document`) : ''}
+                          </CTableDataCell>
+                        </CTableRow>
+                      ))}
+                    </CTableBody>
+                  </CTable>
 
                   <div className="text-end mt-3">
                     <CButton color="danger" size="sm" onClick={() => setShowDocument(false)}>
@@ -426,7 +605,8 @@ const StudentProgression = () => {
           </CCardBody>
         </CCard>
       )}
-    </CardShell>
+      </CardShell>
+    </div>
   )
 }
 

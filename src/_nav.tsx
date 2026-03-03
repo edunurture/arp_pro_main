@@ -122,10 +122,7 @@ const _nav: NavItem[] = [
     name: 'ACADEMICS',
     icon: icon(cilSchool),
     items: [
-      { component: CNavItem, name: 'Tutor Ward', to: '/academics/tutor-ward' },
-      { component: CNavItem, name: 'Ward Enrollment', to: '/academics/ward-enrollment' },
-      { component: CNavItem, name: 'Ward Profile', to: '/academics/ward-profile' },
-      { component: CNavItem, name: 'Ward Meetings', to: '/academics/ward-meetings' },
+      { component: CNavItem, name: 'Mentor-Mentee Lifecycle', to: '/academics/mentor-mentee' },
       { component: CNavItem, name: 'Academic Events', to: '/academics/academic-events' },
       { component: CNavItem, name: 'Student Profile', to: '/academics/student-profile' },
       { component: CNavItem, name: 'Faculty Profile', to: '/academics/faculty-profile' },

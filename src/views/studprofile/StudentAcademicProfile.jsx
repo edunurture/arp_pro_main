@@ -23,6 +23,8 @@ import { cilSearch, cilUser } from '@coreui/icons'
 
 import CardShell from 'src/components/common/CardShell'
 import IconCircleButton from 'src/components/common/IconCircleButton'
+import { lmsService } from '../../services/lmsService'
+import './student-info-theme.css'
 
 /**
  * Student Academic Profile (Up to Phase 4)
@@ -32,6 +34,23 @@ import IconCircleButton from 'src/components/common/IconCircleButton'
  *   + Certificate / Diploma
  */
 const StudentAcademicProfile = () => {
+  const safeText = (v) => {
+    const text = String(v ?? '').trim()
+    return text || 'XX'
+  }
+  const programmeDisplayText = (s) => {
+    const code = String(s?.programmeCode || s?.prog || '').trim()
+    const name = String(s?.programmeName || '').trim()
+    if (code && name && code.toLowerCase() !== name.toLowerCase()) return `${code} - ${name}`
+    return safeText(code || name)
+  }
+  const currentClassSectionSemText = (s) => {
+    const klass = String(s?.cls || '').trim()
+    const section = String(s?.sec || '').trim()
+    const sem = String(s?.sem || '').trim()
+    const classSection = [klass, section].filter(Boolean).join(' - ')
+    return [classSection || 'XX', sem ? `Sem ${sem}` : 'Sem XX'].join(' | ')
+  }
   // Phase visibility
   const [showPhase2, setShowPhase2] = useState(false)
   const [showPhase3, setShowPhase3] = useState(false)
@@ -67,31 +86,21 @@ const StudentAcademicProfile = () => {
     certificate: 'Certificate / Diploma',
   }
 
-  const students = useMemo(
-    () => [
-      { id: '23MCA01', name: 'AJISH A', email: 'ajisha2023@gmail.com', contact: '+91 90000 11111', photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=400&auto=format&fit=crop', gender: 'M', sem: 3, prog: 'MCA', cls: 'I-MCA', sec: 'A', status: 'Active' },
-      { id: '23MCA02', name: 'DEMO STUDENT', email: 'demo.student@example.com', contact: '+91 95555 22222', photoUrl: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?q=80&w=400&auto=format&fit=crop', gender: 'F', sem: 3, prog: 'MCA', cls: 'I-MCA', sec: 'A', status: 'Active' },
-    ],
-    [],
-  )
+  const [students, setStudents] = useState([
+    { id: '23MCA01', name: 'AJISH A', email: 'ajisha2023@gmail.com', contact: '+91 90000 11111', photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=400&auto=format&fit=crop', gender: 'M', sem: 3, prog: 'MCA', cls: 'I-MCA', sec: 'A', status: 'Active' },
+    { id: '23MCA02', name: 'DEMO STUDENT', email: 'demo.student@example.com', contact: '+91 95555 22222', photoUrl: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?q=80&w=400&auto=format&fit=crop', gender: 'F', sem: 3, prog: 'MCA', cls: 'I-MCA', sec: 'A', status: 'Active' },
+  ])
 
-  const selectedStudent = useMemo(
-    () => students.find((s) => s.id === selectedStudentId) || students[0],
-    [students, selectedStudentId],
-  )
+  const selectedStudent = useMemo(() => students.find((s) => s.id === selectedStudentId) || students[0], [students, selectedStudentId])
 
   // Phase 4: CIA mock rows
-  const ciaRows = useMemo(
-    () => [
+  const [ciaRows, setCiaRows] = useState([
       { code: 'MC101', name: 'DS', cia1: 18, cia2: 19, cia3: 20, assignment: 10, seminar: 10, total: 77 },
       { code: 'MC102', name: 'OS', cia1: 17, cia2: 18, cia3: 19, assignment: 9, seminar: 9, total: 72 },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Project mock rows
-  const projectRows = useMemo(
-    () => [
+  const [projectRows, setProjectRows] = useState([
       {
         year: 2024,
         semester: 3,
@@ -101,13 +110,10 @@ const StudentAcademicProfile = () => {
         startDate: '01-01-2024',
         endDate: '31-03-2024',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Internship mock rows
-  const internshipRows = useMemo(
-    () => [
+  const [internshipRows, setInternshipRows] = useState([
       {
         year: 2024,
         semester: 3,
@@ -117,13 +123,10 @@ const StudentAcademicProfile = () => {
         startDate: '01-05-2024',
         endDate: '31-05-2024',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Training Program mock rows
-  const trainingRows = useMemo(
-    () => [
+  const [trainingRows, setTrainingRows] = useState([
       {
         year: 2024,
         semester: 3,
@@ -133,13 +136,10 @@ const StudentAcademicProfile = () => {
         startDate: '10-06-2024',
         endDate: '20-06-2024',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Seminar Participation mock rows
-  const seminarRows = useMemo(
-    () => [
+  const [seminarRows, setSeminarRows] = useState([
       {
         year: 2024,
         semester: 3,
@@ -149,13 +149,10 @@ const StudentAcademicProfile = () => {
         date: '15-07-2024',
         venue: 'Auditorium',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Competitive Exams mock rows
-  const competitiveRows = useMemo(
-    () => [
+  const [competitiveRows, setCompetitiveRows] = useState([
       {
         year: 2024,
         examName: 'GATE',
@@ -164,13 +161,10 @@ const StudentAcademicProfile = () => {
         qualified: 'Yes',
         examDate: '11-02-2024',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Awards / Medals mock rows
-  const awardsRows = useMemo(
-    () => [
+  const [awardsRows, setAwardsRows] = useState([
       {
         year: 2024,
         awardName: 'Best Performer',
@@ -179,13 +173,10 @@ const StudentAcademicProfile = () => {
         position: '1st',
         date: '05-08-2024',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Paper Presentation mock rows
-  const paperPresentationRows = useMemo(
-    () => [
+  const [paperPresentationRows, setPaperPresentationRows] = useState([
       {
         year: 2024,
         semester: 3,
@@ -196,13 +187,10 @@ const StudentAcademicProfile = () => {
         award: 'Best Paper',
         date: '18-09-2024',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Paper Publications mock rows
-  const paperPublicationRows = useMemo(
-    () => [
+  const [paperPublicationRows, setPaperPublicationRows] = useState([
       {
         year: 2024,
         semester: 3,
@@ -213,13 +201,10 @@ const StudentAcademicProfile = () => {
         doi: '10.1234/ijcc.2024.001',
         publicationDate: '10-10-2024',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Membership mock rows
-  const membershipRows = useMemo(
-    () => [
+  const [membershipRows, setMembershipRows] = useState([
       {
         year: 2024,
         membershipType: 'Professional Body',
@@ -228,13 +213,10 @@ const StudentAcademicProfile = () => {
         validityFrom: '01-01-2024',
         validityTo: '31-12-2024',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: MOOCs mock rows
-  const moocsRows = useMemo(
-    () => [
+  const [moocsRows, setMoocsRows] = useState([
       {
         year: 2024,
         semester: 3,
@@ -245,13 +227,10 @@ const StudentAcademicProfile = () => {
         certificateId: 'NPTEL-ML-2024-7788',
         completionDate: '30-11-2024',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Value Added Courses mock rows
-  const vacRows = useMemo(
-    () => [
+  const [vacRows, setVacRows] = useState([
       {
         year: 2024,
         semester: 3,
@@ -261,13 +240,10 @@ const StudentAcademicProfile = () => {
         grade: 'A',
         completionDate: '12-12-2024',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Add On Courses mock rows
-  const addonRows = useMemo(
-    () => [
+  const [addonRows, setAddonRows] = useState([
       {
         year: 2024,
         semester: 3,
@@ -277,13 +253,10 @@ const StudentAcademicProfile = () => {
         grade: 'A+',
         completionDate: '22-12-2024',
       },
-    ],
-    [],
-  )
+    ])
 
   // Phase 4: Certificate / Diploma mock rows
-  const certificateRows = useMemo(
-    () => [
+  const [certificateRows, setCertificateRows] = useState([
       {
         year: 2024,
         semester: 3,
@@ -304,12 +277,43 @@ const StudentAcademicProfile = () => {
         certificateNo: 'DWD-2024-1188',
         completionDate: '30-12-2024',
       },
-    ],
-    [],
-  )
+    ])
 
-  const onFindStudents = (e) => {
+  const onFindStudents = async (e) => {
     e.preventDefault()
+    try {
+      const rows = await lmsService.listStudentProfiles({
+        registerNumber: regNo,
+        programme,
+        className,
+        section,
+      })
+      const mapped = rows.map((r) => ({
+        id: r.reg || r.regNo || r.registerNumber || '',
+        name: r.name || r.firstName || '',
+        email: r.email || '',
+        contact: r.contact || r.mobile || '',
+        photoUrl: r.photoUrl || '',
+        gender: r.gender || '',
+        sem: r.sem || r.semester || '',
+        prog: r.programme || '',
+        programmeCode: r.programmeCode || r.programme || '',
+        programmeName: r.programmeName || '',
+        cls: r.klass || r.className || '',
+        sec: r.section || '',
+        status: r.status || 'Active',
+      }))
+      if (mapped.length) {
+        setStudents(mapped)
+        setSelectedStudentId(mapped[0].id)
+      } else {
+        setStudents([])
+        setSelectedStudentId('')
+      }
+    } catch {
+      setStudents([])
+      setSelectedStudentId('')
+    }
     setShowPhase2(true)
     setShowPhase3(false)
     setShowPhase4(false)
@@ -323,8 +327,31 @@ const StudentAcademicProfile = () => {
     setCategory('')
   }
 
-  const onViewCategory = () => {
+  const onViewCategory = async () => {
     if (!category) return
+    try {
+      const payload = await lmsService.getStudentProfileAcademic(selectedStudentId, category)
+      const rec = Array.isArray(payload?.records) ? payload.records.find((x) => x.category === category) : null
+      const rows = Array.isArray(rec?.rows) ? rec.rows : []
+      if (rows.length) {
+        if (category === 'cia') setCiaRows(rows)
+        if (category === 'project') setProjectRows(rows)
+        if (category === 'internship') setInternshipRows(rows)
+        if (category === 'training') setTrainingRows(rows)
+        if (category === 'seminar') setSeminarRows(rows)
+        if (category === 'competitive') setCompetitiveRows(rows)
+        if (category === 'awards') setAwardsRows(rows)
+        if (category === 'paper-presentation') setPaperPresentationRows(rows)
+        if (category === 'paper-publications') setPaperPublicationRows(rows)
+        if (category === 'membership') setMembershipRows(rows)
+        if (category === 'moocs') setMoocsRows(rows)
+        if (category === 'vac') setVacRows(rows)
+        if (category === 'addon') setAddonRows(rows)
+        if (category === 'certificate') setCertificateRows(rows)
+      }
+    } catch {
+      // keep local defaults on API errors
+    }
     setShowPhase4(true)
   }
 
@@ -343,7 +370,8 @@ const StudentAcademicProfile = () => {
   }
 
   return (
-    <CardShell
+    <div className="student-info-screen">
+      <CardShell
       title="Academic Profile"
       breadcrumbs={[
         { label: 'Home', to: '/' },
@@ -449,7 +477,7 @@ const StudentAcademicProfile = () => {
                     <CTableDataCell>{s.name}</CTableDataCell>
                     <CTableDataCell>{s.gender}</CTableDataCell>
                     <CTableDataCell>{s.sem}</CTableDataCell>
-                    <CTableDataCell>{s.prog}</CTableDataCell>
+                    <CTableDataCell>{programmeDisplayText(s)}</CTableDataCell>
                     <CTableDataCell>{s.cls}</CTableDataCell>
                     <CTableDataCell>{s.sec}</CTableDataCell>
                     <CTableDataCell>{s.status}</CTableDataCell>
@@ -494,16 +522,15 @@ const StudentAcademicProfile = () => {
 
                 <CTableRow>
                   <CTableDataCell>
-                    {selectedStudent?.id} | {selectedStudent?.prog} | {selectedStudent?.sem} SEM | 2023 - 24
+                    {safeText(selectedStudent?.id)} | {programmeDisplayText(selectedStudent)} |{' '}
+                    {currentClassSectionSemText(selectedStudent)} | 2023 - 24
                   </CTableDataCell>
                   <CTableDataCell colSpan={6}></CTableDataCell>
                 </CTableRow>
 
                 <CTableRow>
                   <CTableDataCell className="text-muted small">
-                    {/* Optional contact/email fields can be wired to API later */}
-                    {selectedStudent?.email || ''} {selectedStudent?.email ? ' | ' : ''}
-                    {selectedStudent?.contact || ''}
+                    {safeText(selectedStudent?.email)} | {safeText(selectedStudent?.contact)}
                   </CTableDataCell>
 
                   <CTableDataCell colSpan={2} className="fw-semibold">
@@ -1213,7 +1240,8 @@ const StudentAcademicProfile = () => {
           </CCardBody>
         </CCard>
       )}
-    </CardShell>
+      </CardShell>
+    </div>
   )
 }
 

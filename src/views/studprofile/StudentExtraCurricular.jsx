@@ -29,7 +29,9 @@ import {
   cilPrint,
 } from '@coreui/icons'
 
-import { ArpButton, ArpPagination } from '../../components/common'
+import { ArpButton, ArpPagination, ArpIconButton } from '../../components/common'
+import { lmsService, resolveMediaUrl } from '../../services/lmsService'
+import './student-info-theme.css'
 
 /**
  * Student Extra Curricular Activities (converted from student_extra_curricular.html)
@@ -70,6 +72,23 @@ const avatarStyle = {
 }
 
 const badgeColor = (status) => (status === 'Active' ? 'success' : 'secondary')
+const safeText = (v) => {
+  const text = String(v ?? '').trim()
+  return text || 'XX'
+}
+const programmeDisplayText = (s) => {
+  const code = String(s?.programmeCode || s?.programme || '').trim()
+  const name = String(s?.programmeName || '').trim()
+  if (code && name && code.toLowerCase() !== name.toLowerCase()) return `${code} - ${name}`
+  return safeText(code || name)
+}
+const currentClassSectionSemText = (s) => {
+  const klass = String(s?.klass || '').trim()
+  const section = String(s?.section || '').trim()
+  const sem = String(s?.sem || '').trim()
+  const classSection = [klass, section].filter(Boolean).join(' - ')
+  return [classSection || 'XX', sem ? `Sem ${sem}` : 'Sem XX'].join(' | ')
+}
 
 const studentsSeed = [
   { reg: '23MCA01', name: 'AJISH .A', gender: 'Male', sem: '3', programme: 'MCA', klass: 'I-MCA', section: 'A', status: 'Active' },
@@ -99,9 +118,9 @@ const StudentExtraCurricular = () => {
   const [section, setSection] = useState('')
 
   // Mock data
-  const [students] = useState(studentsSeed)
-  const [sportsRows] = useState(sportsSeed)
-  const [culturalRows] = useState(culturalSeed)
+  const [students, setStudents] = useState(studentsSeed)
+  const [sportsRows, setSportsRows] = useState(sportsSeed)
+  const [culturalRows, setCulturalRows] = useState(culturalSeed)
 
   // Selection
   const [selectedReg, setSelectedReg] = useState(null)
@@ -121,6 +140,50 @@ const StudentExtraCurricular = () => {
   const [showCulturalDocs, setShowCulturalDocs] = useState(false)
   const [sportsDocCategory, setSportsDocCategory] = useState(docCategories[0])
   const [culturalDocCategory, setCulturalDocCategory] = useState(docCategories[0])
+  const [sportsDocSearch, setSportsDocSearch] = useState('')
+  const [culturalDocSearch, setCulturalDocSearch] = useState('')
+  const sportsDocCategories = useMemo(
+    () => [...new Set([...docCategories, ...sportsRows.map((r) => r.documentCategory).filter(Boolean)])],
+    [sportsRows],
+  )
+  const culturalDocCategories = useMemo(
+    () => [...new Set([...docCategories, ...culturalRows.map((r) => r.documentCategory).filter(Boolean)])],
+    [culturalRows],
+  )
+  const filteredSportsDocs = useMemo(
+    () => {
+      const q = String(sportsDocSearch || '').trim().toLowerCase()
+      return sportsRows.filter((r) => {
+        if (sportsDocCategory && r.documentCategory !== sportsDocCategory) return false
+        if (!q) return true
+        const name = String(r.fileName || `${r.sport || 'Activity'} - Document`).toLowerCase()
+        return name.includes(q)
+      })
+    },
+    [sportsRows, sportsDocCategory, sportsDocSearch],
+  )
+  const filteredCulturalDocs = useMemo(
+    () => {
+      const q = String(culturalDocSearch || '').trim().toLowerCase()
+      return culturalRows.filter((r) => {
+        if (culturalDocCategory && r.documentCategory !== culturalDocCategory) return false
+        if (!q) return true
+        const name = String(r.fileName || `${r.cultural || 'Activity'} - Document`).toLowerCase()
+        return name.includes(q)
+      })
+    },
+    [culturalRows, culturalDocCategory, culturalDocSearch],
+  )
+  const sportsDocPairs = useMemo(() => {
+    const out = []
+    for (let i = 0; i < filteredSportsDocs.length; i += 2) out.push([filteredSportsDocs[i], filteredSportsDocs[i + 1] || null])
+    return out
+  }, [filteredSportsDocs])
+  const culturalDocPairs = useMemo(() => {
+    const out = []
+    for (let i = 0; i < filteredCulturalDocs.length; i += 2) out.push([filteredCulturalDocs[i], filteredCulturalDocs[i + 1] || null])
+    return out
+  }, [filteredCulturalDocs])
 
   // Phase 2 pagination (API-ready)
   const [page, setPage] = useState(1)
@@ -155,7 +218,33 @@ const StudentExtraCurricular = () => {
   }, [])
 
   // ---------- Handlers (mirror HTML script behavior) ----------
-  const onFindStudents = () => {
+  const onFindStudents = async () => {
+    try {
+      const rows = await lmsService.listStudentProfiles({
+        registerNumber: searchReg,
+        programme,
+        className: klass,
+        section,
+      })
+      setStudents(
+        rows.map((r) => ({
+          reg: r.reg || r.regNo || r.registerNumber || '',
+          name: r.name || r.firstName || '',
+          gender: r.gender || '',
+          sem: r.sem || r.semester || '',
+          programme: r.programme || '',
+          programmeCode: r.programmeCode || r.programme || '',
+          programmeName: r.programmeName || '',
+          klass: r.klass || r.className || '',
+          section: r.section || '',
+          status: r.status || 'Active',
+          email: r.email || '',
+          contact: r.contact || r.mobile || '',
+        })),
+      )
+    } catch {
+      setStudents([])
+    }
     setShowStudents(true)
     setShowProfile(false)
     setActiveCategory(null)
@@ -185,10 +274,62 @@ const StudentExtraCurricular = () => {
     setShowCulturalDocs(false)
   }
 
-  const onViewCategory = () => {
+  const onViewCategory = async () => {
     if (!selectedReg) {
       window.alert('Please select a student first.')
       return
+    }
+    try {
+      const payload = await lmsService.getStudentProfileExtraCurricular(
+        selectedReg,
+        profileCategory === 'Sports Activities' ? 'SPORTS' : 'CULTURAL',
+      )
+      const records = Array.isArray(payload?.records) ? payload.records : []
+      if (profileCategory === 'Sports Activities') {
+        const rows = records.map((r) => ({
+            id: r.id,
+            year: r.year,
+            sem: r.sem,
+            sport: r.activityName,
+            event: r.event,
+            level: r.level,
+            start: r.start,
+            end: r.end,
+            documentCategory: r.documentCategory || 'Category -1',
+            filePath: r.filePath || '',
+            fileName: r.fileName || '',
+          }))
+        setSportsRows(rows)
+        setSelectedSportId(rows[0]?.id || null)
+        setSportsDocCategory(rows[0]?.documentCategory || docCategories[0])
+      } else {
+        const rows = records.map((r) => ({
+            id: r.id,
+            year: r.year,
+            sem: r.sem,
+            cultural: r.activityName,
+            event: r.event,
+            level: r.level,
+            start: r.start,
+            end: r.end,
+            documentCategory: r.documentCategory || 'Category -1',
+            filePath: r.filePath || '',
+            fileName: r.fileName || '',
+          }))
+        setCulturalRows(rows)
+        setSelectedCulturalId(rows[0]?.id || null)
+        setCulturalDocCategory(rows[0]?.documentCategory || docCategories[0])
+      }
+    } catch {
+      if (profileCategory === 'Sports Activities') {
+        setSportsRows(sportsSeed)
+        setSelectedSportId(sportsSeed[0]?.id || null)
+        setSportsDocCategory(sportsSeed[0]?.documentCategory || docCategories[0])
+      } else {
+        setCulturalRows(culturalSeed)
+        setSelectedCulturalId(culturalSeed[0]?.id || null)
+        setCulturalDocCategory(culturalSeed[0]?.documentCategory || docCategories[0])
+      }
     }
     setActiveCategory(profileCategory)
     setShowSportsDocs(false)
@@ -201,14 +342,52 @@ const StudentExtraCurricular = () => {
   const onCloseCulturalDocs = () => setShowCulturalDocs(false)
 
   const onEdit = () => window.alert('Edit (demo)')
-  const onDownload = () => window.alert('View / Download (demo)')
+  const openExtraDocument = async (kind, action = 'view', explicitRecord = null) => {
+    const rows = kind === 'sports' ? sportsRows : culturalRows
+    const selectedId = kind === 'sports' ? selectedSportId : selectedCulturalId
+    const selectedCategory = kind === 'sports' ? sportsDocCategory : culturalDocCategory
+    const selected = rows.find((r) => String(r.id) === String(selectedId))
+    const byCategory = rows.find((r) => String(r.documentCategory || '') === String(selectedCategory || ''))
+    const record = explicitRecord || selected || byCategory || rows[0] || null
+    if (!record?.id) {
+      window.alert('Please select an activity record first.')
+      return
+    }
+    try {
+      const meta = await lmsService.getStudentProfileRecordDocument('extra', record.id)
+      const url = resolveMediaUrl(meta?.filePath || record.filePath)
+      if (!url) {
+        window.alert('No document available for the selected record.')
+        return
+      }
+      if (action === 'download') {
+        const link = document.createElement('a')
+        link.href = url
+        link.download = meta?.fileName || record.fileName || 'document'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        return
+      }
+      if (action === 'print') {
+        const win = window.open(url, '_blank', 'noopener,noreferrer')
+        if (win) {
+          win.onload = () => win.print()
+        }
+        return
+      }
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch {
+      window.alert('Failed to load document metadata.')
+    }
+  }
   const onPrint = () => window.print()
-    const programmes = useMemo(() => ['MBA', 'MCA'], [])
-  const classes = useMemo(() => ['I-MBA', 'I-MCA'], [])
-  const sections = useMemo(() => ['A', 'B'], [])
+  const programmes = useMemo(() => [...new Set(students.map((s) => s.programme).filter(Boolean))], [students])
+  const classes = useMemo(() => [...new Set(students.map((s) => s.klass).filter(Boolean))], [students])
+  const sections = useMemo(() => [...new Set(students.map((s) => s.section).filter(Boolean))], [students])
 
   return (
-    <CRow>
+    <CRow className="student-info-screen">
       <CCol xs={12}>
         {/* ================= PHASE 1: EXTRA CURRICULAR ACTIVITIES (FIND) ================= */}
         <CCard className="mb-3">
@@ -366,7 +545,7 @@ const StudentExtraCurricular = () => {
                         <CTableDataCell>{s.name}</CTableDataCell>
                         <CTableDataCell>{s.gender}</CTableDataCell>
                         <CTableDataCell>{s.sem}</CTableDataCell>
-                        <CTableDataCell>{s.programme}</CTableDataCell>
+                        <CTableDataCell>{programmeDisplayText(s)}</CTableDataCell>
                         <CTableDataCell>{s.klass}</CTableDataCell>
                         <CTableDataCell>{s.section}</CTableDataCell>
                         <CTableDataCell>
@@ -419,16 +598,15 @@ const StudentExtraCurricular = () => {
 
                   <CTableRow>
                     <CTableDataCell>
-                      {selectedStudent.reg} | {selectedStudent.programme} | {selectedStudent.sem} SEM | {yearSpan}
+                      {safeText(selectedStudent.reg)} | {programmeDisplayText(selectedStudent)} |{' '}
+                      {currentClassSectionSemText(selectedStudent)} | {safeText(selectedStudent.yearSpan || yearSpan)}
                     </CTableDataCell>
                     <CTableDataCell colSpan={5}></CTableDataCell>
                   </CTableRow>
 
                   <CTableRow>
                     <CTableDataCell>
-                      {/* HTML generates an email based on name + year; keep a simple API-ready field */}
-                      {`${selectedStudent.name.split(' ')[0].toLowerCase()}${new Date().getFullYear()}@gmail.com`} | +91
-                      99940 27264
+                      {safeText(selectedStudent.email)} | {safeText(selectedStudent.contact)}
                     </CTableDataCell>
 
                     <CTableDataCell colSpan={2} className="fw-semibold">
@@ -524,14 +702,14 @@ const StudentExtraCurricular = () => {
                   Document Category
                 </CCol>
                 <CCol xs={12} md={6}>
-                  View / Download Document
+                  View / Download / Print
                 </CCol>
               </CRow>
 
               <CRow className="g-2 align-items-center">
                 <CCol xs={12} md={6}>
                   <CFormSelect value={sportsDocCategory} onChange={(e) => setSportsDocCategory(e.target.value)}>
-                    {docCategories.map((d) => (
+                    {sportsDocCategories.map((d) => (
                       <option key={d} value={d}>
                         {d}
                       </option>
@@ -539,15 +717,64 @@ const StudentExtraCurricular = () => {
                   </CFormSelect>
                 </CCol>
 
-                <CCol xs={12} md={6} className="d-flex gap-3 align-items-center">
-                  <CButton color="primary" style={circleBtnStyle} title="View" onClick={() => window.alert('View (demo)')}>
-                    <CIcon icon={ARP_ICONS.VIEW} />
-                  </CButton>
-                  <CButton color="success" style={circleBtnStyle} title="Download" onClick={onDownload}>
-                    <CIcon icon={ARP_ICONS.DOWNLOAD} />
-                  </CButton>
+                <CCol xs={12} md={6} className="d-flex gap-2 align-items-center">
+                  <ArpIconButton icon="view" color="primary" size={32} onClick={() => openExtraDocument('sports', 'view')} />
+                  <ArpIconButton icon="download" color="success" size={32} onClick={() => openExtraDocument('sports', 'download')} />
+                  <ArpIconButton icon="print" color="warning" size={32} onClick={() => openExtraDocument('sports', 'print')} />
                 </CCol>
               </CRow>
+              <CRow className="g-2 align-items-center mt-2">
+                <CCol xs={12}>
+                  <CFormInput
+                    value={sportsDocSearch}
+                    onChange={(e) => setSportsDocSearch(e.target.value)}
+                    placeholder="Search document..."
+                  />
+                </CCol>
+              </CRow>
+
+              <CTable bordered responsive align="middle" className="mt-3">
+                <CTableHead color="light">
+                  <CTableRow>
+                    <CTableHeaderCell style={{ width: 70 }}>Select</CTableHeaderCell>
+                    <CTableHeaderCell>Document</CTableHeaderCell>
+                    <CTableHeaderCell style={{ width: 70 }}>Select</CTableHeaderCell>
+                    <CTableHeaderCell>Document</CTableHeaderCell>
+                  </CTableRow>
+                </CTableHead>
+                <CTableBody>
+                  {sportsDocPairs.map(([left, right], idx) => (
+                    <CTableRow key={`sports-doc-pair-${idx}`}>
+                      <CTableDataCell className="text-center">
+                        {left ? (
+                          <input
+                            type="radio"
+                            name="sportsDocSelect"
+                            checked={selectedSportId === left.id}
+                            onChange={() => setSelectedSportId(left.id)}
+                          />
+                        ) : null}
+                      </CTableDataCell>
+                      <CTableDataCell>
+                        {left ? safeText(left.fileName || `${left.sport || 'Activity'} - Document`) : ''}
+                      </CTableDataCell>
+                      <CTableDataCell className="text-center">
+                        {right ? (
+                          <input
+                            type="radio"
+                            name="sportsDocSelect"
+                            checked={selectedSportId === right.id}
+                            onChange={() => setSelectedSportId(right.id)}
+                          />
+                        ) : null}
+                      </CTableDataCell>
+                      <CTableDataCell>
+                        {right ? safeText(right.fileName || `${right.sport || 'Activity'} - Document`) : ''}
+                      </CTableDataCell>
+                    </CTableRow>
+                  ))}
+                </CTableBody>
+              </CTable>
 
               <div className="text-end mt-3">
                 <CButton color="secondary" variant="outline" size="sm" onClick={onCloseSportsDocs}>
@@ -629,14 +856,14 @@ const StudentExtraCurricular = () => {
                   Document Category
                 </CCol>
                 <CCol xs={12} md={6}>
-                  View / Download Document
+                  View / Download / Print
                 </CCol>
               </CRow>
 
               <CRow className="g-2 align-items-center">
                 <CCol xs={12} md={6}>
                   <CFormSelect value={culturalDocCategory} onChange={(e) => setCulturalDocCategory(e.target.value)}>
-                    {docCategories.map((d) => (
+                    {culturalDocCategories.map((d) => (
                       <option key={d} value={d}>
                         {d}
                       </option>
@@ -644,15 +871,64 @@ const StudentExtraCurricular = () => {
                   </CFormSelect>
                 </CCol>
 
-                <CCol xs={12} md={6} className="d-flex gap-3 align-items-center">
-                  <CButton color="primary" style={circleBtnStyle} title="View" onClick={() => window.alert('View (demo)')}>
-                    <CIcon icon={ARP_ICONS.VIEW} />
-                  </CButton>
-                  <CButton color="success" style={circleBtnStyle} title="Download" onClick={onDownload}>
-                    <CIcon icon={ARP_ICONS.DOWNLOAD} />
-                  </CButton>
+                <CCol xs={12} md={6} className="d-flex gap-2 align-items-center">
+                  <ArpIconButton icon="view" color="primary" size={32} onClick={() => openExtraDocument('cultural', 'view')} />
+                  <ArpIconButton icon="download" color="success" size={32} onClick={() => openExtraDocument('cultural', 'download')} />
+                  <ArpIconButton icon="print" color="warning" size={32} onClick={() => openExtraDocument('cultural', 'print')} />
                 </CCol>
               </CRow>
+              <CRow className="g-2 align-items-center mt-2">
+                <CCol xs={12}>
+                  <CFormInput
+                    value={culturalDocSearch}
+                    onChange={(e) => setCulturalDocSearch(e.target.value)}
+                    placeholder="Search document..."
+                  />
+                </CCol>
+              </CRow>
+
+              <CTable bordered responsive align="middle" className="mt-3">
+                <CTableHead color="light">
+                  <CTableRow>
+                    <CTableHeaderCell style={{ width: 70 }}>Select</CTableHeaderCell>
+                    <CTableHeaderCell>Document</CTableHeaderCell>
+                    <CTableHeaderCell style={{ width: 70 }}>Select</CTableHeaderCell>
+                    <CTableHeaderCell>Document</CTableHeaderCell>
+                  </CTableRow>
+                </CTableHead>
+                <CTableBody>
+                  {culturalDocPairs.map(([left, right], idx) => (
+                    <CTableRow key={`cultural-doc-pair-${idx}`}>
+                      <CTableDataCell className="text-center">
+                        {left ? (
+                          <input
+                            type="radio"
+                            name="culturalDocSelect"
+                            checked={selectedCulturalId === left.id}
+                            onChange={() => setSelectedCulturalId(left.id)}
+                          />
+                        ) : null}
+                      </CTableDataCell>
+                      <CTableDataCell>
+                        {left ? safeText(left.fileName || `${left.cultural || 'Activity'} - Document`) : ''}
+                      </CTableDataCell>
+                      <CTableDataCell className="text-center">
+                        {right ? (
+                          <input
+                            type="radio"
+                            name="culturalDocSelect"
+                            checked={selectedCulturalId === right.id}
+                            onChange={() => setSelectedCulturalId(right.id)}
+                          />
+                        ) : null}
+                      </CTableDataCell>
+                      <CTableDataCell>
+                        {right ? safeText(right.fileName || `${right.cultural || 'Activity'} - Document`) : ''}
+                      </CTableDataCell>
+                    </CTableRow>
+                  ))}
+                </CTableBody>
+              </CTable>
 
               <div className="text-end mt-3">
                 <CButton color="secondary" variant="outline" size="sm" onClick={onCloseCulturalDocs}>
