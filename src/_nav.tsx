@@ -149,12 +149,55 @@ const _nav: NavItem[] = [
     name: 'EVALUATION',
     icon: icon(cilSpreadsheet),
     items: [
-      { component: CNavItem, name: 'Question Bank', to: '/evaluation/question-bank' },
-      { component: CNavItem, name: 'Question Paper', to: '/evaluation/question-paper' },
-      { component: CNavItem, name: 'Schedule Examination', to: '/evaluation/schedule-examination' },
-      { component: CNavItem, name: 'Online Examination', to: '/evaluation/online-examination' },
-      { component: CNavItem, name: 'Mark Entry', to: '/evaluation/mark-entry' },
-      { component: CNavItem, name: 'Result Analysis', to: '/evaluation/result-analysis' },
+      {
+        component: CNavGroup,
+        name: 'Internal Assessment',
+        items: [
+          { component: CNavItem, name: 'IA Workspace', to: '/evaluation/ia/workspace' },
+          { component: CNavItem, name: 'IA Records Console', to: '/evaluation/ia/records' },
+          { component: CNavItem, name: 'Phase 1 - Setup', to: '/evaluation/ia/setup' },
+          { component: CNavItem, name: 'Phase 2 - Schedule Planning', to: '/evaluation/ia/schedule-planning' },
+          { component: CNavItem, name: 'Phase 3 - Conflict Validation', to: '/evaluation/ia/conflict-validation' },
+          { component: CNavItem, name: 'Phase 4 - Publish', to: '/evaluation/ia/publish' },
+          { component: CNavItem, name: 'Phase 5 - Operations', to: '/evaluation/ia/operations' },
+          { component: CNavItem, name: 'Phase 6 - Mark Entry', to: '/evaluation/ia/mark-entry' },
+          { component: CNavItem, name: 'Phase 7 - Result Analysis', to: '/evaluation/ia/result-analysis' },
+        ],
+      },
+      {
+        component: CNavGroup,
+        name: 'IA Role Views',
+        items: [
+          { component: CNavItem, name: 'Department Coordinator', to: '/evaluation/ia/role/dept-coordinator' },
+          { component: CNavItem, name: 'Faculty', to: '/evaluation/ia/role/faculty' },
+          { component: CNavItem, name: 'Student', to: '/evaluation/ia/role/student' },
+          { component: CNavItem, name: 'Admin', to: '/evaluation/ia/role/admin' },
+        ],
+      },
+      {
+        component: CNavGroup,
+        name: 'Question Workflow',
+        items: [
+          { component: CNavItem, name: 'Question Bank', to: '/evaluation/question-bank' },
+          { component: CNavItem, name: 'Question Paper', to: '/evaluation/question-paper' },
+        ],
+      },
+      {
+        component: CNavGroup,
+        name: 'Execution and Analysis (Future)',
+        items: [
+          { component: CNavItem, name: 'Mark Entry', to: '/evaluation/mark-entry' },
+          { component: CNavItem, name: 'Result Analysis', to: '/evaluation/result-analysis' },
+        ],
+      },
+      {
+        component: CNavGroup,
+        name: 'COE (Future)',
+        items: [
+          { component: CNavItem, name: 'Schedule Examination (Legacy)', to: '/evaluation/schedule-examination' },
+          { component: CNavItem, name: 'Online Examination', to: '/evaluation/online-examination' },
+        ],
+      },
     ],
   },
 

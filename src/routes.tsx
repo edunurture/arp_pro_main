@@ -71,6 +71,19 @@ const ArticulationMatrix = React.lazy(() => import('./views/obe/ArticulationMatr
 // Examination & Evaluation components
 const QuestionBank = React.lazy(() => import('./views/evaluation/QuestionBank'))
 const QuestionPaper = React.lazy(() => import('./views/evaluation/QuestionPaper'))
+const IASetupPhase1 = React.lazy(() => import('./views/evaluation/IASetupPhase1'))
+const IAWorkspace = React.lazy(() => import('./views/evaluation/IAWorkspace'))
+const IARecordsAdmin = React.lazy(() => import('./views/evaluation/IARecordsAdmin'))
+const IASchedulePlanningPhase2 = React.lazy(() => import('./views/evaluation/IASchedulePlanningPhase2'))
+const IAConflictValidationPhase3 = React.lazy(() => import('./views/evaluation/IAConflictValidationPhase3'))
+const IAPublishPhase4 = React.lazy(() => import('./views/evaluation/IAPublishPhase4'))
+const IAOperationsPhase5 = React.lazy(() => import('./views/evaluation/IAOperationsPhase5'))
+const IAMarkEntryPhase6 = React.lazy(() => import('./views/evaluation/IAMarkEntryPhase6'))
+const IAResultAnalysisPhase7 = React.lazy(() => import('./views/evaluation/IAResultAnalysisPhase7'))
+const IARoleDeptCoordinatorView = React.lazy(() => import('./views/evaluation/IARoleDeptCoordinatorView'))
+const IARoleFacultyView = React.lazy(() => import('./views/evaluation/IARoleFacultyView'))
+const IARoleStudentView = React.lazy(() => import('./views/evaluation/IARoleStudentView'))
+const IARoleAdminView = React.lazy(() => import('./views/evaluation/IARoleAdminView'))
 const ScheduleExamination = React.lazy(() => import('./views/evaluation/ScheduleExamination'))
 const OnlineExamination = React.lazy(() => import('./views/evaluation/OnlineExamination'))
 const MarkEntry = React.lazy(() => import('./views/evaluation/MarkEntry'))
@@ -221,6 +234,19 @@ const routes = [
   { path: '/obe/articulation-matrix', name: 'Articulation Matrix', element: ArticulationMatrix },
 
   // ===== Phase 6 : Internal Assessment =====
+  { path: '/evaluation/ia/workspace', name: 'IA Workspace', element: IAWorkspace },
+  { path: '/evaluation/ia/records', name: 'IA Records Console', element: IARecordsAdmin },
+  { path: '/evaluation/ia/setup', name: 'IA Setup', element: IASetupPhase1 },
+  { path: '/evaluation/ia/schedule-planning', name: 'IA Schedule Planning', element: IASchedulePlanningPhase2 },
+  { path: '/evaluation/ia/conflict-validation', name: 'IA Conflict Validation', element: IAConflictValidationPhase3 },
+  { path: '/evaluation/ia/publish', name: 'IA Publish', element: IAPublishPhase4 },
+  { path: '/evaluation/ia/operations', name: 'IA Operations', element: IAOperationsPhase5 },
+  { path: '/evaluation/ia/mark-entry', name: 'IA Mark Entry', element: IAMarkEntryPhase6 },
+  { path: '/evaluation/ia/result-analysis', name: 'IA Result Analysis', element: IAResultAnalysisPhase7 },
+  { path: '/evaluation/ia/role/dept-coordinator', name: 'Dept Coordinator', element: IARoleDeptCoordinatorView },
+  { path: '/evaluation/ia/role/faculty', name: 'Faculty', element: IARoleFacultyView },
+  { path: '/evaluation/ia/role/student', name: 'Student', element: IARoleStudentView },
+  { path: '/evaluation/ia/role/admin', name: 'Admin', element: IARoleAdminView },
   { path: '/evaluation/question-bank', name: 'Question Bank', element: QuestionBank },
   { path: '/evaluation/question-paper', name: 'Question Paper', element: QuestionPaper },
   { path: '/evaluation/schedule-examination', name: 'Schedule Examination', element: ScheduleExamination},

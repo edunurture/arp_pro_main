@@ -31,6 +31,7 @@ const FALLBACK_BG = {
 // ✅ ARP Table Action Icons (CoreUI)
 const ARP_TABLE_ICON = {
   add: cilPlus,
+  preview: cilMagnifyingGlass,
   view: cilMagnifyingGlass,
   edit: cilPencil,
   delete: cilTrash,
@@ -42,6 +43,7 @@ const ARP_TABLE_ICON = {
 
 const DEFAULT_TITLES = {
   add: 'Add New',
+  preview: 'Preview',
   view: 'View',
   edit: 'Edit',
   delete: 'Delete',
@@ -52,7 +54,7 @@ const DEFAULT_TITLES = {
 }
 
 export default function ArpIconButton({
-  // icon keys: add | view | edit | delete | download | upload | print | chart
+  // icon keys: add | preview | view | edit | delete | download | upload | print | chart
   icon,
   color = 'primary',
   size = 40,
@@ -109,7 +111,7 @@ export default function ArpIconButton({
 }
 
 ArpIconButton.propTypes = {
-  icon: PropTypes.oneOf(['add', 'view', 'edit', 'delete', 'download', 'upload', 'print', 'chart']).isRequired,
+  icon: PropTypes.oneOf(['add', 'preview', 'view', 'edit', 'delete', 'download', 'upload', 'print', 'chart']).isRequired,
   color: PropTypes.string,
   size: PropTypes.number,
   onClick: PropTypes.func,

@@ -49,6 +49,83 @@ const defaultEditor = {
   correctOption: '',
 }
 
+const normalizeSectionQuestionType = (v) => {
+  const raw = String(v || '').trim().toUpperCase()
+  if (!raw) return null
+  if (raw.includes('MCQ') || raw.includes('OBJECTIVE')) return 'MCQ'
+  if (raw.includes('DESCRIPTIVE') || raw.includes('SUBJECTIVE') || raw.includes('THEORY')) return 'DESCRIPTIVE'
+  return null
+}
+
+const extractOptionArray = (v) => {
+  if (Array.isArray(v)) return v
+  if (v && typeof v === 'object') {
+    if (Array.isArray(v.options)) return v.options
+    const byKey = [v.optionA, v.optionB, v.optionC, v.optionD].filter((x) => String(x || '').trim())
+    if (byKey.length) return byKey
+    return []
+  }
+  if (typeof v === 'string') {
+    try {
+      const p = JSON.parse(v)
+      if (Array.isArray(p)) return p
+      if (p && typeof p === 'object' && Array.isArray(p.options)) return p.options
+    } catch {
+      const split = v.split(/\r?\n|,|\|/).map((x) => x.trim()).filter(Boolean)
+      return split
+    }
+  }
+  return []
+}
+
+const extractCorrectOption = (v) => {
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const c = String(v.correct || '').trim().toUpperCase()
+    if (['A', 'B', 'C', 'D'].includes(c)) return c
+  }
+  if (typeof v === 'string') {
+    try {
+      const p = JSON.parse(v)
+      const c = String(p?.correct || '').trim().toUpperCase()
+      if (['A', 'B', 'C', 'D'].includes(c)) return c
+    } catch {
+      const c = v.trim().toUpperCase()
+      if (['A', 'B', 'C', 'D'].includes(c)) return c
+    }
+  }
+  return ''
+}
+
+const downloadUploadErrorReport = async (errors = []) => {
+  if (!Array.isArray(errors) || !errors.length) return
+  const mod = await import('xlsx')
+  const XLSX = mod.default ?? mod
+  const aoa = [
+    ['Row Number', 'Section', 'Errors'],
+    ...errors.map((e) => [
+      e?.rowNumber ?? '',
+      e?.section ?? '',
+      Array.isArray(e?.errors) ? e.errors.join(' | ') : (e?.errors || ''),
+    ]),
+  ]
+  const ws = XLSX.utils.aoa_to_sheet(aoa)
+  ws['!cols'] = [{ wch: 12 }, { wch: 20 }, { wch: 90 }]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Upload Errors')
+  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+  const blob = new Blob([out], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  })
+  const ts = new Date().toISOString().replace(/[:.]/g, '-')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `QB_Upload_Error_Report_${ts}.xlsx`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(a.href)
+}
+
 const QuestionBank = () => {
   const [toast, setToast] = useState(null)
   const [institutions, setInstitutions] = useState([])
@@ -67,7 +144,9 @@ const QuestionBank = () => {
 
   const [meta, setMeta] = useState({ examinations: [], questionModels: [], units: [] })
   const [header, setHeader] = useState(initialHeader)
+  const [headerEditable, setHeaderEditable] = useState(false)
   const [sectionsPlan, setSectionsPlan] = useState([])
+  const [sectionTypeMap, setSectionTypeMap] = useState({})
   const [accordionActive, setAccordionActive] = useState('')
   const [sectionRows, setSectionRows] = useState({})
   const [sectionSelection, setSectionSelection] = useState({})
@@ -193,16 +272,24 @@ const QuestionBank = () => {
   const loadModelSections = async (questionModelId) => {
     if (!questionModelId) {
       setSectionsPlan([])
+      setSectionTypeMap({})
       return
     }
     try {
       const res = await api.get(`/api/evaluation/question-bank/models/${questionModelId}/sections`)
-      const sections = unwrapList(res).map((s) => ({
+      const modelSections = unwrapList(res)
+      const sections = modelSections.map((s) => ({
         ...s,
         targetCount: s.requiredCount,
         filledCount: 0,
       }))
+      const tmap = {}
+      modelSections.forEach((s) => {
+        const t = normalizeSectionQuestionType(s.questionType)
+        if (t) tmap[String(s.sectionId)] = t
+      })
       setSectionsPlan(sections)
+      setSectionTypeMap(tmap)
       setEditors({})
       setSectionRows({})
       setSectionSelection({})
@@ -216,7 +303,32 @@ const QuestionBank = () => {
     try {
       const res = await api.get(`/api/evaluation/question-bank/banks/${questionBankId}`)
       const data = res?.data?.data
-      if (!data) return
+      if (!data) return null
+      setHeaderEditable(false)
+      let enrichedSections = Array.isArray(data.sectionsPlan) ? data.sectionsPlan : []
+      if (data.questionModelId) {
+        try {
+          const secRes = await api.get(`/api/evaluation/question-bank/models/${data.questionModelId}/sections`)
+          const modelSections = unwrapList(secRes)
+          if (Array.isArray(modelSections) && modelSections.length) {
+            const modelTypeMap = new Map(
+              modelSections.map((s) => [String(s.sectionId), normalizeSectionQuestionType(s.questionType)]),
+            )
+            enrichedSections = enrichedSections.map((s) => ({
+              ...s,
+              questionType: normalizeSectionQuestionType(s.questionType) || modelTypeMap.get(String(s.sectionId)) || s.questionType,
+            }))
+            const tmap = {}
+            enrichedSections.forEach((s) => {
+              const t = normalizeSectionQuestionType(s.questionType)
+              if (t) tmap[String(s.sectionId)] = t
+            })
+            setSectionTypeMap(tmap)
+          }
+        } catch {
+          // keep original sections as-is when model section fetch fails
+        }
+      }
       setHeader({
         questionBankId: data.questionBankId,
         examinationId: data.examinationName,
@@ -225,14 +337,25 @@ const QuestionBank = () => {
         questionModelId: data.questionModelId,
         status: data.status,
       })
-      setSectionsPlan(data.sectionsPlan || [])
+      setSectionsPlan(enrichedSections)
+      setSectionTypeMap((prev) => {
+        if (Object.keys(prev || {}).length) return prev
+        const tmap = {}
+        enrichedSections.forEach((s) => {
+          const t = normalizeSectionQuestionType(s.questionType)
+          if (t) tmap[String(s.sectionId)] = t
+        })
+        return tmap
+      })
       setEditors({})
       setSectionRows({})
       setSectionSelection({})
       setUploadFile(null)
       setSelectedBankRowId(questionBankId)
+      return { ...data, sectionsPlan: enrichedSections }
     } catch (err) {
       showToast('danger', err?.response?.data?.error || 'Failed to load question bank details')
+      return null
     }
   }
 
@@ -260,7 +383,9 @@ const QuestionBank = () => {
 
   useEffect(() => {
     setHeader(initialHeader)
+    setHeaderEditable(false)
     setSectionsPlan([])
+    setSectionTypeMap({})
     setSectionRows({})
     setSectionSelection({})
     setEditors({})
@@ -313,7 +438,9 @@ const QuestionBank = () => {
     await loadMeta(institutionId, scope.courseOfferingId)
     await loadBanks(institutionId, scope.courseOfferingId)
     setHeader(initialHeader)
+    setHeaderEditable(false)
     setSectionsPlan([])
+    setSectionTypeMap({})
     setSectionRows({})
     setSectionSelection({})
     setEditors({})
@@ -329,7 +456,9 @@ const QuestionBank = () => {
 
   const onAddNew = () => {
     setHeader(initialHeader)
+    setHeaderEditable(true)
     setSectionsPlan([])
+    setSectionTypeMap({})
     setSectionRows({})
     setSectionSelection({})
     setEditors({})
@@ -344,6 +473,7 @@ const QuestionBank = () => {
   }
 
   const onSaveHeader = async () => {
+    if (!headerEditable) return showToast('warning', 'Click Add New to enable header entry')
     if (!institutionId || !scope.courseOfferingId) return showToast('danger', 'Institution/Course is required')
     if (!header.examinationName) return showToast('danger', 'Choose examination')
     if (!header.questionBankName) return showToast('danger', 'Enter Question Bank Name')
@@ -372,6 +502,7 @@ const QuestionBank = () => {
       const qbId = res?.data?.data?.questionBankId
       if (!qbId) throw new Error('questionBankId missing')
       setHeader((p) => ({ ...p, questionBankId: qbId, status: 'DRAFT' }))
+      setHeaderEditable(false)
       await loadBankDetails(qbId)
       await loadBanks(institutionId, scope.courseOfferingId)
       showToast('success', 'Question bank header saved')
@@ -388,10 +519,11 @@ const QuestionBank = () => {
     try {
       const res = await api.get(`/api/evaluation/question-bank/banks/${header.questionBankId}/sections/${sectionId}/questions/${questionNo}`)
       const row = res?.data?.data
+      const forcedType = sectionTypeMap[String(sectionId)] || null
       if (!row) {
         setEditor(sectionId, {
           unitNo: meta?.units?.[0]?.value ? String(meta.units[0].value) : '',
-          questionType: 'DESCRIPTIVE',
+          questionType: forcedType || 'DESCRIPTIVE',
           questionHtml: '',
           questionLatex: '',
           languageCode: 'en',
@@ -404,12 +536,14 @@ const QuestionBank = () => {
         })
         return
       }
-      const opts = Array.isArray(row.optionsJson) ? row.optionsJson : []
-      const correct = row?.answerKeyJson?.correct || ''
+      const opts = extractOptionArray(row.optionsJson)
+      const correct = extractCorrectOption(row.answerKeyJson)
+      const sectionType = normalizeSectionQuestionType((sectionsPlan.find((s) => String(s.sectionId) === String(sectionId)) || {}).questionType)
+      const rowType = String(row.questionType || '').toUpperCase()
       setEditor(sectionId, {
         questionNo: String(row.questionNo || questionNo),
         unitNo: row.unitNo == null ? '' : String(row.unitNo),
-        questionType: row.questionType || (opts.length ? 'MCQ' : 'DESCRIPTIVE'),
+        questionType: forcedType || sectionType || (rowType === 'MCQ' || rowType === 'DESCRIPTIVE' ? rowType : (opts.length ? 'MCQ' : 'DESCRIPTIVE')),
         questionHtml: row.questionHtml || row.questionText || '',
         questionLatex: row.questionLatex || '',
         languageCode: row.languageCode || 'en',
@@ -427,10 +561,12 @@ const QuestionBank = () => {
 
   const onSaveQuestion = async (section) => {
     const ed = editors[section.sectionId] || defaultEditor
+    const forcedType = sectionTypeMap[String(section.sectionId)] || null
+    const saveType = forcedType || ed.questionType || 'DESCRIPTIVE'
     if (!header.questionBankId) return showToast('danger', 'Save header first')
     if (!ed.questionNo) return showToast('danger', 'Choose Question Number')
     if (!ed.questionHtml) return showToast('danger', 'Enter question content')
-    if (ed.questionType === 'MCQ' && (!ed.optionA || !ed.optionB || !ed.optionC || !ed.optionD || !ed.correctOption)) {
+    if (saveType === 'MCQ' && (!ed.optionA || !ed.optionB || !ed.optionC || !ed.optionD || !ed.correctOption)) {
       return showToast('danger', 'MCQ requires options A-D and correct option')
     }
     try {
@@ -438,14 +574,14 @@ const QuestionBank = () => {
         `/api/evaluation/question-bank/banks/${header.questionBankId}/sections/${section.sectionId}/questions/${ed.questionNo}`,
         {
           unitNo: ed.unitNo ? Number(ed.unitNo) : null,
-          questionType: ed.questionType,
+          questionType: saveType,
           questionHtml: ed.questionHtml,
           questionText: ed.questionHtml,
           questionLatex: ed.questionLatex || null,
           languageCode: ed.languageCode || 'en',
           difficulty: ed.difficulty || null,
-          optionsJson: ed.questionType === 'MCQ' ? [ed.optionA, ed.optionB, ed.optionC, ed.optionD] : null,
-          answerKeyJson: ed.questionType === 'MCQ' ? { correct: ed.correctOption } : null,
+          optionsJson: saveType === 'MCQ' ? [ed.optionA, ed.optionB, ed.optionC, ed.optionD] : null,
+          answerKeyJson: saveType === 'MCQ' ? { correct: ed.correctOption } : null,
         },
       )
       await loadSectionQuestions(section.sectionId)
@@ -455,8 +591,25 @@ const QuestionBank = () => {
     }
   }
 
-  const onDownloadTemplate = () => {
+  const onDownloadTemplate = async () => {
     if (!header.questionModelId) return showToast('danger', 'Choose Question Model first')
+    try {
+      const res = await api.get(`/api/evaluation/question-bank/models/${header.questionModelId}/sections`)
+      const sections = unwrapList(res)
+      if (sections.length) {
+        const lines = sections.map((s) => {
+          const t = normalizeSectionQuestionType(s.questionType)
+          const label = t === 'MCQ' ? 'MCQ' : 'Descriptive'
+          return `${s.sectionLabel || s.nomenclature || s.sectionId}: ${label}`
+        })
+        const ok = window.confirm(
+          `Question type is taken from Question Model configuration.\n\n${lines.join('\n')}\n\nDo you want to continue template download?`,
+        )
+        if (!ok) return
+      }
+    } catch {
+      // if section fetch fails, allow download and continue with existing behavior
+    }
     const base = API_BASE || ''
     window.open(
       `${base}/api/evaluation/question-bank/template/download?questionModelId=${encodeURIComponent(header.questionModelId)}`,
@@ -478,12 +631,16 @@ const QuestionBank = () => {
       const failed = Number(d.failed || 0)
       if (failed > 0) {
         showToast('warning', `Upload completed with errors. Inserted: ${inserted}, Failed: ${failed}`)
+        await downloadUploadErrorReport(d.errors || [])
       } else {
         showToast('success', `Upload completed. Inserted: ${inserted}`)
       }
       setUploadFile(null)
-      await loadBankDetails(header.questionBankId)
-      for (const s of sectionsPlan) {
+      const bankData = await loadBankDetails(header.questionBankId)
+      const loadedSections = Array.isArray(bankData?.sectionsPlan) ? bankData.sectionsPlan : sectionsPlan
+      setPreparationMode('EDITOR')
+      if (loadedSections.length > 0) setAccordionActive(loadedSections[0].sectionId)
+      for (const s of loadedSections) {
         await loadSectionQuestions(s.sectionId)
       }
     } catch (err) {
@@ -685,6 +842,7 @@ const QuestionBank = () => {
                 <CFormLabel>Name of Examination</CFormLabel>
                 <CFormSelect
                   value={header.examinationName}
+                  disabled={!headerEditable}
                   onChange={(e) => {
                     const v = e.target.value
                     setHeader((p) => ({ ...p, examinationId: v, examinationName: v }))
@@ -700,6 +858,7 @@ const QuestionBank = () => {
                 <CFormLabel>Question Bank Name</CFormLabel>
                 <CFormInput
                   value={header.questionBankName}
+                  disabled={!headerEditable}
                   onChange={(e) => setHeader((p) => ({ ...p, questionBankName: e.target.value }))}
                 />
               </CCol>
@@ -707,6 +866,7 @@ const QuestionBank = () => {
                 <CFormLabel>Question Model</CFormLabel>
                 <CFormSelect
                   value={header.questionModelId}
+                  disabled={!headerEditable}
                   onChange={(e) => {
                     const modelId = e.target.value
                     setHeader((p) => ({ ...p, questionModelId: modelId }))
@@ -835,6 +995,8 @@ const QuestionBank = () => {
               <CAccordion activeItemKey={accordionActive} onChange={(k) => setAccordionActive(k)}>
                 {sectionsPlan.map((section) => {
                   const ed = editors[section.sectionId] || defaultEditor
+                  const lockedType = sectionTypeMap[String(section.sectionId)] || normalizeSectionQuestionType(section.questionType)
+                  const effectiveType = lockedType || ed.questionType || 'DESCRIPTIVE'
                   const questionNoOptions = Array.from({ length: Number(section.targetCount || 0) }, (_, i) => i + 1)
                   return (
                     <CAccordionItem itemKey={section.sectionId} key={section.sectionId}>
@@ -881,8 +1043,8 @@ const QuestionBank = () => {
                           <CCol md={2}>
                             <CFormLabel>Type</CFormLabel>
                             <CFormSelect
-                              value={ed.questionType}
-                              disabled={!header.questionBankId}
+                              value={effectiveType}
+                              disabled={!header.questionBankId || !!lockedType}
                               onChange={(e) => setEditor(section.sectionId, { questionType: e.target.value })}
                             >
                               <option value="DESCRIPTIVE">Descriptive</option>
@@ -921,7 +1083,7 @@ const QuestionBank = () => {
                               onChange={(e) => setEditor(section.sectionId, { questionLatex: e.target.value })}
                             />
                           </CCol>
-                          {ed.questionType === 'MCQ' ? (
+                          {effectiveType === 'MCQ' ? (
                             <>
                               <CCol md={3}><CFormLabel>Option A</CFormLabel><CFormInput disabled={!header.questionBankId} value={ed.optionA || ''} onChange={(e) => setEditor(section.sectionId, { optionA: e.target.value })} /></CCol>
                               <CCol md={3}><CFormLabel>Option B</CFormLabel><CFormInput disabled={!header.questionBankId} value={ed.optionB || ''} onChange={(e) => setEditor(section.sectionId, { optionB: e.target.value })} /></CCol>
