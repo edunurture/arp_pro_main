@@ -479,3 +479,49 @@ export const semesterOptionsFromAcademicYear = (academicYear) => {
   return byCategory.map((x) => ({ value: String(x), label: `Sem - ${x}` }))
 }
 
+export const extractYearStart = (value) => {
+  const match = String(value ?? '').trim().match(/(19|20)\d{2}/)
+  return match ? Number(match[0]) : null
+}
+
+export const deriveAdmissionSemester = ({ academicYear, semesterCategory, batchName, totalSemesters }) => {
+  const academicYearStart = extractYearStart(academicYear)
+  const batchStartYear = extractYearStart(batchName)
+  const category = String(semesterCategory || '').toUpperCase().trim()
+  const safeTotalSemesters = Number(totalSemesters)
+
+  if (!academicYearStart || !batchStartYear) {
+    return { semester: '', error: 'Unable to derive semester from Academic Year or Admission Batch' }
+  }
+  if (!['ODD', 'EVEN'].includes(category)) {
+    return { semester: '', error: 'Academic Year category must be ODD or EVEN' }
+  }
+
+  const semester = (academicYearStart - batchStartYear) * 2 + (category === 'ODD' ? 1 : 2)
+  if (!Number.isFinite(semester) || semester < 1) {
+    return { semester: '', error: 'Admission Batch does not align with selected Academic Year' }
+  }
+  if (Number.isFinite(safeTotalSemesters) && safeTotalSemesters > 0 && semester > safeTotalSemesters) {
+    return { semester: '', error: `Derived semester ${semester} exceeds programme duration` }
+  }
+
+  return { semester: String(semester), error: '' }
+}
+
+export const deriveStudyYearFromSemester = (semester) => {
+  const n = Number(semester)
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n / 2) : null
+}
+
+export const classMatchesSemester = (className, semester) => {
+  const studyYear = deriveStudyYearFromSemester(semester)
+  const name = String(className ?? '').trim().toUpperCase()
+  if (!studyYear || !name) return false
+  const romanLabels = ['I', 'II', 'III', 'IV', 'V', 'VI']
+  const romanIndex = romanLabels.findIndex((label) => name.startsWith(`${label} `))
+  if (romanIndex >= 0) return romanIndex + 1 === studyYear
+  const numericMatch = name.match(/^(\d+)\s+/)
+  if (numericMatch) return Number(numericMatch[1]) === studyYear
+  return false
+}
+

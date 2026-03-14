@@ -1,11 +1,12 @@
 export const IA_PHASE_KEYS = {
-  phase1: 'arp.evaluation.ia.phase1.setup.draft.v1',
-  phase2: 'arp.evaluation.ia.phase2.schedule.draft.v1',
-  phase3: 'arp.evaluation.ia.phase3.validation.draft.v1',
-  phase4: 'arp.evaluation.ia.phase4.publish.draft.v1',
-  phase5: 'arp.evaluation.ia.phase5.operations.draft.v1',
-  phase6: 'arp.evaluation.ia.phase6.mark-entry.draft.v1',
-  phase7: 'arp.evaluation.ia.phase7.result-analysis.draft.v1',
+  phase1: 'arp.evaluation.ia.phase1.setup.draft.v2',
+  phase2: 'arp.evaluation.ia.phase2.schedule.draft.v2',
+  phase3: 'arp.evaluation.ia.phase3.validation.draft.v2',
+  phase4: 'arp.evaluation.ia.phase4.publish.draft.v2',
+  phase5: 'arp.evaluation.ia.phase5.operations.draft.v2',
+  phase6: 'arp.evaluation.ia.phase6.mark-entry.draft.v2',
+  phase7: 'arp.evaluation.ia.phase7.result-analysis.draft.v2',
+  phase8: 'arp.evaluation.ia.phase8.internal-mark-statement.draft.v2',
 }
 
 const readJson = (key) => {
@@ -25,6 +26,7 @@ export const loadIAPhaseState = () => ({
   phase5: readJson(IA_PHASE_KEYS.phase5),
   phase6: readJson(IA_PHASE_KEYS.phase6),
   phase7: readJson(IA_PHASE_KEYS.phase7),
+  phase8: readJson(IA_PHASE_KEYS.phase8),
 })
 
 export const normalizeRole = (value) => {
@@ -85,7 +87,9 @@ export const getWorkflowStage = (state) => {
   const p5 = String(state?.phase5?.status || '').toUpperCase()
   const p6 = String(state?.phase6?.status || '').toUpperCase()
   const p7 = String(state?.phase7?.status || '').toUpperCase()
+  const p8 = String(state?.phase8?.status || '').toUpperCase()
 
+  if (p8 === 'INTERNAL_MARK_STATEMENT_COMPLETED') return 8
   if (p7 === 'IA_RESULT_ANALYSIS_COMPLETED') return 7
   if (p6 === 'READY_FOR_PHASE_7') return 6
   if (p5 === 'READY_FOR_EVALUATION_FLOW') return 5

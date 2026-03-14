@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import {
-  CAlert,
   CCard,
   CCardBody,
   CCardHeader,
@@ -15,7 +14,7 @@ import {
   CSpinner,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
@@ -67,7 +66,6 @@ export default function AcademicYearConfiguration() {
   const [calRows, setCalRows] = useState([])
 
   const [loading, setLoading] = useState(false)
-  const [alert, setAlert] = useState({ type: '', msg: '' })
   const [copyOpen, setCopyOpen] = useState(false)
   const [copyForm, setCopyForm] = useState({
     sourceAcademicYearId: '',
@@ -81,11 +79,15 @@ export default function AcademicYearConfiguration() {
   const isCalMode = mode === 'CAL'
 
   const api = axios.create({ baseURL: API_BASE })
+  const toast = useArpToast()
 
   const showAlert = (type, msg) => {
-    setAlert({ type, msg })
-    window.clearTimeout(showAlert._t)
-    showAlert._t = window.setTimeout(() => setAlert({ type: '', msg: '' }), 2500)
+    toast.show({
+      type,
+      message: msg,
+      autohide: type === 'success',
+      delay: 2500,
+    })
   }
 
   const resetForm = () => {
@@ -584,12 +586,6 @@ export default function AcademicYearConfiguration() {
 
   return (
     <>
-      {alert.msg ? (
-        <CAlert color={alert.type || 'info'} dismissible onClose={() => setAlert({ type: '', msg: '' })}>
-          {alert.msg}
-        </CAlert>
-      ) : null}
-
       {/* Top Card: Actions & Institution */}
       <CCard className="mb-3">
         <CCardHeader>
@@ -634,6 +630,9 @@ export default function AcademicYearConfiguration() {
           {copyOpen ? (
             <>
               <hr />
+              <CAlert color="info" className="mb-3">
+                Regulation Maps and Course Offerings are copied using Admission Batch logic for the target Academic Year. The target semester is re-derived from Target Academic Year + Admission Batch instead of copying the old semester number directly.
+              </CAlert>
               <CRow className="g-3 align-items-end">
                 <CCol md={4}>
                   <CFormLabel>Source Academic Year</CFormLabel>
@@ -667,13 +666,13 @@ export default function AcademicYearConfiguration() {
                 </CCol>
                 <CCol md={4} className="d-flex gap-3 flex-wrap">
                   <CFormCheck
-                    label="Regulation Maps"
+                    label="Regulation Maps (Derived)"
                     checked={copyForm.regulationMaps}
                     onChange={(e) => setCopyForm((p) => ({ ...p, regulationMaps: e.target.checked }))}
                     disabled={loading}
                   />
                   <CFormCheck
-                    label="Course Offerings"
+                    label="Course Offerings (Derived)"
                     checked={copyForm.courseOfferings}
                     onChange={(e) => setCopyForm((p) => ({ ...p, courseOfferings: e.target.checked }))}
                     disabled={loading}
@@ -786,6 +785,11 @@ export default function AcademicYearConfiguration() {
                             />
                           ),
                         )}
+                      </CCol>
+                      <CCol xs={12}>
+                        <small className="text-muted">
+                          These are term-level semester choices for the Academic Year window. Actual student semester is derived later from Admission Batch + Academic Year.
+                        </small>
                       </CCol>
                     </CRow>
                   )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
 
@@ -7,7 +7,6 @@ import {
   CCard,
   CCardHeader,
   CCardBody,
-  CAlert,
   CSpinner,
   CRow,
   CCol,
@@ -83,9 +82,9 @@ const enumOptions = {
   ],
   affiliationStatus: [
     { value: '', label: 'Select' },
-    { value: 'AFFILIATED', label: 'Affiliated' },
-    { value: 'AUTONOMOUS', label: 'Autonomous' },
-    { value: 'DEEMED', label: 'Deemed' },
+    { value: 'PERMANENT', label: 'Permanent' },
+    { value: 'TEMPORAL', label: 'Temporal' },
+    { value: 'NOT_YET', label: 'Not Yet' },
   ],
   accreditationStatus: [
     { value: '', label: 'Select' },
@@ -126,6 +125,14 @@ const toPayload = (form) => ({
   isActive: form.isActive !== false,
 })
 
+const LabelCol = ({ children }) => (
+  <CCol md={3} className="d-flex align-items-center">
+    <CFormLabel className="mb-0">{children}</CFormLabel>
+  </CCol>
+)
+
+const InputCol = ({ children }) => <CCol md={3}>{children}</CCol>
+
 const Programmes = () => {
   // masters
   const [institutions, setInstitutions] = useState([])
@@ -141,7 +148,7 @@ const Programmes = () => {
   // form mode: VIEW (disabled) | NEW | EDIT
   const [formMode, setFormMode] = useState('VIEW')
   const [form, setForm] = useState(initialForm)
-  const [toast, setToast] = useState(null)
+  const toast = useArpToast()
 
   // Import / Preview (Department.jsx pattern)
   const fileRef = useRef(null)
@@ -155,8 +162,12 @@ const Programmes = () => {
   const [exporting, setExporting] = useState(false)
 
   const showToast = (type, message) => {
-    setToast({ type, message })
-    window.setTimeout(() => setToast(null), 4500)
+    toast.show({
+      type,
+      message,
+      autohide: type === 'success',
+      delay: 4500,
+    })
   }
 
 
@@ -793,15 +804,6 @@ const downloadTemplate = async () => {
       <ArpIconButton icon="delete" color="danger" title="Delete" onClick={onDelete} disabled={!selectedId} />
     </div>
   )
-
-  // Grid helper: md=3 label + md=3 input (2 fields per row)
-  const LabelCol = ({ children }) => (
-    <CCol md={3} className="d-flex align-items-center">
-      <CFormLabel className="mb-0">{children}</CFormLabel>
-    </CCol>
-  )
-  const InputCol = ({ children }) => <CCol md={3}>{children}</CCol>
-
   return (
     <React.Fragment>
 <CCard className="mb-3">
@@ -845,13 +847,6 @@ const downloadTemplate = async () => {
         </CCardHeader>
 
         <CCardBody>
-          {toast && (
-            <CAlert color={toast.type} className="mb-3">
-              {toast.message}
-            </CAlert>
-          )}
-
-          
           {/* Excel Preview Status */}
           {fileName && (
             <div className="mb-2 small text-muted">

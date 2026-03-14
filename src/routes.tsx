@@ -10,6 +10,7 @@ const CAYCoursesConfiguration = React.lazy(() => import('./views/setup/CAYCourse
 const RegulationMapConfiguration = React.lazy(() => import('./views/setup/RegulationMapConfiguration'))
 const CommonScheduleConfiguration = React.lazy(() => import('./views/setup/CommonScheduleConfiguration'))
 const StudentConfiguration= React.lazy(() => import('./views/setup/StudentConfiguration'))
+const StudentPromotionConfiguration = React.lazy(() => import('./views/setup/StudentPromotionConfiguration'))
 const FacultyConfiguration= React.lazy(() => import('./views/setup/FacultyConfiguration'))
 const CalendarConfiguration= React.lazy(() => import('./views/setup/CalendarConfiguration'))
 const TimetableConfiguration = React.lazy(() => import('./views/setup/TimetableConfiguration'))
@@ -80,6 +81,7 @@ const IAPublishPhase4 = React.lazy(() => import('./views/evaluation/IAPublishPha
 const IAOperationsPhase5 = React.lazy(() => import('./views/evaluation/IAOperationsPhase5'))
 const IAMarkEntryPhase6 = React.lazy(() => import('./views/evaluation/IAMarkEntryPhase6'))
 const IAResultAnalysisPhase7 = React.lazy(() => import('./views/evaluation/IAResultAnalysisPhase7'))
+const IAInternalMarkStatementPhase8 = React.lazy(() => import('./views/evaluation/IAInternalMarkStatementPhase8'))
 const IARoleDeptCoordinatorView = React.lazy(() => import('./views/evaluation/IARoleDeptCoordinatorView'))
 const IARoleFacultyView = React.lazy(() => import('./views/evaluation/IARoleFacultyView'))
 const IARoleStudentView = React.lazy(() => import('./views/evaluation/IARoleStudentView'))
@@ -163,13 +165,14 @@ const routes = [
   { path: '/setup/department', name: 'Department', element: Department },
   { path: '/setup/programmes', name: 'Programmes', element: Programmes },
   { path: '/setup/academic-year', name: 'Academic Year', element: AcademicYearConfiguration },
-  { path: '/setup/classes', name: 'Classes', element: ClassesConfiguration },
   { path: '/setup/regulation', name: 'Regulation', element: RegulationConfiguration },
   { path: '/setup/courses', name: 'Courses Configuration', element: CoursesConfiguration },
   { path: '/setup/cay-courses', name: 'CAY Courses', element: CAYCoursesConfiguration },
   { path: '/setup/regulation-map', name: 'Regulation Map', element: RegulationMapConfiguration },
   { path: '/setup/combined-courses', name: 'Combined Courses', element: CommonScheduleConfiguration},
+  { path: '/setup/classes', name: 'Classes', element: ClassesConfiguration },
   { path: '/setup/student', name: 'Student', element: StudentConfiguration },
+  { path: '/setup/student-promotion', name: 'Student Promotion', element: StudentPromotionConfiguration },
   { path: '/setup/faculty', name: 'Faculty', element: FacultyConfiguration },
   { path: '/setup/calendar', name: 'Calendar', element: CalendarConfiguration },
   { path: '/setup/timetable', name: 'Timetable', element: TimetableConfiguration },
@@ -234,8 +237,8 @@ const routes = [
   { path: '/obe/articulation-matrix', name: 'Articulation Matrix', element: ArticulationMatrix },
 
   // ===== Phase 6 : Internal Assessment =====
-  { path: '/evaluation/ia/workspace', name: 'IA Workspace', element: IAWorkspace },
-  { path: '/evaluation/ia/records', name: 'IA Records Console', element: IARecordsAdmin },
+  { path: '/evaluation/ia/workspace', name: 'IA Workspace Console', element: IAWorkspace },
+  { path: '/evaluation/ia/records', name: 'IA Workspace Console', element: IAWorkspace },
   { path: '/evaluation/ia/setup', name: 'IA Setup', element: IASetupPhase1 },
   { path: '/evaluation/ia/schedule-planning', name: 'IA Schedule Planning', element: IASchedulePlanningPhase2 },
   { path: '/evaluation/ia/conflict-validation', name: 'IA Conflict Validation', element: IAConflictValidationPhase3 },
@@ -243,6 +246,7 @@ const routes = [
   { path: '/evaluation/ia/operations', name: 'IA Operations', element: IAOperationsPhase5 },
   { path: '/evaluation/ia/mark-entry', name: 'IA Mark Entry', element: IAMarkEntryPhase6 },
   { path: '/evaluation/ia/result-analysis', name: 'IA Result Analysis', element: IAResultAnalysisPhase7 },
+  { path: '/evaluation/ia/internal-mark-statement', name: 'IA Internal Mark Statement', element: IAInternalMarkStatementPhase8 },
   { path: '/evaluation/ia/role/dept-coordinator', name: 'Dept Coordinator', element: IARoleDeptCoordinatorView },
   { path: '/evaluation/ia/role/faculty', name: 'Faculty', element: IARoleFacultyView },
   { path: '/evaluation/ia/role/student', name: 'Student', element: IARoleStudentView },

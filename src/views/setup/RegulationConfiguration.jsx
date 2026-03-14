@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import {
-  CAlert,
   CCard,
   CCardBody,
   CCardHeader,
@@ -15,13 +14,13 @@ import {
   CRow,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 
 /**
  * RegulationConfiguration.jsx (ARP CoreUI React Pro Standard)
  * ✅ Backend-connected:
- * - Batch CRUD (GET/POST/PUT/DELETE)
+ * - Admission Batch CRUD (GET/POST/PUT/DELETE)
  * - Regulation CRUD (GET/POST/PUT/DELETE)
  * - Masters: Institution, Programme
  *
@@ -99,7 +98,7 @@ export default function RegulationConfiguration() {
   // ui states
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState(null) // { type, message }
+  const toast = useArpToast()
 
   // Excel Import (Regulation) - Import only (no preview)
   const [excelFile, setExcelFile] = useState(null)
@@ -118,9 +117,12 @@ export default function RegulationConfiguration() {
   }, [])
 
   const showToast = (type, message) => {
-    setToast({ type, message })
-    window.clearTimeout(showToast._t)
-    showToast._t = window.setTimeout(() => setToast(null), 3500)
+    toast.show({
+      type,
+      message,
+      autohide: type === 'success',
+      delay: 3500,
+    })
   }
 
   const resetAll = () => {
@@ -215,7 +217,6 @@ export default function RegulationConfiguration() {
     setEditingBatchId(null)
     setBatchForm(initialBatchForm)
     setSelectedBatchId(null)
-    setToast(null)
   }
 
   const onAddRegulation = () => {
@@ -224,7 +225,6 @@ export default function RegulationConfiguration() {
     setEditingRegId(null)
     setRegForm(initialRegForm)
     setSelectedRegId(null)
-    setToast(null)
   }
 
   const onBatchView = () => {
@@ -697,7 +697,7 @@ export default function RegulationConfiguration() {
       const msg =
         e?.message ||
         'Excel export library not found. Please install either "exceljs" or "xlsx" in arp_admin.'
-      setToast({ type: 'danger', message: msg })
+      showToast('danger', msg)
     }
 
   }
@@ -729,12 +729,6 @@ export default function RegulationConfiguration() {
   return (
     <CRow>
       <CCol xs={12}>
-        {toast && (
-          <CAlert color={toast.type} className="mb-3">
-            {toast.message}
-          </CAlert>
-        )}
-
         {/* ===================== A) HEADER ACTION CARD ===================== */}
         <CCard className="mb-3">
           <CCardHeader className="d-flex align-items-center justify-content-between">
@@ -785,7 +779,7 @@ export default function RegulationConfiguration() {
           <CCardHeader>
             <strong>
               {mode === 'BATCH'
-                ? 'Batch Details'
+                ? 'Admission Batch Details'
                 : mode === 'REG'
                   ? 'Regulation Details'
                   : 'Details'}
@@ -802,16 +796,16 @@ export default function RegulationConfiguration() {
               <CForm>
                 <CRow className="g-3">
                   <CCol md={4}>
-                    <CFormLabel>Batch Name</CFormLabel>
+                    <CFormLabel>Admission Batch Name</CFormLabel>
                     <CFormInput
                       value={batchForm.batchName}
                       onChange={(e) => setBatchForm((p) => ({ ...p, batchName: e.target.value }))}
-                      placeholder="Enter Batch Name"
+                      placeholder="Enter Admission Batch Name (e.g. 2025 - 2026)"
                       disabled={!isEdit || saving || loading}
                     />
                   </CCol>
                   <CCol md={8}>
-                    <CFormLabel>Batch Description</CFormLabel>
+                    <CFormLabel>Admission Batch Description</CFormLabel>
                     <CFormTextarea
                       value={batchForm.description}
                       onChange={(e) => setBatchForm((p) => ({ ...p, description: e.target.value }))}

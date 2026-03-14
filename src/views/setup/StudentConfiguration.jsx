@@ -13,10 +13,10 @@ import {
   CSpinner,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
-import { semesterOptionsFromAcademicYear } from '../../services/lmsService'
+import { classMatchesSemester, deriveAdmissionSemester, deriveStudyYearFromSemester } from '../../services/lmsService'
 
 const initialScope = {
   institutionId: '',
@@ -57,7 +57,7 @@ export default function StudentConfiguration() {
   const [scope, setScope] = useState(initialScope)
   const [newStudent, setNewStudent] = useState(initialNewStudent)
   const [isAddNew, setIsAddNew] = useState(false)
-  const [message, setMessage] = useState(null)
+  const toast = useArpToast()
 
   const [institutions, setInstitutions] = useState([])
   const [departments, setDepartments] = useState([])
@@ -80,7 +80,13 @@ export default function StudentConfiguration() {
 
   const fileRef = useRef(null)
 
-  const showMessage = (type, text) => setMessage({ type, text })
+  const showMessage = (type, text) =>
+    toast.show({
+      type,
+      message: text,
+      autohide: type === 'success',
+      delay: 3500,
+    })
   const scopeReady = useMemo(
     () =>
       Boolean(
@@ -320,46 +326,78 @@ export default function StudentConfiguration() {
     scope.batchId,
   ])
 
+  const eligibleClasses = useMemo(() => {
+    if (!scope.semester) return classes
+    const filtered = classes.filter((c) => classMatchesSemester(c?.className, scope.semester))
+    return filtered.length ? filtered : classes
+  }, [classes, scope.semester])
+
   const classNameOptions = useMemo(() => {
     const map = new Map()
-    classes.forEach((c) => {
+    eligibleClasses.forEach((c) => {
       const name = String(c?.className || '').trim()
       if (name && !map.has(name)) map.set(name, name)
     })
     return Array.from(map.values())
-  }, [classes])
+  }, [eligibleClasses])
 
   const sectionOptions = useMemo(() => {
     const selectedClass = String(scope.className || '').trim()
-    const list = classes.filter((c) => String(c?.className || '').trim() === selectedClass)
+    const list = eligibleClasses.filter((c) => String(c?.className || '').trim() === selectedClass)
     const map = new Map()
     list.forEach((c) => {
       const sec = String(c?.classLabel || '').trim()
       if (sec && !map.has(sec)) map.set(sec, sec)
     })
     return Array.from(map.values())
-  }, [classes, scope.className])
+  }, [eligibleClasses, scope.className])
 
-  const semesterOptions = useMemo(() => {
-    const ay = academicYears.find((x) => String(x.id) === String(scope.academicYearId))
-    if (!ay) return []
+  const derivedStudyYear = useMemo(() => deriveStudyYearFromSemester(scope.semester), [scope.semester])
 
-    const allowedByAcademicYear = semesterOptionsFromAcademicYear(ay)
-      .map((opt) => Number(opt?.value))
-      .filter((n) => Number.isFinite(n) && n > 0)
+  const selectedAcademicYear = useMemo(
+    () => academicYears.find((x) => String(x.id) === String(scope.academicYearId)) || null,
+    [academicYears, scope.academicYearId],
+  )
 
-    if (!allowedByAcademicYear.length) return []
-    if (!mappedSemesters.length) return allowedByAcademicYear
+  const selectedBatch = useMemo(
+    () => batches.find((x) => String(x.id) === String(scope.batchId)) || null,
+    [batches, scope.batchId],
+  )
 
-    const allowedSet = new Set(allowedByAcademicYear)
-    return [...new Set(mappedSemesters)]
-      .map((n) => Number(n))
-      .filter((n) => Number.isFinite(n) && allowedSet.has(n))
-      .sort((a, b) => a - b)
-  }, [mappedSemesters, academicYears, scope.academicYearId])
+  const selectedProgramme = useMemo(
+    () => programmes.find((x) => String(x.id) === String(scope.programmeId)) || null,
+    [programmes, scope.programmeId],
+  )
+
+  const derivedSemesterMeta = useMemo(
+    () =>
+      deriveAdmissionSemester({
+        academicYear: selectedAcademicYear?.academicYear,
+        semesterCategory: selectedAcademicYear?.semesterCategory,
+        batchName: selectedBatch?.batchName,
+        totalSemesters: selectedProgramme?.totalSemesters,
+      }),
+    [selectedAcademicYear, selectedBatch, selectedProgramme],
+  )
+
+  const derivedSemesterNumber = Number(derivedSemesterMeta.semester)
+  const hasMappedDerivedSemester =
+    Number.isFinite(derivedSemesterNumber) && mappedSemesters.includes(derivedSemesterNumber)
+
+  useEffect(() => {
+    const nextSemester = derivedSemesterMeta.semester || ''
+    setScope((s) => (s.semester === nextSemester ? s : { ...s, semester: nextSemester }))
+  }, [derivedSemesterMeta.semester])
 
   const loadStudents = async () => {
     if (!scopeReady) return showMessage('danger', 'Complete selection scope before search.')
+    if (derivedSemesterMeta.error) return showMessage('danger', derivedSemesterMeta.error)
+    if (derivedSemesterMeta.semester && !hasMappedDerivedSemester) {
+      return showMessage(
+        'danger',
+        `No regulation mapping found for derived Semester ${derivedSemesterMeta.semester} and selected Admission Batch.`,
+      )
+    }
     setLoadingRows(true)
     try {
       const res = await api.get('/api/setup/student', { params: scopeParams })
@@ -378,6 +416,7 @@ export default function StudentConfiguration() {
       showMessage('danger', 'Complete selection scope from Institution to Section before adding.')
       return
     }
+    if (derivedSemesterMeta.error) return showMessage('danger', derivedSemesterMeta.error)
     setNewStudent(initialNewStudent)
     setSelectedId(null)
     setIsAddNew(true)
@@ -420,6 +459,13 @@ export default function StudentConfiguration() {
 
   const onSaveNew = async () => {
     if (!scopeReady) return showMessage('danger', 'Complete selection scope before saving.')
+    if (derivedSemesterMeta.error) return showMessage('danger', derivedSemesterMeta.error)
+    if (derivedSemesterMeta.semester && !hasMappedDerivedSemester) {
+      return showMessage(
+        'danger',
+        `No regulation mapping found for derived Semester ${derivedSemesterMeta.semester} and selected Admission Batch.`,
+      )
+    }
     if (!newStudent.registerNumber.trim()) return showMessage('danger', 'Register Number is required')
     if (!newStudent.firstName.trim()) return showMessage('danger', 'First Name is required')
     if (!newStudent.gender) return showMessage('danger', 'Gender is required')
@@ -445,6 +491,7 @@ export default function StudentConfiguration() {
 
   const onDownloadTemplate = async () => {
     if (!scopeReady) return showMessage('danger', 'Complete selection scope from Institution to Section before downloading template.')
+    if (derivedSemesterMeta.error) return showMessage('danger', derivedSemesterMeta.error)
     try {
       const res = await api.get('/api/setup/student/template', {
         params: scopeParams,
@@ -458,6 +505,7 @@ export default function StudentConfiguration() {
 
   const onExport = async () => {
     if (!scopeReady) return showMessage('danger', 'Complete selection scope before export.')
+    if (derivedSemesterMeta.error) return showMessage('danger', derivedSemesterMeta.error)
     try {
       const res = await api.get('/api/setup/student/export', {
         params: scopeParams,
@@ -471,6 +519,13 @@ export default function StudentConfiguration() {
 
   const onPreviewImport = async () => {
     if (!scopeReady) return showMessage('danger', 'Complete selection scope before preview.')
+    if (derivedSemesterMeta.error) return showMessage('danger', derivedSemesterMeta.error)
+    if (derivedSemesterMeta.semester && !hasMappedDerivedSemester) {
+      return showMessage(
+        'danger',
+        `No regulation mapping found for derived Semester ${derivedSemesterMeta.semester} and selected Admission Batch.`,
+      )
+    }
     const file = fileRef.current?.files?.[0]
     if (!file) return showMessage('danger', 'Choose an Excel file first.')
 
@@ -494,6 +549,13 @@ export default function StudentConfiguration() {
 
   const onImport = async () => {
     if (!scopeReady) return showMessage('danger', 'Complete selection scope before import.')
+    if (derivedSemesterMeta.error) return showMessage('danger', derivedSemesterMeta.error)
+    if (derivedSemesterMeta.semester && !hasMappedDerivedSemester) {
+      return showMessage(
+        'danger',
+        `No regulation mapping found for derived Semester ${derivedSemesterMeta.semester} and selected Admission Batch.`,
+      )
+    }
     const file = fileRef.current?.files?.[0]
     if (!file) return showMessage('danger', 'Choose an Excel file first.')
 
@@ -537,11 +599,18 @@ export default function StudentConfiguration() {
   }
 
   const onCancel = () => {
+    setScope(initialScope)
+    setDepartments([])
+    setProgrammes([])
+    setRegulations([])
+    setAcademicYears([])
+    setBatches([])
+    setClasses([])
+    setMappedSemesters([])
     setRows([])
     setSelectedId(null)
     setPreviewSummary(null)
     setImportSummary(null)
-    setMessage(null)
     setIsAddNew(false)
     setNewStudent(initialNewStudent)
     if (fileRef.current) fileRef.current.value = ''
@@ -575,8 +644,6 @@ export default function StudentConfiguration() {
   return (
     <CRow>
       <CCol xs={12}>
-        {message ? <CAlert color={message.type}>{message.text}</CAlert> : null}
-
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>STUDENTS CONFIGURATION</strong>
@@ -595,6 +662,11 @@ export default function StudentConfiguration() {
             ) : (
               <CForm>
                 <CRow className="g-3">
+                  <CCol xs={12}>
+                    <CAlert color="info" className="mb-0">
+                      Setup order: configure Admission Batch and Regulation Map first, then create Classes, then configure Students. This screen allocates students into existing class masters and should be used after Class Setup is ready.
+                    </CAlert>
+                  </CCol>
                   <CCol md={2}><CFormLabel>Institution</CFormLabel></CCol>
                   <CCol md={4}>
                     <CFormSelect value={scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, institutionId: e.target.value }))}>
@@ -647,30 +719,50 @@ export default function StudentConfiguration() {
                     </CFormSelect>
                   </CCol>
 
-                  <CCol md={2}><CFormLabel>Batch</CFormLabel></CCol>
+                  <CCol md={2}><CFormLabel>Admission Batch</CFormLabel></CCol>
                   <CCol md={4}>
                     <CFormSelect value={scope.batchId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, batchId: e.target.value }))}>
-                      <option value="">Select Batch</option>
+                      <option value="">Select Admission Batch</option>
                       {batches.map((x) => (
                         <option key={x.id} value={x.id}>{x.batchName}</option>
                       ))}
                     </CFormSelect>
                   </CCol>
 
-                  <CCol md={2}><CFormLabel>Semester</CFormLabel></CCol>
+                  <CCol md={2}><CFormLabel>Derived Semester</CFormLabel></CCol>
                   <CCol md={4}>
-                    <CFormSelect value={scope.semester} disabled={!scope.academicYearId} onChange={(e) => setScope((s) => ({ ...s, semester: e.target.value }))}>
-                      <option value="">Select Semester</option>
-                      {semesterOptions.map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </CFormSelect>
+                    <CFormInput
+                      value={scope.semester ? `Sem - ${scope.semester}` : ''}
+                      placeholder="Select Academic Year and Admission Batch"
+                      disabled
+                    />
                   </CCol>
-                  {scope.academicYearId && scope.regulationId && scope.batchId && semesterOptions.length === 0 ? (
+                  {derivedSemesterMeta.error ? (
                     <CCol xs={12}>
                       <CAlert color="warning" className="mb-0">
-                        No Regulation Map found for selected Academic Year + Programme + Regulation + Batch.
+                        {derivedSemesterMeta.error}
+                      </CAlert>
+                    </CCol>
+                  ) : null}
+                  {scope.academicYearId && scope.regulationId && scope.batchId && derivedSemesterMeta.semester && !hasMappedDerivedSemester ? (
+                    <CCol xs={12}>
+                      <CAlert color="warning" className="mb-0">
+                        No Regulation Map found for selected Academic Year + Programme + Regulation + Admission Batch for derived Semester {derivedSemesterMeta.semester}.
                         Configure it in Regulation Map before Student operations.
+                      </CAlert>
+                    </CCol>
+                  ) : null}
+                  {scope.academicYearId && scope.batchId && derivedSemesterMeta.semester ? (
+                    <CCol xs={12}>
+                      <CAlert color="info" className="mb-0">
+                        Student scope follows admission logic automatically: Academic Year {selectedAcademicYear?.academicYear} ({String(selectedAcademicYear?.semesterCategory || '').toUpperCase()}) + Admission Batch {selectedBatch?.batchName} = Semester {derivedSemesterMeta.semester}. Use Year {derivedStudyYear} class names such as {derivedStudyYear === 1 ? 'I' : derivedStudyYear === 2 ? 'II' : derivedStudyYear === 3 ? 'III' : `Year ${derivedStudyYear}`} {selectedProgramme?.programmeCode || selectedProgramme?.programmeName || 'Programme'}.
+                      </CAlert>
+                    </CCol>
+                  ) : null}
+                  {scope.programmeId && !classes.length ? (
+                    <CCol xs={12}>
+                      <CAlert color="warning" className="mb-0">
+                        No class masters found for this programme. Configure Classes first, then return to Student Configuration.
                       </CAlert>
                     </CCol>
                   ) : null}
@@ -764,7 +856,7 @@ export default function StudentConfiguration() {
                         disabled={!isAddNew || saving}
                       />
                       <ArpButton label={loadingRows ? 'Searching...' : 'Search'} icon="search" color="info" onClick={loadStudents} disabled={!scopeReady || loadingRows} />
-                      <ArpButton label="Cancel" icon="cancel" color="secondary" onClick={onCancel} />
+                      <ArpButton label="Reset" icon="cancel" color="secondary" onClick={onCancel} />
                     </div>
                   </CCol>
                 </CRow>

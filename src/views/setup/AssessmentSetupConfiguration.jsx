@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { CAlert, CBadge, CCard, CCardBody, CCardHeader, CCol, CForm, CFormLabel, CFormSelect, CRow } from '@coreui/react-pro'
+import { CBadge, CCard, CCardBody, CCardHeader, CCol, CForm, CFormLabel, CFormSelect, CRow } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import api from '../../services/apiClient'
 
 const initialScope = {
@@ -20,9 +20,9 @@ const unwrapList = (res) => {
 const normalizeCodeId = (v) => String(v || '').trim()
 
 export default function AssessmentSetupConfiguration() {
+  const toast = useArpToast()
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState(null)
   const [mapStatus, setMapStatus] = useState('Not Searched')
   const [mappingLocked, setMappingLocked] = useState(false)
   const [selectedRowId, setSelectedRowId] = useState('')
@@ -39,8 +39,12 @@ export default function AssessmentSetupConfiguration() {
   const [originalRows, setOriginalRows] = useState([])
 
   const showToast = (type, message) => {
-    setToast({ type, message })
-    window.setTimeout(() => setToast(null), 4500)
+    toast.show({
+      type,
+      message,
+      autohide: true,
+      delay: 4500,
+    })
   }
 
   const computeMapStatus = (list) => {
@@ -334,12 +338,6 @@ export default function AssessmentSetupConfiguration() {
   return (
     <CRow>
       <CCol xs={12}>
-        {toast && (
-          <CAlert color={toast.type} className="mb-3">
-            {toast.message}
-          </CAlert>
-        )}
-
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>CIA ASSESSMENT CODE MAP</strong>

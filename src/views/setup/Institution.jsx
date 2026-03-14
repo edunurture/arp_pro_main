@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { ArpButton } from '../../components/common'
+import { ArpButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
 import {
-  CAlert,
   CCard,
   CCardBody,
   CCardHeader,
@@ -90,9 +89,9 @@ const Institution = () => {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState(null)
   const [logoPreview, setLogoPreview] = useState('')
   const [errors, setErrors] = useState({})
+  const toast = useArpToast()
 
   const columns = [
     { key: 'code', label: 'Institution Code' },
@@ -106,8 +105,12 @@ const Institution = () => {
   ]
 
   const showToast = (type, message) => {
-    setToast({ type, message })
-    window.setTimeout(() => setToast(null), 4500)
+    toast.show({
+      type,
+      message,
+      autohide: type === 'success',
+      delay: 4500,
+    })
   }
 
   const mapApiRowToForm = (row) => ({
@@ -362,7 +365,6 @@ const Institution = () => {
         </CCardHeader>
 
         <CCardBody>
-          {toast && <CAlert color={toast.type}>{toast.message}</CAlert>}
           <CForm onSubmit={onSave}>
             <CRow className="g-3">
               <CCol md={3}><CFormLabel>Institution Code</CFormLabel></CCol>

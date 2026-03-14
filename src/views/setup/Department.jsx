@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
 import {
   CCard,
   CCardHeader,
   CCardBody,
-  CAlert,
   CBadge,
   CSpinner,
   CProgress,
@@ -44,7 +43,7 @@ const Department = () => {
   const [selectedId, setSelectedId] = useState(null)
   const [isEdit, setIsEdit] = useState(false)
   const [form, setForm] = useState(initialForm)
-  const [toast, setToast] = useState(null)
+  const toast = useArpToast()
 
   // Import / Preview
   const fileRef = useRef(null)
@@ -63,8 +62,12 @@ const Department = () => {
   }, [])
 
   const showToast = (type, message) => {
-    setToast({ type, message })
-    window.setTimeout(() => setToast(null), 4500)
+    toast.show({
+      type,
+      message,
+      autohide: type === 'success',
+      delay: 4500,
+    })
   }
 
   const safeNumberOrNull = (v) => {
@@ -536,12 +539,6 @@ const Department = () => {
         </CCardHeader>
 
         <CCardBody>
-          {toast && (
-            <CAlert color={toast.type} className="mb-3">
-              {toast.message}
-            </CAlert>
-          )}
-
           {/* Template + Preview + Import */}
           <CCard className="mb-3 border-0">
             <CCardBody className="p-0">

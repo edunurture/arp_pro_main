@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { CAlert, CCard, CCardBody, CCardHeader, CCol, CForm, CFormCheck, CFormInput, CFormLabel, CFormSelect, CRow } from '@coreui/react-pro'
+import { CCard, CCardBody, CCardHeader, CCol, CForm, CFormCheck, CFormInput, CFormLabel, CFormSelect, CRow } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
 
@@ -121,11 +121,11 @@ const mapApiRow = (r = {}) => {
 }
 
 export default function CIAComputationConfiguration() {
+  const toast = useArpToast()
   const [isEdit, setIsEdit] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState(null)
 
   const [institutions, setInstitutions] = useState([])
   const [academicYears, setAcademicYears] = useState([])
@@ -147,8 +147,12 @@ export default function CIAComputationConfiguration() {
   const [computeValueOptions, setComputeValueOptions] = useState(['Convert into'])
 
   const showToast = (type, message) => {
-    setToast({ type, message })
-    window.setTimeout(() => setToast(null), 4500)
+    toast.show({
+      type,
+      message,
+      autohide: true,
+      delay: 4500,
+    })
   }
 
   const selectedRow = rows.find((r) => String(r.id) === String(selectedId)) || null
@@ -589,12 +593,6 @@ export default function CIAComputationConfiguration() {
   return (
     <CRow>
       <CCol xs={12}>
-        {toast && (
-          <CAlert color={toast.type} className="mb-3">
-            {toast.message}
-          </CAlert>
-        )}
-
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>CIA Computation</strong>

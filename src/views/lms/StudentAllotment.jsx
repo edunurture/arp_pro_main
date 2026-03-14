@@ -21,7 +21,7 @@ import {
   CPaginationItem,
 } from '@coreui/react-pro'
 import { ArpButton } from '../../components/common'
-import { lmsService, semesterOptionsFromAcademicYear } from '../../services/lmsService'
+import { classMatchesSemester, deriveAdmissionSemester, deriveStudyYearFromSemester, lmsService } from '../../services/lmsService'
 
 const initialForm = {
   institutionId: '',
@@ -78,15 +78,44 @@ const StudentAllotmentConfiguration = () => {
     [academicYears, form.academicYearId],
   )
 
-  const semesterOptions = useMemo(
-    () => semesterOptionsFromAcademicYear(selectedAcademicYear),
-    [selectedAcademicYear],
+  const selectedBatch = useMemo(
+    () => batches.find((x) => String(x.id) === String(form.batchId)) || null,
+    [batches, form.batchId],
   )
 
+  const selectedProgramme = useMemo(
+    () => programmes.find((x) => String(x.id) === String(form.programmeId)) || null,
+    [programmes, form.programmeId],
+  )
+
+  const derivedSemesterMeta = useMemo(
+    () =>
+      deriveAdmissionSemester({
+        academicYear: selectedAcademicYear?.academicYear,
+        semesterCategory: selectedAcademicYear?.semesterCategory,
+        batchName: selectedBatch?.batchName,
+        totalSemesters: selectedProgramme?.totalSemesters,
+      }),
+    [selectedAcademicYear, selectedBatch, selectedProgramme],
+  )
+
+  const eligibleClasses = useMemo(() => {
+    if (!form.semester) return classes
+    const filtered = classes.filter((c) => classMatchesSemester(c?.className, form.semester))
+    return filtered.length ? filtered : classes
+  }, [classes, form.semester])
+
+  const derivedStudyYear = useMemo(() => deriveStudyYearFromSemester(form.semester), [form.semester])
+
   const classLabelOptions = useMemo(() => {
-    const values = Array.from(new Set(classes.map((x) => String(x.classLabel || '').trim()).filter(Boolean)))
+    const values = Array.from(new Set(eligibleClasses.map((x) => String(x.classLabel || '').trim()).filter(Boolean)))
     return values.sort()
-  }, [classes])
+  }, [eligibleClasses])
+
+  useEffect(() => {
+    const nextSemester = derivedSemesterMeta.semester || ''
+    setForm((p) => (p.semester === nextSemester ? p : { ...p, semester: nextSemester }))
+  }, [derivedSemesterMeta.semester])
 
   const onChange = (key) => async (e) => {
     const value = e.target.value
@@ -203,7 +232,7 @@ const StudentAllotmentConfiguration = () => {
     }
 
     if (key === 'classId') {
-      const chosen = classes.find((x) => String(x.id) === String(value))
+      const chosen = eligibleClasses.find((x) => String(x.id) === String(value))
       setForm((p) => ({ ...p, classId: value, className: chosen?.className || '', classLabel: chosen?.classLabel || '' }))
       return
     }
@@ -240,8 +269,12 @@ const StudentAllotmentConfiguration = () => {
   }, [form.institutionId, form.academicYearId, form.programmeId, form.regulationId, form.batchId, form.semester])
 
   const onSearch = async () => {
-    if (!form.institutionId || !form.departmentId || !form.programmeId || !form.regulationId || !form.academicYearId || !form.batchId || !form.semester) {
-      setError('Select full scope: Institution, Department, Programme, Regulation, Academic Year, Batch and Semester')
+                    if (!form.institutionId || !form.departmentId || !form.programmeId || !form.regulationId || !form.academicYearId || !form.batchId || !form.semester) {
+      setError('Select full scope: Institution, Department, Programme, Regulation, Academic Year and Admission Batch')
+      return
+    }
+    if (derivedSemesterMeta.error) {
+      setError(derivedSemesterMeta.error)
       return
     }
 
@@ -339,6 +372,18 @@ const StudentAllotmentConfiguration = () => {
       return
     }
     const selectedStudentIds = rows.filter((x) => x.selected).map((x) => x.studentId)
+    if (derivedSemesterMeta.error) {
+      setError(derivedSemesterMeta.error)
+      return
+    }
+    if (!rows.length) {
+      setError('No students found for the selected Admission Batch and derived semester')
+      return
+    }
+    if (!selectedStudentIds.length) {
+      setError('Select at least one student before saving allotment')
+      return
+    }
     try {
       setSaving(true)
       setError('')
@@ -471,21 +516,36 @@ const StudentAllotmentConfiguration = () => {
                   </CFormSelect>
                 </CCol>
 
-                <CCol md={3}><CFormLabel>Batch</CFormLabel></CCol>
+                <CCol md={3}><CFormLabel>Admission Batch</CFormLabel></CCol>
                 <CCol md={3}>
                   <CFormSelect value={form.batchId} onChange={onChange('batchId')}>
-                    <option value="">Select Batch</option>
+                    <option value="">Select Admission Batch</option>
                     {batches.map((x) => <option key={x.id} value={x.id}>{x.batchName}</option>)}
                   </CFormSelect>
                 </CCol>
 
-                <CCol md={3}><CFormLabel>Choose Semester</CFormLabel></CCol>
+                <CCol md={3}><CFormLabel>Derived Semester</CFormLabel></CCol>
                 <CCol md={3}>
-                  <CFormSelect value={form.semester} onChange={onChange('semester')}>
-                    <option value="">Select Semester</option>
-                    {semesterOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
-                  </CFormSelect>
+                  <CFormInput
+                    value={form.semester ? `Sem - ${form.semester}` : ''}
+                    placeholder="Select Academic Year and Admission Batch"
+                    disabled
+                  />
                 </CCol>
+                {derivedSemesterMeta.error ? (
+                  <CCol xs={12}>
+                    <CAlert color="warning" className="mb-0">
+                      {derivedSemesterMeta.error}
+                    </CAlert>
+                  </CCol>
+                ) : null}
+                {form.academicYearId && form.batchId && derivedSemesterMeta.semester ? (
+                  <CCol xs={12}>
+                    <CAlert color="info" className="mb-0">
+                      Student allotment follows admission logic automatically: Academic Year {selectedAcademicYear?.academicYear} ({String(selectedAcademicYear?.semesterCategory || '').toUpperCase()}) + Admission Batch {selectedBatch?.batchName} = Semester {derivedSemesterMeta.semester}. Choose Year {derivedStudyYear} classes only.
+                    </CAlert>
+                  </CCol>
+                ) : null}
 
                 <CCol md={3}><CFormLabel>Programme Name</CFormLabel></CCol>
                 <CCol md={3}><CFormInput value={form.programmeName || '-'} disabled /></CCol>
@@ -494,7 +554,7 @@ const StudentAllotmentConfiguration = () => {
                 <CCol md={3}>
                   <CFormSelect value={form.classId} onChange={onChange('classId')}>
                     <option value="">Select Class Name</option>
-                    {classes.map((x) => <option key={x.id} value={x.id}>{x.className} {x.classLabel ? `- ${x.classLabel}` : ''}</option>)}
+                    {eligibleClasses.map((x) => <option key={x.id} value={x.id}>{x.className} {x.classLabel ? `- ${x.classLabel}` : ''}</option>)}
                   </CFormSelect>
                 </CCol>
 

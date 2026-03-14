@@ -1,1439 +1,1278 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
+  CAccordion,
+  CAccordionBody,
+  CAccordionHeader,
+  CAccordionItem,
+  CAlert,
+  CButton,
   CCard,
-  CCardHeader,
   CCardBody,
-  CRow,
+  CCardHeader,
   CCol,
   CForm,
-  CFormLabel,
+  CFormCheck,
   CFormInput,
+  CFormLabel,
   CFormSelect,
   CFormTextarea,
-  CFormCheck,
+  CRow,
+  CSpinner,
   CTable,
-  CTableHead,
-  CTableRow,
-  CTableHeaderCell,
   CTableBody,
   CTableDataCell,
-  CPagination,
-  CPaginationItem,
+  CTableHead,
+  CTableHeaderCell,
+  CTableRow,
 } from '@coreui/react-pro'
+import { ArpButton, ArpDataTable, useArpToast } from '../../components/common'
+import { lmsService } from '../../services/lmsService'
+import { obeService } from '../../services/obeService'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+const emptyVisionMissionRow = () => ({ vision: '', mission: '' })
+const emptyStatementRow = () => ({ statement: '' })
+const emptyCorrelationRow = () => ({ parameter: '', index: '', value: '' })
 
-/**
- * OBE Configuration (Single Page)
- * - Strict 3-card ARP structure (Header Action Card, Form Card, Table Card)
- * - Uses ArpButton / ArpIconButton for actions
- * - CoreUI table (no plain <table>)
- * - Search + Page Size + Circle action icons in ONE row (table header)
- *
- * Notes:
- * - Demo in-memory state only. Hook API calls later in onSave... handlers.
- * - No inline CSS (only CoreUI utility classes).
- */
-
-const initialAcademic = {
-  academicYear: '',
+const TAXONOMY_LAYOUT = {
+  COGNITIVE: ['Remembering', 'Understanding', 'Applying', 'Analyzing', 'Evaluating', 'Creating'],
+  PSYCHOMOTOR: ['Perception', 'SET', 'Guided Response', 'Mechanism', 'Complete Over Response', 'Adaption', 'Organization'],
+  AFFECTIVE: ['Receiving', 'Responding', 'Valuing', 'Organizing', 'Internationalizing'],
 }
 
-const initialStatusRows = [
-  {
-    id: 1,
-    regulation: '23 – 2AA',
-    programme: 'B.Com',
-    visionMission: 'Pending',
-    peo: 'Pending',
-    po: 'Pending',
-    pso: 'Pending',
-    taxonomy: 'Pending',
-    correlation: 'Pending',
-    mapAssessment: 'Pending',
-  },
-  {
-    id: 2,
-    regulation: '23 – 2AC',
-    programme: 'B.Com (CA)',
-    visionMission: 'Pending',
-    peo: 'Pending',
-    po: 'Pending',
-    pso: 'Pending',
-    taxonomy: 'Pending',
-    correlation: 'Pending',
-    mapAssessment: 'Pending',
-  },
+const TAXONOMY_ROW_LAYOUT = [
+  ['Remembering', 'Perception', 'Receiving'],
+  ['Understanding', 'SET', 'Responding'],
+  ['Applying', 'Guided Response', 'Valuing'],
+  ['Analyzing', 'Mechanism', 'Organizing'],
+  ['Evaluating', 'Complete Over Response', 'Internationalizing'],
+  ['Creating', 'Adaption', ''],
+  ['', 'Organization', ''],
 ]
 
-const normalize = (v) =>
-  String(v ?? '')
-    .toLowerCase()
-    .trim()
+const MAP_ASSESSMENT_TEMPLATE = [
+  { key: 'enablePeoPo', label: 'PEO - PO Mapping' },
+  { key: 'enableCoPo', label: 'CO - PO Mapping' },
+  { key: 'enableCoPso', label: 'CO - PSO Mapping' },
+  { key: 'enableDirect', label: 'Direct Assessment Method' },
+  { key: 'enableIndirect', label: 'Indirect Assessment Method' },
+]
+
+const sectionLabels = {
+  visionMission: 'Vision - Mission',
+  peo: 'PEO',
+  po: 'PO',
+  pso: 'PSO',
+  taxonomy: 'Taxonomy',
+  correlation: 'Correlation',
+  mapAssessment: 'Map & Assessment',
+}
+
+const boolStatus = (value) => (value ? 'Completed' : 'Pending')
+
+const buildMapAssessmentRows = (policy = null) => {
+  const remarks = policy?.remarks && typeof policy.remarks === 'object' ? policy.remarks : {}
+  return MAP_ASSESSMENT_TEMPLATE.map((row) => ({
+    ...row,
+    selected: Boolean(policy?.[row.key]),
+    remarks: String(remarks[row.key] ?? ''),
+  }))
+}
+
+const pairVisionMissionRows = (rows = []) => {
+  const visions = rows.filter((row) => row.type === 'VISION').sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+  const missions = rows.filter((row) => row.type === 'MISSION').sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+  const maxLen = Math.max(visions.length, missions.length, 1)
+  return Array.from({ length: maxLen }, (_, index) => ({
+    vision: visions[index]?.statement || '',
+    mission: missions[index]?.statement || '',
+  }))
+}
+
+const mapStatementRows = (rows = []) =>
+  rows.length ? rows.map((row) => ({ statement: row.statement || '' })) : [emptyStatementRow()]
+
+const mapCorrelationRows = (rows = []) =>
+  rows.length
+    ? rows.map((row) => ({
+        parameter: row.description || '',
+        index: row.label || '',
+        value: row.score ?? '',
+      }))
+    : [emptyCorrelationRow()]
+
+const mapTaxonomySelection = (rows = []) => ({
+  COGNITIVE: rows.some((row) => row.domain === 'COGNITIVE'),
+  PSYCHOMOTOR: rows.some((row) => row.domain === 'PSYCHOMOTOR'),
+  AFFECTIVE: rows.some((row) => row.domain === 'AFFECTIVE'),
+})
+
+const buildDefaultTaxonomyCodes = () => {
+  const codes = {}
+  Object.entries(TAXONOMY_LAYOUT).forEach(([domain, levels]) => {
+    levels.forEach((levelName, index) => {
+      codes[`${domain}:${levelName}`] = `${domain[0]}${index + 1}`
+    })
+  })
+  return codes
+}
+
+const mapTaxonomyCodes = (rows = []) => {
+  const codes = buildDefaultTaxonomyCodes()
+  rows.forEach((row) => {
+    if (!row?.domain || !row?.levelName) return
+    codes[`${row.domain}:${row.levelName}`] = row.levelCode || codes[`${row.domain}:${row.levelName}`] || ''
+  })
+  return codes
+}
+
+const buildTaxonomyPayload = (selectedDomains, taxonomyCodes) => {
+  const rows = []
+  Object.entries(selectedDomains).forEach(([domain, selected]) => {
+    if (!selected) return
+    ;(TAXONOMY_LAYOUT[domain] || []).forEach((levelName, index) => {
+      rows.push({
+        domain,
+        levelCode: String(taxonomyCodes?.[`${domain}:${levelName}`] || `${domain[0]}${index + 1}`).trim(),
+        levelName,
+        numericValue: index + 1,
+        sortOrder: index + 1,
+      })
+    })
+  })
+  return rows
+}
 
 const ObeConfiguration = () => {
-  // ========= Form enable/disable =========
-  const [isEdit, setIsEdit] = useState(false)
-
-  // ========= Phase 1: Academic selection =========
-  const [academic, setAcademic] = useState(initialAcademic)
-  const [searched, setSearched] = useState(false)
-  const [showConfiguration, setShowConfiguration] = useState(false)
-
-  // ========= Table UX =========
-  const [rows] = useState(initialStatusRows)
+  const toast = useArpToast()
+  const [institutions, setInstitutions] = useState([])
+  const [institutionId, setInstitutionId] = useState('')
+  const [academicYearId, setAcademicYearId] = useState('')
+  const [academicYears, setAcademicYears] = useState([])
+  const [rows, setRows] = useState([])
   const [selectedId, setSelectedId] = useState(null)
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1) // 1-based
+  const [detail, setDetail] = useState(null)
+  const [showConfiguration, setShowConfiguration] = useState(false)
+  const [loadingMasters, setLoadingMasters] = useState(false)
+  const [loadingRows, setLoadingRows] = useState(false)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+  const [message, setMessage] = useState(null)
   const [pageSize, setPageSize] = useState(10)
-  const [sort, setSort] = useState({ key: 'regulation', dir: 'asc' })
+  const [activeAccordion, setActiveAccordion] = useState('')
+  const [savingKey, setSavingKey] = useState('')
 
-  // ========= Accordion =========
-  const [openSection, setOpenSection] = useState('visionMission') // default open
-
-  // ========= Section states (demo only) =========
-  // Vision/Mission
-  const [vmRows, setVmRows] = useState([{ vision: '', mission: '' }])
-  const [vmSaved, setVmSaved] = useState([]) // array of {vision, mission}
-
-  // PEO/PO/PSO
-  const [peoRows, setPeoRows] = useState([{ text: '' }])
-  const [peoSaved, setPeoSaved] = useState([])
-
-  const [poRows, setPoRows] = useState([{ text: '' }])
-  const [poSaved, setPoSaved] = useState([])
-
-  const [psoRows, setPsoRows] = useState([{ text: '' }])
-  const [psoSaved, setPsoSaved] = useState([])
-
-  // Taxonomy
-  const [taxonomyDomains, setTaxonomyDomains] = useState({
-    cognitive: false,
-    psychomotor: false,
-    affective: false,
-  })
-  const [taxonomyValues, setTaxonomyValues] = useState({
-    remembering: '',
-    understanding: '',
-    applying: '',
-    analyzing: '',
-    evaluating: '',
-    creating: '',
-    perception: '',
-    set: '',
-    guidedResponse: '',
-    mechanism: '',
-    completeOverResponse: '',
-    adaption: '',
-    organization: '',
-    receiving: '',
-    responding: '',
-    valuing: '',
-    organizing: '',
-    internationalizing: '',
-  })
-
-  // Correlation
-  const [correlationRows, setCorrelationRows] = useState([{ parameter: '', index: '', value: '' }])
+  const [visionMissionRows, setVisionMissionRows] = useState([emptyVisionMissionRow()])
+  const [visionMissionLocked, setVisionMissionLocked] = useState(false)
+  const [peoRows, setPeoRows] = useState([emptyStatementRow()])
+  const [peoLocked, setPeoLocked] = useState(false)
+  const [poRows, setPoRows] = useState([emptyStatementRow()])
+  const [poLocked, setPoLocked] = useState(false)
+  const [psoRows, setPsoRows] = useState([emptyStatementRow()])
+  const [psoLocked, setPsoLocked] = useState(false)
+  const [taxonomySelection, setTaxonomySelection] = useState({ COGNITIVE: false, PSYCHOMOTOR: false, AFFECTIVE: false })
+  const [taxonomyCodes, setTaxonomyCodes] = useState(buildDefaultTaxonomyCodes())
+  const [taxonomyLocked, setTaxonomyLocked] = useState(false)
+  const [correlationRows, setCorrelationRows] = useState([emptyCorrelationRow()])
   const [correlationLocked, setCorrelationLocked] = useState(false)
+  const [mapAssessmentRows, setMapAssessmentRows] = useState(buildMapAssessmentRows())
+  const [mapAssessmentLocked, setMapAssessmentLocked] = useState(false)
 
-  // Map & Assessment
-  const [mapRows, setMapRows] = useState([
-    { id: 1, label: 'PEO – PO Mapping', checked: false, remarks: '' },
-    { id: 2, label: 'CO – PO Mapping', checked: false, remarks: '' },
-    { id: 3, label: 'CO – PSO Mapping', checked: false, remarks: '' },
-    { id: 4, label: 'Direct Assessment Method', checked: false, remarks: '' },
-    { id: 5, label: 'Indirect Assessment Method', checked: false, remarks: '' },
-  ])
-  const [mapLocked, setMapLocked] = useState(false)
+  const showToast = (type, text) => {
+    if (!text) return
+    toast.show({ type, message: text, autohide: type === 'success', delay: 4500 })
+  }
 
-  // ========= Years dropdown =========
-  const years = useMemo(() => {
-    const arr = []
-    // Keep it simple: offer the same as HTML, but you can expand later
-    arr.push('2025 – 26', '2026 – 27')
-    return arr
+  useEffect(() => {
+    const loadMasters = async () => {
+      setLoadingMasters(true)
+      try {
+        const institutionRows = await lmsService.listInstitutions()
+        setInstitutions(institutionRows)
+        const firstInstitutionId = institutionRows?.[0]?.id || ''
+        setInstitutionId(firstInstitutionId)
+        if (firstInstitutionId) {
+          const years = await lmsService.listAcademicYears(firstInstitutionId)
+          setAcademicYears(years)
+        }
+      } catch (error) {
+        const text = error?.response?.data?.message || 'Failed to load academic years.'
+        setMessage({ type: 'danger', text })
+        showToast('danger', text)
+      } finally {
+        setLoadingMasters(false)
+      }
+    }
+    loadMasters()
   }, [])
 
-  // ========= Sorting / filtering =========
-  const sortToggle = (key) => {
-    setSort((prev) => {
-      if (prev.key !== key) return { key, dir: 'asc' }
-      return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-    })
-  }
-
-  const sortIndicator = (key) => {
-    if (sort.key !== key) return ''
-    return sort.dir === 'asc' ? ' ▲' : ' ▼'
-  }
-
-  const filteredSorted = useMemo(() => {
-    const q = normalize(search)
-    let data = rows
-
-    if (q) {
-      data = rows.filter((r) => Object.values(r).map(normalize).join(' ').includes(q))
-    }
-
-    const { key, dir } = sort || {}
-    if (!key) return data
-
-    const sorted = [...data].sort((a, b) =>
-      normalize(a?.[key]).localeCompare(normalize(b?.[key]), undefined, { sensitivity: 'base' }),
-    )
-
-    return dir === 'asc' ? sorted : sorted.reverse()
-  }, [rows, search, sort])
-
-  // reset to page 1 when search/pageSize changes
-  useEffect(() => {
-    setPage(1)
-  }, [search, pageSize])
-
-  const total = filteredSorted.length
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const safePage = Math.min(page, totalPages)
-  const startIdx = total === 0 ? 0 : (safePage - 1) * pageSize
-  const endIdx = Math.min(startIdx + pageSize, total)
-
-  const pageRows = useMemo(() => filteredSorted.slice(startIdx, endIdx), [filteredSorted, startIdx, endIdx])
-
-  // ========= Handlers =========
-  const onAcademicChange = (key) => (e) => setAcademic((p) => ({ ...p, [key]: e.target.value }))
-
-  const onSearch = (e) => {
-    e.preventDefault()
-    setSearched(true)
-    setShowConfiguration(false)
+  const handleInstitutionChange = async (nextInstitutionId) => {
+    setInstitutionId(nextInstitutionId)
+    setAcademicYearId('')
+    setAcademicYears([])
+    setRows([])
     setSelectedId(null)
-    setIsEdit(false)
-  }
-
-  const onShowConfiguration = () => {
-    // Show configuration section (rendered below Status card)
-    setSearched(true)
+    setDetail(null)
     setShowConfiguration(false)
-    setShowConfiguration(true)
-    setOpenSection('visionMission')
-    // Enable editing only when user clicks Edit icons inside accordion
-    setIsEdit(false)
+    resetEditorState()
+    setMessage(null)
+
+    if (!nextInstitutionId) return
+
+    setLoadingMasters(true)
+    try {
+      const years = await lmsService.listAcademicYears(nextInstitutionId)
+      setAcademicYears(years)
+    } catch (error) {
+      const text = error?.response?.data?.message || 'Failed to load academic years.'
+      setMessage({ type: 'danger', text })
+      showToast('danger', text)
+    } finally {
+      setLoadingMasters(false)
+    }
   }
 
+  const statusColumns = useMemo(
+    () => [
+      { key: 'regulation', label: 'Regulation', sortable: true },
+      { key: 'programme', label: 'Programme', sortable: true },
+      { key: 'visionMission', label: 'Vision - Mission' },
+      { key: 'peo', label: 'PEO' },
+      { key: 'po', label: 'PO' },
+      { key: 'pso', label: 'PSO' },
+      { key: 'taxonomy', label: 'Taxonomy' },
+      { key: 'correlation', label: 'Correlation' },
+      { key: 'mapAssessment', label: 'Map & Assessment' },
+    ],
+    [],
+  )
 
-  const onAddNew = () => {
-    // Enable edit for the configuration forms
-    setIsEdit(true)
-  }
+  const academicYearOptions = useMemo(() => {
+    const uniqueYears = new Map()
+    academicYears.forEach((year) => {
+      const yearText = String(year?.academicYear || '').trim()
+      if (!yearText || uniqueYears.has(yearText)) return
+      uniqueYears.set(yearText, {
+        id: year.id,
+        label: yearText,
+      })
+    })
+    return Array.from(uniqueYears.values())
+  }, [academicYears])
 
-  const onView = () => {
-    // In a real app, fetch selected row configuration and populate states
-    setIsEdit(false)
-  }
-
-  const onEdit = () => {
-    if (!selectedId) return
-    setIsEdit(true)
-  }
-
-  const onCancel = () => {
-    setIsEdit(false)
-  }
-
-  // ========= Accordion =========
-  const toggleSection = (key) => {
-    setOpenSection((prev) => (prev === key ? '' : key))
-  }
-
-  // ========= Vision/Mission =========
-  const updateVmRow = (idx, key) => (e) => {
-    const value = e.target.value
-    setVmRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: value } : r)))
-  }
-
-  const addVmRow = () => setVmRows((p) => [...p, { vision: '', mission: '' }])
-  const removeVmRow = (idx) => setVmRows((p) => (p.length <= 1 ? p : p.filter((_, i) => i !== idx)))
-
-  const saveVisionMission = () => {
-    setVmSaved(vmRows.map((r) => ({ ...r })))
-    setIsEdit(false)
-  }
-
-  // ========= PEO/PO/PSO generic =========
-  const addTextRow = (setter) => setter((p) => [...p, { text: '' }])
-  const removeTextRow = (setter, idx) =>
-    setter((p) => (p.length <= 1 ? p : p.filter((_, i) => i !== idx)))
-
-  const updateTextRow = (setter, idx) => (e) => {
-    const value = e.target.value
-    setter((p) => p.map((r, i) => (i === idx ? { ...r, text: value } : r)))
-  }
-
-  const saveTextRows = (rowsState, saver) => {
-    saver(rowsState.map((r) => ({ ...r })))
-    setIsEdit(false)
-  }
-
-  // ========= Taxonomy =========
-  const onTaxDomain = (key) => (e) => {
-    const checked = e.target.checked
-    setTaxonomyDomains((p) => ({ ...p, [key]: checked }))
-  }
-
-  const onTaxValue = (key) => (e) => setTaxonomyValues((p) => ({ ...p, [key]: e.target.value }))
-
-  const taxonomyEnabled = (domainKey) => taxonomyDomains?.[domainKey] && isEdit
-
-  const saveTaxonomy = () => {
-    setIsEdit(false)
-  }
-
-  // ========= Correlation =========
-  const updateCorrelation = (idx, key) => (e) => {
-    const value = e.target.value
-    setCorrelationRows((p) => p.map((r, i) => (i === idx ? { ...r, [key]: value } : r)))
-  }
-
-  const addCorrelationRow = () =>
-    setCorrelationRows((p) => [...p, { parameter: '', index: '', value: '' }])
-
-  const removeCorrelationRow = (idx) =>
-    setCorrelationRows((p) => (p.length <= 1 ? p : p.filter((_, i) => i !== idx)))
-
-  const saveCorrelation = () => {
-    setCorrelationLocked(true)
-    setIsEdit(false)
-  }
-
-  const editCorrelation = () => {
+  const resetEditorState = () => {
+    setVisionMissionRows([emptyVisionMissionRow()])
+    setVisionMissionLocked(false)
+    setPeoRows([emptyStatementRow()])
+    setPeoLocked(false)
+    setPoRows([emptyStatementRow()])
+    setPoLocked(false)
+    setPsoRows([emptyStatementRow()])
+    setPsoLocked(false)
+    setTaxonomySelection({ COGNITIVE: false, PSYCHOMOTOR: false, AFFECTIVE: false })
+    setTaxonomyCodes(buildDefaultTaxonomyCodes())
+    setTaxonomyLocked(false)
+    setCorrelationRows([emptyCorrelationRow()])
     setCorrelationLocked(false)
-    setIsEdit(true)
+    setMapAssessmentRows(buildMapAssessmentRows())
+    setMapAssessmentLocked(false)
+    setActiveAccordion('')
   }
 
-  // ========= Map & Assessment =========
-  const toggleMapChecked = (id) => (e) => {
-    const checked = e.target.checked
-    setMapRows((p) => p.map((r) => (r.id === id ? { ...r, checked } : r)))
+  const syncStatusRow = (configDetail) => {
+    const completion = configDetail?.completion || {}
+    const regulationMapId = configDetail?.context?.regulationMapId
+    if (!regulationMapId) return
+
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === regulationMapId
+          ? {
+              ...row,
+              visionMission: boolStatus(completion.visionMission),
+              peo: boolStatus(completion.peo),
+              po: boolStatus(completion.po),
+              pso: boolStatus(completion.pso),
+              taxonomy: boolStatus(completion.taxonomy),
+              correlation: boolStatus(completion.correlation),
+              mapAssessment: boolStatus(completion.mapAssessment),
+              configurationStatus: configDetail?.status || row.configurationStatus,
+            }
+          : row,
+      ),
+    )
   }
 
-  const updateMapRemarks = (id) => (e) => {
-    const remarks = e.target.value
-    setMapRows((p) => p.map((r) => (r.id === id ? { ...r, remarks } : r)))
+  const refreshStatusRows = async (nextSelectedId = selectedId) => {
+    if (!institutionId || !academicYearId) return
+    try {
+      const data = await obeService.getConfigurationStatus({ institutionId, academicYearId })
+      setRows(data)
+      if (nextSelectedId && !data.some((row) => row.id === nextSelectedId)) {
+        setSelectedId(data[0]?.id || null)
+      }
+    } catch (error) {
+      const text = error?.response?.data?.message || 'Failed to refresh OBE configuration status.'
+      setMessage({ type: 'danger', text })
+      showToast('danger', text)
+    }
   }
 
-  const saveMap = () => {
-    setMapLocked(true)
-    setIsEdit(false)
+  const refreshDetailFromServer = async (regulationMapId = selectedId) => {
+    if (!regulationMapId) return
+    try {
+      const latest = await obeService.getConfigurationDetail(regulationMapId)
+      applyDetail(latest)
+    } catch (error) {
+      const text = error?.response?.data?.message || 'Failed to refresh OBE configuration detail.'
+      setMessage({ type: 'danger', text })
+      showToast('danger', text)
+    }
   }
 
-  const editMap = () => {
-    setMapLocked(false)
-    setIsEdit(true)
+  const refreshAfterSave = async (regulationMapId = selectedId) => {
+    await refreshStatusRows(regulationMapId)
+    await refreshDetailFromServer(regulationMapId)
   }
 
-  const selectedRow = useMemo(() => rows.find((r) => r.id === selectedId) || null, [rows, selectedId])
+  const seedFormsFromDetail = (configDetail) => {
+    const sections = configDetail?.sections || {}
+    const completion = configDetail?.completion || {}
+
+    setVisionMissionRows(pairVisionMissionRows(sections.visionMission || []))
+    setVisionMissionLocked(Boolean(completion.visionMission))
+    setPeoRows(mapStatementRows(sections.peos || []))
+    setPeoLocked(Boolean(completion.peo))
+    setPoRows(mapStatementRows(sections.pos || []))
+    setPoLocked(Boolean(completion.po))
+    setPsoRows(mapStatementRows(sections.psos || []))
+    setPsoLocked(Boolean(completion.pso))
+    setTaxonomySelection(mapTaxonomySelection(sections.taxonomy || []))
+    setTaxonomyCodes(mapTaxonomyCodes(sections.taxonomy || []))
+    setTaxonomyLocked(Boolean(completion.taxonomy))
+    setCorrelationRows(mapCorrelationRows(sections.correlation || []))
+    setCorrelationLocked(Boolean(completion.correlation))
+    setMapAssessmentRows(buildMapAssessmentRows(sections.assessmentPolicy))
+    setMapAssessmentLocked(Boolean(completion.mapAssessment))
+    setActiveAccordion('')
+  }
+
+  const applyDetail = (configDetail) => {
+    setDetail(configDetail)
+    seedFormsFromDetail(configDetail)
+    syncStatusRow(configDetail)
+  }
+
+  const loadStatus = async () => {
+    if (!academicYearId) {
+      const text = 'Select an academic year to search.'
+      setMessage({ type: 'warning', text })
+      showToast('warning', text)
+      return
+    }
+    setLoadingRows(true)
+    setSelectedId(null)
+    setDetail(null)
+    setShowConfiguration(false)
+    resetEditorState()
+    try {
+      const data = await obeService.getConfigurationStatus({ institutionId, academicYearId })
+      setRows(data)
+      if (data.length) {
+        setMessage(null)
+      } else {
+        const text = 'No OBE configuration rows found.'
+        setMessage({ type: 'warning', text })
+        showToast('warning', text)
+      }
+    } catch (error) {
+      setRows([])
+      const text = error?.response?.data?.message || 'Failed to load OBE configuration status.'
+      setMessage({ type: 'danger', text })
+      showToast('danger', text)
+    } finally {
+      setLoadingRows(false)
+    }
+  }
+
+  const resetFilters = () => {
+    setAcademicYearId('')
+    setRows([])
+    setSelectedId(null)
+    setDetail(null)
+    setShowConfiguration(false)
+    resetEditorState()
+    setMessage(null)
+  }
+
+  const loadDetail = async () => {
+    if (!selectedId) return
+    setLoadingDetail(true)
+    try {
+      const data = await obeService.getConfigurationDetail(selectedId)
+      applyDetail(data)
+      setShowConfiguration(true)
+      setMessage(null)
+    } catch (error) {
+      const text = error?.response?.data?.message || 'Failed to load OBE configuration detail.'
+      setMessage({ type: 'danger', text })
+      showToast('danger', text)
+    } finally {
+      setLoadingDetail(false)
+    }
+  }
+
+  const withSaveState = async (key, work) => {
+    setSavingKey(key)
+    try {
+      await work()
+    } finally {
+      setSavingKey('')
+    }
+  }
+
+  const saveVisionMission = async () =>
+    withSaveState('visionMission', async () => {
+      const prepared = []
+      for (let index = 0; index < visionMissionRows.length; index += 1) {
+        const row = visionMissionRows[index]
+        const vision = row.vision.trim()
+        const mission = row.mission.trim()
+        if (!vision && !mission) continue
+        if (!vision || !mission) {
+          const text = `Both vision and mission are required for row ${index + 1}.`
+          setMessage({ type: 'warning', text })
+          showToast('warning', text)
+          return
+        }
+        prepared.push(
+          { code: `V${prepared.length + 1}`, type: 'VISION', statement: vision, sortOrder: prepared.length + 1 },
+          { code: `M${prepared.length + 1}`, type: 'MISSION', statement: mission, sortOrder: prepared.length + 1 },
+        )
+      }
+
+      const data = await obeService.saveVisionMission(selectedId, prepared)
+      applyDetail(data)
+      await refreshAfterSave(selectedId)
+      setVisionMissionLocked(true)
+      const text = 'Vision and mission statements saved successfully.'
+      setMessage({ type: 'success', text })
+      showToast('success', text)
+    })
+
+  const saveStatementSection = async (key, rowsState, serviceMethod, successText) =>
+    withSaveState(key, async () => {
+      const prepared = rowsState
+        .map((row, index) => ({ code: `${key.toUpperCase()}${index + 1}`, statement: row.statement.trim(), sortOrder: index + 1 }))
+        .filter((row) => row.statement)
+
+      const data = await serviceMethod(selectedId, prepared)
+      applyDetail(data)
+      await refreshAfterSave(selectedId)
+      setMessage({ type: 'success', text: successText })
+      showToast('success', successText)
+    })
+
+  const saveTaxonomy = async () =>
+    withSaveState('taxonomy', async () => {
+      const data = await obeService.saveTaxonomy(selectedId, buildTaxonomyPayload(taxonomySelection, taxonomyCodes))
+      applyDetail(data)
+      await refreshAfterSave(selectedId)
+      setTaxonomyLocked(true)
+      const text = 'Taxonomy configuration saved successfully.'
+      setMessage({ type: 'success', text })
+      showToast('success', text)
+    })
+
+  const saveCorrelation = async () =>
+    withSaveState('correlation', async () => {
+      const prepared = []
+      for (let index = 0; index < correlationRows.length; index += 1) {
+        const row = correlationRows[index]
+        const parameter = row.parameter.trim()
+        const label = row.index.trim()
+        const scoreValue = String(row.value).trim()
+        if (!parameter && !label && !scoreValue) continue
+        if (!label || !scoreValue) {
+          const text = `Index and value are required for correlation row ${index + 1}.`
+          setMessage({ type: 'warning', text })
+          showToast('warning', text)
+          return
+        }
+        const score = Number(scoreValue)
+        if (!Number.isFinite(score)) {
+          const text = `Value must be numeric for correlation row ${index + 1}.`
+          setMessage({ type: 'warning', text })
+          showToast('warning', text)
+          return
+        }
+        prepared.push({
+          label,
+          score,
+          description: parameter || null,
+          sortOrder: index + 1,
+        })
+      }
+
+      const data = await obeService.saveCorrelation(selectedId, prepared)
+      applyDetail(data)
+      await refreshAfterSave(selectedId)
+      setCorrelationLocked(true)
+      const text = 'Correlation configuration saved successfully.'
+      setMessage({ type: 'success', text })
+      showToast('success', text)
+    })
+
+  const saveMapAssessment = async () =>
+    withSaveState('mapAssessment', async () => {
+      const payload = {
+        enablePeoPo: Boolean(mapAssessmentRows.find((row) => row.key === 'enablePeoPo')?.selected),
+        enableCoPo: Boolean(mapAssessmentRows.find((row) => row.key === 'enableCoPo')?.selected),
+        enableCoPso: Boolean(mapAssessmentRows.find((row) => row.key === 'enableCoPso')?.selected),
+        enableDirect: Boolean(mapAssessmentRows.find((row) => row.key === 'enableDirect')?.selected),
+        enableIndirect: Boolean(mapAssessmentRows.find((row) => row.key === 'enableIndirect')?.selected),
+        remarks: mapAssessmentRows.reduce((acc, row) => ({ ...acc, [row.key]: row.remarks.trim() }), {}),
+      }
+
+      const data = await obeService.saveAssessmentPolicy(selectedId, payload)
+      applyDetail(data)
+      await refreshAfterSave(selectedId)
+      setMapAssessmentLocked(true)
+      const text = 'Map and assessment configuration saved successfully.'
+      setMessage({ type: 'success', text })
+      showToast('success', text)
+    })
 
   return (
     <CRow>
       <CCol xs={12}>
-        {/* ================= HEADER ACTION CARD ================= */}
-        <CCard className="mb-3">
-          <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>OBE CONFIGURATION</strong>
+        {message && (
+          <CAlert color={message.type} dismissible onClose={() => setMessage(null)}>
+            {message.text}
+          </CAlert>
+        )}
 
-            <div className="d-flex gap-2">
-              <ArpButton label="Add New" icon="add" color="purple" onClick={onAddNew} title="Add New" />
-              <ArpButton
-                label="Edit"
-                icon="edit"
-                color="primary"
-                onClick={onEdit}
-                disabled={!selectedId}
-                title="Edit Selected"
-              />
-              <ArpButton
-                label="View"
-                icon="view"
-                color="info"
-                onClick={onView}
-                disabled={!selectedId}
-                title="View Selected"
-              />
-            </div>
-          </CCardHeader>
-        </CCard>
-
-        {/* ================= FORM CARD ================= */}
         <CCard className="mb-3">
           <CCardHeader>
             <strong>OBE Configuration</strong>
           </CCardHeader>
-
           <CCardBody>
-            <CForm onSubmit={onSearch}>
-              <CRow className="g-3">
-                {/* Row 1 */}
-                <CCol md={3}>
-                  <CFormLabel>Academic Year</CFormLabel>
+            <CForm
+              onSubmit={(e) => {
+                e.preventDefault()
+                loadStatus()
+              }}
+            >
+              <CRow className="g-3 align-items-center">
+                <CCol md={2}>
+                  <CFormLabel className="mb-0">Institution</CFormLabel>
                 </CCol>
                 <CCol md={3}>
-                  <CFormSelect value={academic.academicYear} onChange={onAcademicChange('academicYear')}>
+                  <CFormSelect value={institutionId} onChange={(e) => handleInstitutionChange(e.target.value)}>
                     <option value="">Select</option>
-                    {years.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
+                    {institutions.map((institution) => (
+                      <option key={institution.id} value={institution.id}>
+                        {institution.institutionName || institution.name || institution.id}
                       </option>
                     ))}
                   </CFormSelect>
                 </CCol>
-
-                <CCol md={3} />
-                <CCol md={3} className="d-flex justify-content-end">
-                  <ArpButton label="Search" icon="search" color="primary" type="submit" title="Search" />
+                <CCol md={2}>
+                  <CFormLabel className="mb-0">Academic Year</CFormLabel>
                 </CCol>
-</CRow>
+                <CCol md={2}>
+                  <CFormSelect value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} disabled={!institutionId}>
+                    <option value="">Select</option>
+                    {academicYearOptions.map((year) => (
+                      <option key={year.id} value={year.id}>
+                        {year.label}
+                      </option>
+                    ))}
+                  </CFormSelect>
+                </CCol>
+                <CCol md={3} className="d-flex justify-content-end gap-2">
+                  <ArpButton
+                    label="Search"
+                    icon="search"
+                    color="primary"
+                    type="submit"
+                    disabled={loadingMasters || loadingRows}
+                  />
+                  <ArpButton
+                    label="Reset"
+                    icon="reset"
+                    color="secondary"
+                    type="button"
+                    onClick={resetFilters}
+                    disabled={loadingMasters}
+                  />
+                </CCol>
+              </CRow>
             </CForm>
-
-            {/* Configuration accordion shown only after Search */}
-            
-
-          </CCardBody>
-        </CCard>
-
-        {/* ================= TABLE CARD ================= */}
-        <CCard className="mb-3">
-          {/* ✅ All in ONE ROW: Search + Page size + action icons */}
-          <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>Status of OBE Configuration</strong>
-
-            <div className="d-flex align-items-center gap-2 flex-nowrap">
-              <CFormInput
-                size="sm"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search..."
-                title="Search"
-              />
-
-              <CFormSelect
-                size="sm"
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                title="Rows per page"
-              >
-                {[5, 10, 20, 50].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </CFormSelect>
-
-              <ArpButton
-                label="OBE Configuration"
-                icon="view"
-                color="info"
-                type="button"
-                onClick={onShowConfiguration}
-                disabled={!selectedId}
-                title="Open OBE Configuration"
-                className="text-nowrap"
-              />
-
-              <div className="d-flex gap-2 align-items-center flex-nowrap">
-                <ArpIconButton icon="view" color="purple" title="View" onClick={onView} disabled={!selectedId} />
-                <ArpIconButton icon="edit" color="info" title="Edit" onClick={onEdit} disabled={!selectedId} />
-                <ArpIconButton icon="delete" color="danger" title="Delete" disabled={!selectedId} />
+            {loadingMasters && (
+              <div className="mt-3 d-flex align-items-center gap-2">
+                <CSpinner size="sm" />
+                <span>Loading academic years...</span>
               </div>
-            </div>
-          </CCardHeader>
-
-          <CCardBody>
-            <CTable hover responsive align="middle">
-              <CTableHead color="light">
-                <CTableRow>
-                  <CTableHeaderCell style={{ width: 80 }}>Select</CTableHeaderCell>
-
-                  <CTableHeaderCell style={{ cursor: 'pointer' }} onClick={() => sortToggle('regulation')}>
-                    Regulation{sortIndicator('regulation')}
-                  </CTableHeaderCell>
-
-                  <CTableHeaderCell style={{ cursor: 'pointer' }} onClick={() => sortToggle('programme')}>
-                    Programme{sortIndicator('programme')}
-                  </CTableHeaderCell>
-
-                  <CTableHeaderCell>Vision - Mission</CTableHeaderCell>
-                  <CTableHeaderCell>PEO</CTableHeaderCell>
-                  <CTableHeaderCell>PO</CTableHeaderCell>
-                  <CTableHeaderCell>PSO</CTableHeaderCell>
-                  <CTableHeaderCell>Taxonomy</CTableHeaderCell>
-                  <CTableHeaderCell>Correlation</CTableHeaderCell>
-                  <CTableHeaderCell>Map &amp; Assessment</CTableHeaderCell>
-                </CTableRow>
-              </CTableHead>
-
-              <CTableBody>
-                {pageRows.length === 0 ? (
-                  <CTableRow>
-                    <CTableDataCell colSpan={10} className="text-center py-4">
-                      No records found.
-                    </CTableDataCell>
-                  </CTableRow>
-                ) : (
-                  pageRows.map((r) => (
-                    <CTableRow key={r.id}>
-                      <CTableDataCell className="text-center">
-                        <CFormCheck
-                          type="radio"
-                          name="obeRow"
-                          checked={selectedId === r.id}
-                          onChange={() => setSelectedId(r.id)}
-                        />
-                      </CTableDataCell>
-                      <CTableDataCell>{r.regulation}</CTableDataCell>
-                      <CTableDataCell>{r.programme}</CTableDataCell>
-                      <CTableDataCell>{r.visionMission}</CTableDataCell>
-                      <CTableDataCell>{r.peo}</CTableDataCell>
-                      <CTableDataCell>{r.po}</CTableDataCell>
-                      <CTableDataCell>{r.pso}</CTableDataCell>
-                      <CTableDataCell>{r.taxonomy}</CTableDataCell>
-                      <CTableDataCell>{r.correlation}</CTableDataCell>
-                      <CTableDataCell>{r.mapAssessment}</CTableDataCell>
-                    </CTableRow>
-                  ))
-                )}
-              </CTableBody>
-            </CTable>
-
-            {/* Pagination (CoursesConfiguration-style window) */}
-            <div className="d-flex justify-content-end mt-2">
-              <CPagination size="sm" className="mb-0">
-                <CPaginationItem disabled={safePage <= 1} onClick={() => setPage(1)}>
-                  «
-                </CPaginationItem>
-                <CPaginationItem disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                  ‹
-                </CPaginationItem>
-
-                {Array.from({ length: totalPages })
-                  .slice(Math.max(0, safePage - 3), Math.min(totalPages, safePage + 2))
-                  .map((_, i) => {
-                    const pageNumber = Math.max(1, safePage - 2) + i
-                    if (pageNumber > totalPages) return null
-                    return (
-                      <CPaginationItem
-                        key={pageNumber}
-                        active={pageNumber === safePage}
-                        onClick={() => setPage(pageNumber)}
-                      >
-                        {pageNumber}
-                      </CPaginationItem>
-                    )
-                  })}
-
-                <CPaginationItem
-                  disabled={safePage >= totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                >
-                  ›
-                </CPaginationItem>
-                <CPaginationItem disabled={safePage >= totalPages} onClick={() => setPage(totalPages)}>
-                  »
-                </CPaginationItem>
-              </CPagination>
-            </div>
+            )}
           </CCardBody>
         </CCard>
 
-        {/* ================= CONFIGURATION SECTION (Below Status Table) ================= */}
-        {showConfiguration && (
-              <>
-                <div className="mt-3 small text-medium-emphasis">
-                  {selectedRow
-                    ? `Selected: ${selectedRow.regulation} / ${selectedRow.programme}`
-                    : 'Select a row in the list below to work on configuration.'}
+        <ArpDataTable
+          title="OBE Configuration"
+          rows={rows}
+          columns={statusColumns}
+          rowKey="id"
+          loading={loadingRows}
+          selection={{
+            type: 'radio',
+            selected: selectedId,
+            onChange: (value) => setSelectedId(value),
+            key: 'id',
+            headerLabel: 'Select',
+            name: 'obeConfigSelect',
+          }}
+          emptyText="No records found."
+          defaultPageSize={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={setPageSize}
+          headerActions={
+            <ArpButton
+              label="Configuration"
+              icon="add"
+              color="purple"
+              type="button"
+              onClick={loadDetail}
+              disabled={!selectedId || loadingDetail}
+              title="Add OBE Configuration"
+            />
+          }
+        />
+
+        {showConfiguration && detail && (
+          <CCard className="mb-3">
+            <CCardHeader>
+              <strong>OBE Configuration Detail</strong>
+            </CCardHeader>
+            <CCardBody>
+              {loadingDetail ? (
+                <div className="d-flex align-items-center gap-2">
+                  <CSpinner size="sm" />
+                  <span>Loading configuration detail...</span>
                 </div>
+              ) : (
+                <>
+                  <CRow className="g-3 mb-3">
+                    <CCol md={3}>
+                      <strong>Academic Year:</strong> {detail.context?.academicYear || ''}
+                    </CCol>
+                    <CCol md={3}>
+                      <strong>Programme:</strong> {detail.context?.programmeName || ''}
+                    </CCol>
+                    <CCol md={3}>
+                      <strong>Regulation:</strong> {detail.context?.regulationCode || ''}
+                    </CCol>
+                    <CCol md={3}>
+                      <strong>Status:</strong> {detail.status || ''}
+                    </CCol>
+                  </CRow>
 
-                <div className="mt-3">
-                  {/* ===== Accordion (single-open) ===== */}
-                  <div className="d-grid gap-2">
-                    {/* Vision & Mission */}
-                    <div>
-                      <button
-                        type="button"
-                        className={`btn w-100 text-start ${openSection === 'visionMission' ? 'btn-primary' : 'btn-light'}`}
-                        onClick={() => toggleSection('visionMission')}
-                      >
-                        Vision &amp; Mission Entry
-                      </button>
+                  <CTable bordered responsive className="mb-4">
+                    <CTableHead color="light">
+                      <CTableRow>
+                        <CTableHeaderCell>Section</CTableHeaderCell>
+                        <CTableHeaderCell>Completion</CTableHeaderCell>
+                      </CTableRow>
+                    </CTableHead>
+                    <CTableBody>
+                      {Object.entries(detail.completion || {}).map(([key, value]) => (
+                        <CTableRow key={key}>
+                          <CTableDataCell>{sectionLabels[key] || key}</CTableDataCell>
+                          <CTableDataCell>{value ? 'Completed' : 'Pending'}</CTableDataCell>
+                        </CTableRow>
+                      ))}
+                    </CTableBody>
+                  </CTable>
 
-                      {openSection === 'visionMission' && (
-                        <div className="border rounded-bottom p-3">
-                          <CRow className="g-3">
-                            <CCol xs={12}>
-                              <strong>Vision and Mission Entry</strong>
-                            </CCol>
-
-                            <CCol xs={12}>
-                              <CTable hover responsive align="middle">
-                                <CTableHead color="light">
-                                  <CTableRow>
-                                    <CTableHeaderCell>Vision Statement</CTableHeaderCell>
-                                    <CTableHeaderCell>Mission Statement</CTableHeaderCell>
-                                    <CTableHeaderCell style={{ width: 120 }}>Action</CTableHeaderCell>
-                                  </CTableRow>
-                                </CTableHead>
-                                <CTableBody>
-                                  {vmRows.map((r, idx) => (
-                                    <CTableRow key={idx}>
-                                      <CTableDataCell>
-                                        <CFormTextarea
-                                          rows={2}
-                                          value={r.vision}
-                                          onChange={updateVmRow(idx, 'vision')}
-                                          disabled={!isEdit}
-                                        />
-                                      </CTableDataCell>
-                                      <CTableDataCell>
-                                        <CFormTextarea
-                                          rows={2}
-                                          value={r.mission}
-                                          onChange={updateVmRow(idx, 'mission')}
-                                          disabled={!isEdit}
-                                        />
-                                      </CTableDataCell>
-                                      <CTableDataCell className="text-center">
-                                        <div className="d-flex justify-content-center gap-2">
-                                          <button
-                                            type="button"
-                                            className="btn btn-success btn-sm"
-                                            onClick={addVmRow}
-                                            disabled={!isEdit}
-                                            title="Add Row"
-                                          >
-                                            +
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn btn-danger btn-sm"
-                                            onClick={() => removeVmRow(idx)}
-                                            disabled={!isEdit}
-                                            title="Remove Row"
-                                          >
-                                            -
-                                          </button>
-                                        </div>
-                                      </CTableDataCell>
-                                    </CTableRow>
-                                  ))}
-                                </CTableBody>
-                              </CTable>
-                            </CCol>
-
-                            {/* Saved preview table */}
-                            {vmSaved.length > 0 && (
-                              <CCol xs={12} className="mt-2">
-                                <div className="d-flex justify-content-between align-items-center">
-                                  <strong>Vision and Mission Statement</strong>
-                                  <div className="d-flex gap-2">
-                                    <ArpIconButton
-                                      icon="edit"
-                                      color="info"
-                                      title="Edit"
-                                      onClick={() => setIsEdit(true)}
-                                    />
-                                    <ArpIconButton
-                                      icon="delete"
-                                      color="danger"
-                                      title="Delete"
-                                      onClick={() => setVmSaved([])}
-                                      disabled={!isEdit}
-                                    />
-                                  </div>
-                                </div>
-
-                                <CTable hover responsive align="middle" className="mt-2">
-                                  <CTableHead color="light">
-                                    <CTableRow>
-                                      <CTableHeaderCell style={{ width: 80 }}>Select</CTableHeaderCell>
-                                      <CTableHeaderCell style={{ width: 90 }}>Index</CTableHeaderCell>
-                                      <CTableHeaderCell>Vision Statement</CTableHeaderCell>
-                                      <CTableHeaderCell style={{ width: 90 }}>Index</CTableHeaderCell>
-                                      <CTableHeaderCell>Mission Statement</CTableHeaderCell>
-                                    </CTableRow>
-                                  </CTableHead>
-                                  <CTableBody>
-                                    {vmSaved.map((x, i) => (
-                                      <CTableRow key={i}>
-                                        <CTableDataCell className="text-center">
-                                          <CFormCheck type="radio" name="vmSaved" />
-                                        </CTableDataCell>
-                                        <CTableDataCell>{`V${i + 1}`}</CTableDataCell>
-                                        <CTableDataCell>{x.vision}</CTableDataCell>
-                                        <CTableDataCell>{`M${i + 1}`}</CTableDataCell>
-                                        <CTableDataCell>{x.mission}</CTableDataCell>
-                                      </CTableRow>
-                                    ))}
-                                  </CTableBody>
-                                </CTable>
-                              </CCol>
-                            )}
-                          </CRow>
+                  <CAccordion activeItemKey={activeAccordion} onChange={(key) => setActiveAccordion(key || '')}>
+                    <CAccordionItem itemKey="visionMission">
+                      <CAccordionHeader>OBE Vision / Mission Statement Entry</CAccordionHeader>
+                      <CAccordionBody>
+                        <CTable bordered responsive>
+                          <CTableHead color="light">
+                            <CTableRow>
+                              <CTableHeaderCell>Vision Statement</CTableHeaderCell>
+                              <CTableHeaderCell>Mission Statement</CTableHeaderCell>
+                              <CTableHeaderCell style={{ width: 100 }}>Action</CTableHeaderCell>
+                            </CTableRow>
+                          </CTableHead>
+                          <CTableBody>
+                            {visionMissionRows.map((row, index) => (
+                              <CTableRow key={`vm-${index + 1}`}>
+                                <CTableDataCell>
+                                  <CFormTextarea
+                                    rows={2}
+                                    value={row.vision}
+                                    disabled={visionMissionLocked}
+                                    onChange={(e) =>
+                                      setVisionMissionRows((prev) =>
+                                        prev.map((item, idx) => (idx === index ? { ...item, vision: e.target.value } : item)),
+                                      )
+                                    }
+                                  />
+                                </CTableDataCell>
+                                <CTableDataCell>
+                                  <CFormTextarea
+                                    rows={2}
+                                    value={row.mission}
+                                    disabled={visionMissionLocked}
+                                    onChange={(e) =>
+                                      setVisionMissionRows((prev) =>
+                                        prev.map((item, idx) => (idx === index ? { ...item, mission: e.target.value } : item)),
+                                      )
+                                    }
+                                  />
+                                </CTableDataCell>
+                                <CTableDataCell className="text-center">
+                                  <CButton
+                                    color={index === visionMissionRows.length - 1 ? 'primary' : 'danger'}
+                                    className="text-white"
+                                    disabled={visionMissionLocked}
+                                    onClick={() =>
+                                      index === visionMissionRows.length - 1
+                                        ? setVisionMissionRows((prev) => [...prev, emptyVisionMissionRow()])
+                                        : setVisionMissionRows((prev) => prev.filter((_, idx) => idx !== index))
+                                    }
+                                  >
+                                    {index === visionMissionRows.length - 1 ? '+' : '-'}
+                                  </CButton>
+                                </CTableDataCell>
+                              </CTableRow>
+                            ))}
+                          </CTableBody>
+                        </CTable>
+                        <div className="d-flex justify-content-end gap-2 mt-3">
+                          <ArpButton
+                            label="Edit"
+                            icon="edit"
+                            color="info"
+                            onClick={() => setVisionMissionLocked(false)}
+                            disabled={savingKey === 'visionMission'}
+                          />
+                          <ArpButton
+                            label="Save"
+                            icon="save"
+                            color="success"
+                            onClick={saveVisionMission}
+                            disabled={savingKey === 'visionMission' || visionMissionLocked}
+                          />
+                          <ArpButton
+                            label="Cancel"
+                            icon="cancel"
+                            color="secondary"
+                            onClick={() => {
+                              seedFormsFromDetail(detail)
+                              setVisionMissionLocked(Boolean(detail.completion?.visionMission))
+                            }}
+                            disabled={savingKey === 'visionMission'}
+                          />
                         </div>
-                      )}
-                    </div>
 
-                    {/* PEO */}
-                    <div>
-                      <button
-                        type="button"
-                        className={`btn w-100 text-start ${openSection === 'peo' ? 'btn-primary' : 'btn-light'}`}
-                        onClick={() => toggleSection('peo')}
-                      >
-                        Programme Educational Objectives (PEOs)
-                      </button>
-
-                      {openSection === 'peo' && (
-                        <div className="border rounded-bottom p-3">
-                          <CRow className="g-3">
-                            <CCol xs={12}>
-                              <strong>Programme Educational Objectives (PEOs)</strong>
-                            </CCol>
-
-                            <CCol xs={12}>
-                              <CTable hover responsive align="middle">
-                                <CTableHead color="light">
-                                  <CTableRow>
-                                    <CTableHeaderCell>PEO Statement</CTableHeaderCell>
-                                    <CTableHeaderCell style={{ width: 120 }}>Action</CTableHeaderCell>
-                                  </CTableRow>
-                                </CTableHead>
-                                <CTableBody>
-                                  {peoRows.map((r, idx) => (
-                                    <CTableRow key={idx}>
-                                      <CTableDataCell>
-                                        <CFormTextarea
-                                          rows={2}
-                                          value={r.text}
-                                          onChange={updateTextRow(setPeoRows, idx)}
-                                          disabled={!isEdit}
-                                        />
-                                      </CTableDataCell>
-                                      <CTableDataCell className="text-center">
-                                        <div className="d-flex justify-content-center gap-2">
-                                          <button
-                                            type="button"
-                                            className="btn btn-success btn-sm"
-                                            onClick={() => addTextRow(setPeoRows)}
-                                            disabled={!isEdit}
-                                            title="Add Row"
-                                          >
-                                            +
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn btn-danger btn-sm"
-                                            onClick={() => removeTextRow(setPeoRows, idx)}
-                                            disabled={!isEdit}
-                                            title="Remove Row"
-                                          >
-                                            -
-                                          </button>
-                                        </div>
-                                      </CTableDataCell>
-                                    </CTableRow>
-                                  ))}
-                                </CTableBody>
-                              </CTable>
-                            </CCol>
-
-                            {peoSaved.length > 0 && (
-                              <CCol xs={12}>
-                                <div className="d-flex justify-content-between align-items-center">
-                                  <strong>Programme Educational Objectives (PEO)</strong>
-                                  <div className="d-flex gap-2">
-                                    <ArpIconButton
-                                      icon="edit"
-                                      color="info"
-                                      title="Edit"
-                                      onClick={() => setIsEdit(true)}
-                                    />
-                                    <ArpIconButton
-                                      icon="delete"
-                                      color="danger"
-                                      title="Delete"
-                                      onClick={() => setPeoSaved([])}
-                                      disabled={!isEdit}
-                                    />
-                                  </div>
-                                </div>
-
-                                <CTable hover responsive align="middle" className="mt-2">
-                                  <CTableHead color="light">
-                                    <CTableRow>
-                                      <CTableHeaderCell style={{ width: 80 }}>Select</CTableHeaderCell>
-                                      <CTableHeaderCell style={{ width: 110 }}>Index</CTableHeaderCell>
-                                      <CTableHeaderCell>PEO Statement</CTableHeaderCell>
-                                    </CTableRow>
-                                  </CTableHead>
-                                  <CTableBody>
-                                    {peoSaved.map((x, i) => (
-                                      <CTableRow key={i}>
-                                        <CTableDataCell className="text-center">
-                                          <CFormCheck type="radio" name="peoSaved" />
-                                        </CTableDataCell>
-                                        <CTableDataCell>{`PEO${i + 1}`}</CTableDataCell>
-                                        <CTableDataCell>{x.text}</CTableDataCell>
-                                      </CTableRow>
-                                    ))}
-                                  </CTableBody>
-                                </CTable>
-                              </CCol>
-                            )}
-                          </CRow>
+                      </CAccordionBody>
+                    </CAccordionItem>
+                    <CAccordionItem itemKey="peo">
+                      <CAccordionHeader>Programme Educational Objectives (PEOs) Form</CAccordionHeader>
+                      <CAccordionBody>
+                        <CTable bordered responsive>
+                          <CTableHead color="light">
+                            <CTableRow>
+                              <CTableHeaderCell style={{ width: 120 }}>Index</CTableHeaderCell>
+                              <CTableHeaderCell>PEO Statement</CTableHeaderCell>
+                              <CTableHeaderCell style={{ width: 100 }}>Action</CTableHeaderCell>
+                            </CTableRow>
+                          </CTableHead>
+                          <CTableBody>
+                            {peoRows.map((row, index) => (
+                              <CTableRow key={`peo-${index + 1}`}>
+                                <CTableDataCell>{`PEO${index + 1}`}</CTableDataCell>
+                                <CTableDataCell>
+                                  <CFormTextarea
+                                    rows={2}
+                                    value={row.statement}
+                                    disabled={peoLocked}
+                                    onChange={(e) =>
+                                      setPeoRows((prev) =>
+                                        prev.map((item, idx) => (idx === index ? { ...item, statement: e.target.value } : item)),
+                                      )
+                                    }
+                                  />
+                                </CTableDataCell>
+                                <CTableDataCell className="text-center">
+                                  <CButton
+                                    color={index === peoRows.length - 1 ? 'primary' : 'danger'}
+                                    className="text-white"
+                                    disabled={peoLocked}
+                                    onClick={() =>
+                                      index === peoRows.length - 1
+                                        ? setPeoRows((prev) => [...prev, emptyStatementRow()])
+                                        : setPeoRows((prev) => prev.filter((_, idx) => idx !== index))
+                                    }
+                                  >
+                                    {index === peoRows.length - 1 ? '+' : '-'}
+                                  </CButton>
+                                </CTableDataCell>
+                              </CTableRow>
+                            ))}
+                          </CTableBody>
+                        </CTable>
+                        <div className="d-flex justify-content-end gap-2 mt-3">
+                          <ArpButton
+                            label="Edit"
+                            icon="edit"
+                            color="info"
+                            onClick={() => setPeoLocked(false)}
+                            disabled={savingKey === 'peo'}
+                          />
+                          <ArpButton
+                            label="Save"
+                            icon="save"
+                            color="success"
+                            onClick={() => saveStatementSection('peo', peoRows, obeService.savePeos, 'PEO saved successfully.')}
+                            disabled={savingKey === 'peo' || peoLocked}
+                          />
+                          <ArpButton
+                            label="Cancel"
+                            icon="cancel"
+                            color="secondary"
+                            onClick={() => {
+                              seedFormsFromDetail(detail)
+                              setPeoLocked(Boolean(detail.completion?.peo))
+                            }}
+                            disabled={savingKey === 'peo'}
+                          />
                         </div>
-                      )}
-                    </div>
+                      </CAccordionBody>
+                    </CAccordionItem>
 
-                    {/* PO */}
-                    <div>
-                      <button
-                        type="button"
-                        className={`btn w-100 text-start ${openSection === 'po' ? 'btn-primary' : 'btn-light'}`}
-                        onClick={() => toggleSection('po')}
-                      >
-                        Programme Outcomes (POs)
-                      </button>
-
-                      {openSection === 'po' && (
-                        <div className="border rounded-bottom p-3">
-                          <CRow className="g-3">
-                            <CCol xs={12}>
-                              <strong>Programme Outcomes (POs)</strong>
-                            </CCol>
-
-                            <CCol xs={12}>
-                              <CTable hover responsive align="middle">
-                                <CTableHead color="light">
-                                  <CTableRow>
-                                    <CTableHeaderCell>PO Statement</CTableHeaderCell>
-                                    <CTableHeaderCell style={{ width: 120 }}>Action</CTableHeaderCell>
-                                  </CTableRow>
-                                </CTableHead>
-                                <CTableBody>
-                                  {poRows.map((r, idx) => (
-                                    <CTableRow key={idx}>
-                                      <CTableDataCell>
-                                        <CFormTextarea
-                                          rows={2}
-                                          value={r.text}
-                                          onChange={updateTextRow(setPoRows, idx)}
-                                          disabled={!isEdit}
-                                        />
-                                      </CTableDataCell>
-                                      <CTableDataCell className="text-center">
-                                        <div className="d-flex justify-content-center gap-2">
-                                          <button
-                                            type="button"
-                                            className="btn btn-success btn-sm"
-                                            onClick={() => addTextRow(setPoRows)}
-                                            disabled={!isEdit}
-                                            title="Add Row"
-                                          >
-                                            +
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn btn-danger btn-sm"
-                                            onClick={() => removeTextRow(setPoRows, idx)}
-                                            disabled={!isEdit}
-                                            title="Remove Row"
-                                          >
-                                            -
-                                          </button>
-                                        </div>
-                                      </CTableDataCell>
-                                    </CTableRow>
-                                  ))}
-                                </CTableBody>
-                              </CTable>
-                            </CCol>
-
-                            {poSaved.length > 0 && (
-                              <CCol xs={12}>
-                                <div className="d-flex justify-content-between align-items-center">
-                                  <strong>Programme Outcomes (PO)</strong>
-                                  <div className="d-flex gap-2">
-                                    <ArpIconButton
-                                      icon="edit"
-                                      color="info"
-                                      title="Edit"
-                                      onClick={() => setIsEdit(true)}
-                                    />
-                                    <ArpIconButton
-                                      icon="delete"
-                                      color="danger"
-                                      title="Delete"
-                                      onClick={() => setPoSaved([])}
-                                      disabled={!isEdit}
-                                    />
-                                  </div>
-                                </div>
-
-                                <CTable hover responsive align="middle" className="mt-2">
-                                  <CTableHead color="light">
-                                    <CTableRow>
-                                      <CTableHeaderCell style={{ width: 80 }}>Select</CTableHeaderCell>
-                                      <CTableHeaderCell style={{ width: 90 }}>Index</CTableHeaderCell>
-                                      <CTableHeaderCell>PO Statement</CTableHeaderCell>
-                                    </CTableRow>
-                                  </CTableHead>
-                                  <CTableBody>
-                                    {poSaved.map((x, i) => (
-                                      <CTableRow key={i}>
-                                        <CTableDataCell className="text-center">
-                                          <CFormCheck type="radio" name="poSaved" />
-                                        </CTableDataCell>
-                                        <CTableDataCell>{`PO${i + 1}`}</CTableDataCell>
-                                        <CTableDataCell>{x.text}</CTableDataCell>
-                                      </CTableRow>
-                                    ))}
-                                  </CTableBody>
-                                </CTable>
-                              </CCol>
-                            )}
-                          </CRow>
+                    <CAccordionItem itemKey="po">
+                      <CAccordionHeader>Programme Outcomes (POs) Form</CAccordionHeader>
+                      <CAccordionBody>
+                        <CTable bordered responsive>
+                          <CTableHead color="light">
+                            <CTableRow>
+                              <CTableHeaderCell style={{ width: 120 }}>Index</CTableHeaderCell>
+                              <CTableHeaderCell>PO Statement</CTableHeaderCell>
+                              <CTableHeaderCell style={{ width: 100 }}>Action</CTableHeaderCell>
+                            </CTableRow>
+                          </CTableHead>
+                          <CTableBody>
+                            {poRows.map((row, index) => (
+                              <CTableRow key={`po-${index + 1}`}>
+                                <CTableDataCell>{`PO${index + 1}`}</CTableDataCell>
+                                <CTableDataCell>
+                                  <CFormTextarea
+                                    rows={2}
+                                    value={row.statement}
+                                    disabled={poLocked}
+                                    onChange={(e) =>
+                                      setPoRows((prev) =>
+                                        prev.map((item, idx) => (idx === index ? { ...item, statement: e.target.value } : item)),
+                                      )
+                                    }
+                                  />
+                                </CTableDataCell>
+                                <CTableDataCell className="text-center">
+                                  <CButton
+                                    color={index === poRows.length - 1 ? 'primary' : 'danger'}
+                                    className="text-white"
+                                    disabled={poLocked}
+                                    onClick={() =>
+                                      index === poRows.length - 1
+                                        ? setPoRows((prev) => [...prev, emptyStatementRow()])
+                                        : setPoRows((prev) => prev.filter((_, idx) => idx !== index))
+                                    }
+                                  >
+                                    {index === poRows.length - 1 ? '+' : '-'}
+                                  </CButton>
+                                </CTableDataCell>
+                              </CTableRow>
+                            ))}
+                          </CTableBody>
+                        </CTable>
+                        <div className="d-flex justify-content-end gap-2 mt-3">
+                          <ArpButton
+                            label="Edit"
+                            icon="edit"
+                            color="info"
+                            onClick={() => setPoLocked(false)}
+                            disabled={savingKey === 'po'}
+                          />
+                          <ArpButton
+                            label="Save"
+                            icon="save"
+                            color="success"
+                            onClick={() => saveStatementSection('po', poRows, obeService.savePos, 'PO saved successfully.')}
+                            disabled={savingKey === 'po' || poLocked}
+                          />
+                          <ArpButton
+                            label="Cancel"
+                            icon="cancel"
+                            color="secondary"
+                            onClick={() => {
+                              seedFormsFromDetail(detail)
+                              setPoLocked(Boolean(detail.completion?.po))
+                            }}
+                            disabled={savingKey === 'po'}
+                          />
                         </div>
-                      )}
-                    </div>
+                      </CAccordionBody>
+                    </CAccordionItem>
 
-                    {/* PSO */}
-                    <div>
-                      <button
-                        type="button"
-                        className={`btn w-100 text-start ${openSection === 'pso' ? 'btn-primary' : 'btn-light'}`}
-                        onClick={() => toggleSection('pso')}
-                      >
-                        Programme Specific Outcomes (PSOs)
-                      </button>
-
-                      {openSection === 'pso' && (
-                        <div className="border rounded-bottom p-3">
-                          <CRow className="g-3">
-                            <CCol xs={12}>
-                              <strong>Programme Specific Outcomes (PSO) Entry</strong>
-                            </CCol>
-
-                            <CCol xs={12}>
-                              <CTable hover responsive align="middle">
-                                <CTableHead color="light">
-                                  <CTableRow>
-                                    <CTableHeaderCell>PSO Statement</CTableHeaderCell>
-                                    <CTableHeaderCell style={{ width: 120 }}>Action</CTableHeaderCell>
-                                  </CTableRow>
-                                </CTableHead>
-                                <CTableBody>
-                                  {psoRows.map((r, idx) => (
-                                    <CTableRow key={idx}>
-                                      <CTableDataCell>
-                                        <CFormTextarea
-                                          rows={2}
-                                          value={r.text}
-                                          onChange={updateTextRow(setPsoRows, idx)}
-                                          disabled={!isEdit}
-                                        />
-                                      </CTableDataCell>
-                                      <CTableDataCell className="text-center">
-                                        <div className="d-flex justify-content-center gap-2">
-                                          <button
-                                            type="button"
-                                            className="btn btn-success btn-sm"
-                                            onClick={() => addTextRow(setPsoRows)}
-                                            disabled={!isEdit}
-                                            title="Add Row"
-                                          >
-                                            +
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn btn-danger btn-sm"
-                                            onClick={() => removeTextRow(setPsoRows, idx)}
-                                            disabled={!isEdit}
-                                            title="Remove Row"
-                                          >
-                                            -
-                                          </button>
-                                        </div>
-                                      </CTableDataCell>
-                                    </CTableRow>
-                                  ))}
-                                </CTableBody>
-                              </CTable>
-                            </CCol>
-
-                            {psoSaved.length > 0 && (
-                              <CCol xs={12}>
-                                <div className="d-flex justify-content-between align-items-center">
-                                  <strong>Programme Specific Outcomes (PSO)</strong>
-                                  <div className="d-flex gap-2">
-                                    <ArpIconButton
-                                      icon="edit"
-                                      color="info"
-                                      title="Edit"
-                                      onClick={() => setIsEdit(true)}
-                                    />
-                                    <ArpIconButton
-                                      icon="delete"
-                                      color="danger"
-                                      title="Delete"
-                                      onClick={() => setPsoSaved([])}
-                                      disabled={!isEdit}
-                                    />
-                                  </div>
-                                </div>
-
-                                <CTable hover responsive align="middle" className="mt-2">
-                                  <CTableHead color="light">
-                                    <CTableRow>
-                                      <CTableHeaderCell style={{ width: 80 }}>Select</CTableHeaderCell>
-                                      <CTableHeaderCell style={{ width: 100 }}>Index</CTableHeaderCell>
-                                      <CTableHeaderCell>PSO Statement</CTableHeaderCell>
-                                    </CTableRow>
-                                  </CTableHead>
-                                  <CTableBody>
-                                    {psoSaved.map((x, i) => (
-                                      <CTableRow key={i}>
-                                        <CTableDataCell className="text-center">
-                                          <CFormCheck type="radio" name="psoSaved" />
-                                        </CTableDataCell>
-                                        <CTableDataCell>{`PSO${i + 1}`}</CTableDataCell>
-                                        <CTableDataCell>{x.text}</CTableDataCell>
-                                      </CTableRow>
-                                    ))}
-                                  </CTableBody>
-                                </CTable>
-                              </CCol>
-                            )}
-                          </CRow>
+                    <CAccordionItem itemKey="pso">
+                      <CAccordionHeader>Programme Specific Outcomes (PSO) Entry</CAccordionHeader>
+                      <CAccordionBody>
+                        <CTable bordered responsive>
+                          <CTableHead color="light">
+                            <CTableRow>
+                              <CTableHeaderCell style={{ width: 120 }}>Index</CTableHeaderCell>
+                              <CTableHeaderCell>PSO Statement</CTableHeaderCell>
+                              <CTableHeaderCell style={{ width: 100 }}>Action</CTableHeaderCell>
+                            </CTableRow>
+                          </CTableHead>
+                          <CTableBody>
+                            {psoRows.map((row, index) => (
+                              <CTableRow key={`pso-${index + 1}`}>
+                                <CTableDataCell>{`PSO${index + 1}`}</CTableDataCell>
+                                <CTableDataCell>
+                                  <CFormTextarea
+                                    rows={2}
+                                    value={row.statement}
+                                    disabled={psoLocked}
+                                    onChange={(e) =>
+                                      setPsoRows((prev) =>
+                                        prev.map((item, idx) => (idx === index ? { ...item, statement: e.target.value } : item)),
+                                      )
+                                    }
+                                  />
+                                </CTableDataCell>
+                                <CTableDataCell className="text-center">
+                                  <CButton
+                                    color={index === psoRows.length - 1 ? 'primary' : 'danger'}
+                                    className="text-white"
+                                    disabled={psoLocked}
+                                    onClick={() =>
+                                      index === psoRows.length - 1
+                                        ? setPsoRows((prev) => [...prev, emptyStatementRow()])
+                                        : setPsoRows((prev) => prev.filter((_, idx) => idx !== index))
+                                    }
+                                  >
+                                    {index === psoRows.length - 1 ? '+' : '-'}
+                                  </CButton>
+                                </CTableDataCell>
+                              </CTableRow>
+                            ))}
+                          </CTableBody>
+                        </CTable>
+                        <div className="d-flex justify-content-end gap-2 mt-3">
+                          <ArpButton
+                            label="Edit"
+                            icon="edit"
+                            color="info"
+                            onClick={() => setPsoLocked(false)}
+                            disabled={savingKey === 'pso'}
+                          />
+                          <ArpButton
+                            label="Save"
+                            icon="save"
+                            color="success"
+                            onClick={() => saveStatementSection('pso', psoRows, obeService.savePsos, 'PSO saved successfully.')}
+                            disabled={savingKey === 'pso' || psoLocked}
+                          />
+                          <ArpButton
+                            label="Cancel"
+                            icon="cancel"
+                            color="secondary"
+                            onClick={() => {
+                              seedFormsFromDetail(detail)
+                              setPsoLocked(Boolean(detail.completion?.pso))
+                            }}
+                            disabled={savingKey === 'pso'}
+                          />
                         </div>
-                      )}
-                    </div>
-
-                    {/* Taxonomy */}
-                    <div>
-                      <button
-                        type="button"
-                        className={`btn w-100 text-start ${openSection === 'taxonomy' ? 'btn-primary' : 'btn-light'}`}
-                        onClick={() => toggleSection('taxonomy')}
-                      >
-                        Taxonomy Configuration Entry
-                      </button>
-
-                      {openSection === 'taxonomy' && (
-                        <div className="border rounded-bottom p-3">
-                          <CRow className="g-3">
-                            <CCol xs={12}>
-                              <strong>Taxonomy Configuration Entry</strong>
-                            </CCol>
-
-                            {/* Domain selection row (3 pairs) */}
-                            <CCol md={3}>
-                              <CFormLabel>Choose Domain</CFormLabel>
-                            </CCol>
-                            <CCol md={3} className="d-flex align-items-center">
+                      </CAccordionBody>
+                    </CAccordionItem>
+                    <CAccordionItem itemKey="taxonomy">
+                      <CAccordionHeader>Taxonomy Configuration Entry</CAccordionHeader>
+                      <CAccordionBody>
+                        <CRow className="g-3 mb-3">
+                          <CCol md={4}>
+                            <div className="d-flex align-items-center gap-2">
+                              <span>Choose Domain</span>
                               <CFormCheck
-                                id="cognitive"
                                 label="Cognitive"
-                                checked={taxonomyDomains.cognitive}
-                                onChange={onTaxDomain('cognitive')}
-                                disabled={!isEdit}
+                                checked={taxonomySelection.COGNITIVE}
+                                disabled={taxonomyLocked}
+                                onChange={(e) => setTaxonomySelection((prev) => ({ ...prev, COGNITIVE: e.target.checked }))}
                               />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Choose Domain</CFormLabel>
-                            </CCol>
-                            <CCol md={3} className="d-flex align-items-center">
+                            </div>
+                          </CCol>
+                          <CCol md={4}>
+                            <div className="d-flex align-items-center gap-2">
+                              <span>Choose Domain</span>
                               <CFormCheck
-                                id="psychomotor"
                                 label="Psychomotor"
-                                checked={taxonomyDomains.psychomotor}
-                                onChange={onTaxDomain('psychomotor')}
-                                disabled={!isEdit}
+                                checked={taxonomySelection.PSYCHOMOTOR}
+                                disabled={taxonomyLocked}
+                                onChange={(e) => setTaxonomySelection((prev) => ({ ...prev, PSYCHOMOTOR: e.target.checked }))}
                               />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Choose Domain</CFormLabel>
-                            </CCol>
-                            <CCol md={3} className="d-flex align-items-center">
+                            </div>
+                          </CCol>
+                          <CCol md={4}>
+                            <div className="d-flex align-items-center gap-2">
+                              <span>Choose Domain</span>
                               <CFormCheck
-                                id="affective"
                                 label="Affective"
-                                checked={taxonomyDomains.affective}
-                                onChange={onTaxDomain('affective')}
-                                disabled={!isEdit}
+                                checked={taxonomySelection.AFFECTIVE}
+                                disabled={taxonomyLocked}
+                                onChange={(e) => setTaxonomySelection((prev) => ({ ...prev, AFFECTIVE: e.target.checked }))}
                               />
-                            </CCol>
+                            </div>
+                          </CCol>
+                        </CRow>
 
-                            {/* Cognitive / Psychomotor / Affective mapping - 3 pairs per row */}
-                            <CCol md={3}>
-                              <CFormLabel>Remembering</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.remembering}
-                                onChange={onTaxValue('remembering')}
-                                disabled={!taxonomyEnabled('cognitive')}
-                              />
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormLabel>Perception</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.perception}
-                                onChange={onTaxValue('perception')}
-                                disabled={!taxonomyEnabled('psychomotor')}
-                              />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Receiving</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.receiving}
-                                onChange={onTaxValue('receiving')}
-                                disabled={!taxonomyEnabled('affective')}
-                              />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Understanding</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.understanding}
-                                onChange={onTaxValue('understanding')}
-                                disabled={!taxonomyEnabled('cognitive')}
-                              />
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormLabel>SET</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.set}
-                                onChange={onTaxValue('set')}
-                                disabled={!taxonomyEnabled('psychomotor')}
-                              />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Responding</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.responding}
-                                onChange={onTaxValue('responding')}
-                                disabled={!taxonomyEnabled('affective')}
-                              />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Applying</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.applying}
-                                onChange={onTaxValue('applying')}
-                                disabled={!taxonomyEnabled('cognitive')}
-                              />
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormLabel>Guided Response</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.guidedResponse}
-                                onChange={onTaxValue('guidedResponse')}
-                                disabled={!taxonomyEnabled('psychomotor')}
-                              />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Valuing</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.valuing}
-                                onChange={onTaxValue('valuing')}
-                                disabled={!taxonomyEnabled('affective')}
-                              />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Analyzing</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.analyzing}
-                                onChange={onTaxValue('analyzing')}
-                                disabled={!taxonomyEnabled('cognitive')}
-                              />
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormLabel>Mechanism</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.mechanism}
-                                onChange={onTaxValue('mechanism')}
-                                disabled={!taxonomyEnabled('psychomotor')}
-                              />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Organizing</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.organizing}
-                                onChange={onTaxValue('organizing')}
-                                disabled={!taxonomyEnabled('affective')}
-                              />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Evaluating</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.evaluating}
-                                onChange={onTaxValue('evaluating')}
-                                disabled={!taxonomyEnabled('cognitive')}
-                              />
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormLabel>Complete Over Response</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.completeOverResponse}
-                                onChange={onTaxValue('completeOverResponse')}
-                                disabled={!taxonomyEnabled('psychomotor')}
-                              />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Internationalizing</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.internationalizing}
-                                onChange={onTaxValue('internationalizing')}
-                                disabled={!taxonomyEnabled('affective')}
-                              />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Creating</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.creating}
-                                onChange={onTaxValue('creating')}
-                                disabled={!taxonomyEnabled('cognitive')}
-                              />
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormLabel>Adaption</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.adaption}
-                                onChange={onTaxValue('adaption')}
-                                disabled={!taxonomyEnabled('psychomotor')}
-                              />
-                            </CCol>
-
-                            <CCol md={3}>
-                              <CFormLabel>Organization</CFormLabel>
-                            </CCol>
-                            <CCol md={3}>
-                              <CFormInput
-                                value={taxonomyValues.organization}
-                                onChange={onTaxValue('organization')}
-                                disabled={!taxonomyEnabled('psychomotor')}
-                              />
-                            </CCol>
-                          </CRow>
+                        <CTable bordered responsive>
+                          <CTableBody>
+                            {TAXONOMY_ROW_LAYOUT.map((row, index) => (
+                              <CTableRow key={`taxonomy-${index + 1}`}>
+                                {row.map((label, innerIndex) => {
+                                  const domainKey = ['COGNITIVE', 'PSYCHOMOTOR', 'AFFECTIVE'][innerIndex]
+                                  const value = label ? taxonomyCodes[`${domainKey}:${label}`] || '' : ''
+                                  const domainEnabled = Boolean(taxonomySelection[domainKey])
+                                  return (
+                                    <React.Fragment key={`${domainKey}-${label || 'empty'}-${index + 1}`}>
+                                      <CTableHeaderCell>{label || ''}</CTableHeaderCell>
+                                      <CTableDataCell>
+                                        <CFormInput
+                                          value={value}
+                                          disabled={!label || taxonomyLocked || !domainEnabled}
+                                          onChange={(e) =>
+                                            label
+                                              ? setTaxonomyCodes((prev) => ({
+                                                  ...prev,
+                                                  [`${domainKey}:${label}`]: e.target.value,
+                                                }))
+                                              : undefined
+                                          }
+                                        />
+                                      </CTableDataCell>
+                                    </React.Fragment>
+                                  )
+                                })}
+                              </CTableRow>
+                            ))}
+                          </CTableBody>
+                        </CTable>
+                        <div className="d-flex justify-content-end gap-2 mt-3">
+                          <ArpButton
+                            label="Edit"
+                            icon="edit"
+                            color="info"
+                            onClick={() => setTaxonomyLocked(false)}
+                            disabled={savingKey === 'taxonomy'}
+                          />
+                          <ArpButton
+                            label="Save"
+                            icon="save"
+                            color="success"
+                            onClick={saveTaxonomy}
+                            disabled={savingKey === 'taxonomy' || taxonomyLocked}
+                          />
+                          <ArpButton
+                            label="Cancel"
+                            icon="cancel"
+                            color="secondary"
+                            onClick={() => {
+                              seedFormsFromDetail(detail)
+                              setTaxonomyLocked(Boolean(detail.completion?.taxonomy))
+                            }}
+                            disabled={savingKey === 'taxonomy'}
+                          />
                         </div>
-                      )}
-                    </div>
+                      </CAccordionBody>
+                    </CAccordionItem>
 
-                    {/* Correlation */}
-                    <div>
-                      <button
-                        type="button"
-                        className={`btn w-100 text-start ${openSection === 'correlation' ? 'btn-primary' : 'btn-light'}`}
-                        onClick={() => toggleSection('correlation')}
-                      >
-                        Correlation Configuration Entry
-                      </button>
-
-                      {openSection === 'correlation' && (
-                        <div className="border rounded-bottom p-3">
-                          <CRow className="g-3">
-                            <CCol xs={12} className="d-flex justify-content-between align-items-center">
-                              <strong>Correlation Configuration Entry</strong>
-                              <div className="d-flex gap-2">
-                                <ArpButton
-                                  label="Edit"
-                                  icon="edit"
-                                  color="primary"
-                                  type="button"
-                                  onClick={editCorrelation}
-                                  title="Edit"
-                                />
-                              </div>
-                            </CCol>
-
-                            <CCol xs={12}>
-                              <CTable hover responsive align="middle">
-                                <CTableHead color="light">
-                                  <CTableRow>
-                                    <CTableHeaderCell>Parameter</CTableHeaderCell>
-                                    <CTableHeaderCell style={{ width: 160 }}>Index</CTableHeaderCell>
-                                    <CTableHeaderCell style={{ width: 180 }}>Value</CTableHeaderCell>
-                                    <CTableHeaderCell style={{ width: 120 }}>Action</CTableHeaderCell>
-                                  </CTableRow>
-                                </CTableHead>
-                                <CTableBody>
-                                  {correlationRows.map((r, idx) => (
-                                    <CTableRow key={idx}>
-                                      <CTableDataCell>
-                                        <CFormInput
-                                          value={r.parameter}
-                                          onChange={updateCorrelation(idx, 'parameter')}
-                                          disabled={!isEdit || correlationLocked}
-                                        />
-                                      </CTableDataCell>
-                                      <CTableDataCell>
-                                        <CFormInput
-                                          value={r.index}
-                                          onChange={updateCorrelation(idx, 'index')}
-                                          disabled={!isEdit || correlationLocked}
-                                        />
-                                      </CTableDataCell>
-                                      <CTableDataCell>
-                                        <CFormInput
-                                          value={r.value}
-                                          onChange={updateCorrelation(idx, 'value')}
-                                          disabled={!isEdit || correlationLocked}
-                                        />
-                                      </CTableDataCell>
-                                      <CTableDataCell className="text-center">
-                                        <div className="d-flex justify-content-center gap-2">
-                                          <button
-                                            type="button"
-                                            className="btn btn-success btn-sm"
-                                            onClick={addCorrelationRow}
-                                            disabled={!isEdit || correlationLocked}
-                                            title="Add Row"
-                                          >
-                                            +
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn btn-danger btn-sm"
-                                            onClick={() => removeCorrelationRow(idx)}
-                                            disabled={!isEdit || correlationLocked}
-                                            title="Remove Row"
-                                          >
-                                            -
-                                          </button>
-                                        </div>
-                                      </CTableDataCell>
-                                    </CTableRow>
-                                  ))}
-                                </CTableBody>
-                              </CTable>
-                            </CCol>
-                          </CRow>
+                    <CAccordionItem itemKey="correlation">
+                      <CAccordionHeader>Correlation Configuration Entry</CAccordionHeader>
+                      <CAccordionBody>
+                        <CTable bordered responsive>
+                          <CTableHead color="light">
+                            <CTableRow>
+                              <CTableHeaderCell>Parameter</CTableHeaderCell>
+                              <CTableHeaderCell>Index</CTableHeaderCell>
+                              <CTableHeaderCell>Value</CTableHeaderCell>
+                              <CTableHeaderCell style={{ width: 100 }}>Action</CTableHeaderCell>
+                            </CTableRow>
+                          </CTableHead>
+                          <CTableBody>
+                            {correlationRows.map((row, index) => (
+                              <CTableRow key={`correlation-${index + 1}`}>
+                                <CTableDataCell>
+                                  <CFormInput
+                                    value={row.parameter}
+                                    disabled={correlationLocked}
+                                    onChange={(e) =>
+                                      setCorrelationRows((prev) =>
+                                        prev.map((item, idx) => (idx === index ? { ...item, parameter: e.target.value } : item)),
+                                      )
+                                    }
+                                  />
+                                </CTableDataCell>
+                                <CTableDataCell>
+                                  <CFormInput
+                                    value={row.index}
+                                    disabled={correlationLocked}
+                                    onChange={(e) =>
+                                      setCorrelationRows((prev) =>
+                                        prev.map((item, idx) => (idx === index ? { ...item, index: e.target.value } : item)),
+                                      )
+                                    }
+                                  />
+                                </CTableDataCell>
+                                <CTableDataCell>
+                                  <CFormInput
+                                    value={row.value}
+                                    disabled={correlationLocked}
+                                    onChange={(e) =>
+                                      setCorrelationRows((prev) =>
+                                        prev.map((item, idx) => (idx === index ? { ...item, value: e.target.value } : item)),
+                                      )
+                                    }
+                                  />
+                                </CTableDataCell>
+                                <CTableDataCell className="text-center">
+                                  <CButton
+                                    color={index === correlationRows.length - 1 ? 'primary' : 'danger'}
+                                    className="text-white"
+                                    disabled={correlationLocked}
+                                    onClick={() =>
+                                      index === correlationRows.length - 1
+                                        ? setCorrelationRows((prev) => [...prev, emptyCorrelationRow()])
+                                        : setCorrelationRows((prev) => prev.filter((_, idx) => idx !== index))
+                                    }
+                                  >
+                                    {index === correlationRows.length - 1 ? '+' : '-'}
+                                  </CButton>
+                                </CTableDataCell>
+                              </CTableRow>
+                            ))}
+                          </CTableBody>
+                        </CTable>
+                        <div className="d-flex justify-content-end gap-2 mt-3">
+                          <ArpButton
+                            label="Edit"
+                            icon="edit"
+                            color="info"
+                            onClick={() => setCorrelationLocked(false)}
+                            disabled={savingKey === 'correlation'}
+                          />
+                          <ArpButton
+                            label="Save"
+                            icon="save"
+                            color="success"
+                            onClick={saveCorrelation}
+                            disabled={savingKey === 'correlation' || correlationLocked}
+                          />
+                          <ArpButton
+                            label="Cancel"
+                            icon="cancel"
+                            color="secondary"
+                            onClick={() => {
+                              seedFormsFromDetail(detail)
+                              setCorrelationLocked(Boolean(detail.completion?.correlation))
+                            }}
+                            disabled={savingKey === 'correlation'}
+                          />
                         </div>
-                      )}
-                    </div>
+                      </CAccordionBody>
+                    </CAccordionItem>
 
-                    {/* Map & Assessment */}
-                    <div>
-                      <button
-                        type="button"
-                        className={`btn w-100 text-start ${openSection === 'mapAssessment' ? 'btn-primary' : 'btn-light'}`}
-                        onClick={() => toggleSection('mapAssessment')}
-                      >
-                        Map &amp; Assessment Configuration Entry
-                      </button>
-
-                      {openSection === 'mapAssessment' && (
-                        <div className="border rounded-bottom p-3">
-                          <CRow className="g-3">
-                            <CCol xs={12} className="d-flex justify-content-between align-items-center">
-                              <strong>Map &amp; Assessment Configuration Entry</strong>
-                              <div className="d-flex gap-2">
-                                <ArpButton
-                                  label="Edit"
-                                  icon="edit"
-                                  color="primary"
-                                  type="button"
-                                  onClick={editMap}
-                                  title="Edit"
-                                />
-                              </div>
-                            </CCol>
-
-                            <CCol xs={12}>
-                              <CTable hover responsive align="middle">
-                                <CTableHead color="light">
-                                  <CTableRow>
-                                    <CTableHeaderCell style={{ width: 90 }}>Select</CTableHeaderCell>
-                                    <CTableHeaderCell>Parameters</CTableHeaderCell>
-                                    <CTableHeaderCell style={{ width: 320 }}>Remarks</CTableHeaderCell>
-                                  </CTableRow>
-                                </CTableHead>
-                                <CTableBody>
-                                  {mapRows.map((r) => (
-                                    <CTableRow key={r.id}>
-                                      <CTableDataCell className="text-center">
-                                        <CFormCheck
-                                          type="checkbox"
-                                          checked={r.checked}
-                                          onChange={toggleMapChecked(r.id)}
-                                          disabled={!isEdit || mapLocked}
-                                        />
-                                      </CTableDataCell>
-                                      <CTableDataCell>{r.label}</CTableDataCell>
-                                      <CTableDataCell>
-                                        <CFormInput
-                                          value={r.remarks}
-                                          onChange={updateMapRemarks(r.id)}
-                                          disabled={!isEdit || mapLocked}
-                                        />
-                                      </CTableDataCell>
-                                    </CTableRow>
-                                  ))}
-                                </CTableBody>
-                              </CTable>
-                            </CCol>
-                          </CRow>
+                    <CAccordionItem itemKey="mapAssessment">
+                      <CAccordionHeader>Map &amp; Assessment Configuration Entry</CAccordionHeader>
+                      <CAccordionBody>
+                        <CTable bordered responsive>
+                          <CTableHead color="light">
+                            <CTableRow>
+                              <CTableHeaderCell style={{ width: 100 }}>Select</CTableHeaderCell>
+                              <CTableHeaderCell>Parameters</CTableHeaderCell>
+                              <CTableHeaderCell>Remarks</CTableHeaderCell>
+                            </CTableRow>
+                          </CTableHead>
+                          <CTableBody>
+                            {mapAssessmentRows.map((row) => (
+                              <CTableRow key={row.key}>
+                                <CTableDataCell className="text-center">
+                                  <CFormCheck
+                                    checked={row.selected}
+                                    disabled={mapAssessmentLocked}
+                                    onChange={(e) =>
+                                      setMapAssessmentRows((prev) =>
+                                        prev.map((item) =>
+                                          item.key === row.key ? { ...item, selected: e.target.checked } : item,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                </CTableDataCell>
+                                <CTableDataCell>{row.label}</CTableDataCell>
+                                <CTableDataCell>
+                                  <CFormInput
+                                    value={row.remarks}
+                                    disabled={mapAssessmentLocked}
+                                    onChange={(e) =>
+                                      setMapAssessmentRows((prev) =>
+                                        prev.map((item) =>
+                                          item.key === row.key ? { ...item, remarks: e.target.value } : item,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                </CTableDataCell>
+                              </CTableRow>
+                            ))}
+                          </CTableBody>
+                        </CTable>
+                        <div className="d-flex justify-content-end gap-2 mt-3">
+                          <ArpButton
+                            label="Edit"
+                            icon="edit"
+                            color="info"
+                            onClick={() => setMapAssessmentLocked(false)}
+                            disabled={savingKey === 'mapAssessment'}
+                          />
+                          <ArpButton
+                            label="Save"
+                            icon="save"
+                            color="success"
+                            onClick={saveMapAssessment}
+                            disabled={savingKey === 'mapAssessment' || mapAssessmentLocked}
+                          />
+                          <ArpButton
+                            label="Cancel"
+                            icon="cancel"
+                            color="secondary"
+                            onClick={() => {
+                              seedFormsFromDetail(detail)
+                              setMapAssessmentLocked(Boolean(detail.completion?.mapAssessment))
+                            }}
+                            disabled={savingKey === 'mapAssessment'}
+                          />
                         </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-
+                      </CAccordionBody>
+                    </CAccordionItem>
+                  </CAccordion>
+                </>
+              )}
+            </CCardBody>
+          </CCard>
+        )}
       </CCol>
     </CRow>
   )

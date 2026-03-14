@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
-  CAlert,
   CCard,
   CCardBody,
   CCardHeader,
@@ -11,7 +10,7 @@ import {
   CRow,
   CSpinner,
 } from '@coreui/react-pro'
-import { ArpButton } from '../../components/common'
+import { ArpButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
 
@@ -83,14 +82,13 @@ export default function CAYCoursesConfiguration() {
   const [loadingMasters, setLoadingMasters] = useState(false)
   const [loadingCourses, setLoadingCourses] = useState(false)
   const [saving, setSaving] = useState(false)
+  const toast = useArpToast()
 
   const [availableCourses, setAvailableCourses] = useState([])
   const [offeredCourses, setOfferedCourses] = useState([])
 
   const [selectedAvailable, setSelectedAvailable] = useState([])
   const [selectedOffered, setSelectedOffered] = useState([])
-
-  const [message, setMessage] = useState(null)
 
   const scopeReady = useMemo(
     () =>
@@ -143,7 +141,13 @@ export default function CAYCoursesConfiguration() {
       ? filteredMappedSemesters
       : fallbackSemesters
 
-  const showMessage = (type, text) => setMessage({ type, text })
+  const showMessage = (type, text) =>
+    toast.show({
+      type,
+      message: text,
+      autohide: type === 'success',
+      delay: 3500,
+    })
 
   const clearCourseSelections = () => {
     setAvailableCourses([])
@@ -153,8 +157,14 @@ export default function CAYCoursesConfiguration() {
   }
 
   const onCancelScopeAction = () => {
+    setScope(initialScope)
+    setDepartments([])
+    setProgrammes([])
+    setRegulations([])
+    setAcademicYears([])
+    setBatches([])
+    setSemesters([])
     clearCourseSelections()
-    setMessage(null)
   }
 
   const loadInstitutions = async () => {
@@ -487,8 +497,6 @@ export default function CAYCoursesConfiguration() {
 
   return (
     <div>
-      {message ? <CAlert color={message.type}>{message.text}</CAlert> : null}
-
       <CCard className="mb-3">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <strong>CAY Courses Configuration</strong>

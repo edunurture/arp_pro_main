@@ -12,7 +12,7 @@ import {
   CListGroup,
   CListGroupItem,
 } from '@coreui/react-pro'
-import { ArpButton } from '../../components/common'
+import { ArpButton, useArpToast } from '../../components/common'
 import api from '../../services/apiClient'
 
 const CATEGORY_OPTIONS = ['Profile Photo', 'Placement Photo', 'Event Photo', 'Achievement Photo']
@@ -36,6 +36,7 @@ const initialBulk = {
 }
 
 const UploadPhotoConfiguration = () => {
+  const toast = useArpToast()
   const [isEdit, setIsEdit] = useState(false)
   const [institutionId, setInstitutionId] = useState('')
   const [institutions, setInstitutions] = useState([])
@@ -44,6 +45,15 @@ const UploadPhotoConfiguration = () => {
 
   const singleFileRef = useRef(null)
   const bulkFileRef = useRef(null)
+
+  const showMessage = (type, message) => {
+    toast.show({
+      type,
+      message,
+      autohide: true,
+      delay: 3000,
+    })
+  }
 
   const resetForm = () => {
     setSingle(initialSingle)
@@ -114,13 +124,13 @@ const UploadPhotoConfiguration = () => {
 
     const okExt = /\.(jpg|jpeg|png)$/i.test(file.name || '')
     if (!okExt) {
-      alert('Only JPG / JPEG / PNG files are allowed.')
+      showMessage('warning', 'Only JPG / JPEG / PNG files are allowed.')
       e.target.value = ''
       setSingle((p) => ({ ...p, file: null }))
       return
     }
     if (file.size > 40 * 1024) {
-      alert('File size must be 40 KB or less.')
+      showMessage('warning', 'File size must be 40 KB or less.')
       e.target.value = ''
       setSingle((p) => ({ ...p, file: null }))
       return
@@ -136,7 +146,7 @@ const UploadPhotoConfiguration = () => {
       return
     }
     if (files.length > 50) {
-      alert('Only 50 images can be uploaded at a time.')
+      showMessage('warning', 'Only 50 images can be uploaded at a time.')
       e.target.value = ''
       setBulk((p) => ({ ...p, files: [] }))
       return
@@ -145,13 +155,13 @@ const UploadPhotoConfiguration = () => {
     for (const f of files) {
       const okExt = /\.(jpg|jpeg|png)$/i.test(f.name || '')
       if (!okExt) {
-        alert(`Invalid file type: ${f.name}. Only JPG/JPEG/PNG allowed.`)
+        showMessage('warning', `Invalid file type: ${f.name}. Only JPG/JPEG/PNG allowed.`)
         e.target.value = ''
         setBulk((p) => ({ ...p, files: [] }))
         return
       }
       if (f.size > 40 * 1024) {
-        alert(`File too large: ${f.name}. Max size is 40 KB.`)
+        showMessage('warning', `File too large: ${f.name}. Max size is 40 KB.`)
         e.target.value = ''
         setBulk((p) => ({ ...p, files: [] }))
         return
@@ -171,9 +181,9 @@ const UploadPhotoConfiguration = () => {
   const onSingleSave = async (e) => {
     e.preventDefault()
     if (!isEdit) return
-    if (!institutionId) return alert('Please select Institution.')
+    if (!institutionId) return showMessage('warning', 'Please select Institution.')
     if (!single.category || !single.idValue || !single.file) {
-      return alert('Please select category, enter ID/Register Number, and choose photo.')
+      return showMessage('warning', 'Please select category, enter ID/Register Number, and choose photo.')
     }
 
     try {
@@ -197,20 +207,20 @@ const UploadPhotoConfiguration = () => {
         fileOption2: bulk.files.length ? `${bulk.files.length} files` : null,
       })
 
-      alert('Single photo uploaded successfully.')
+      showMessage('success', 'Single photo uploaded successfully.')
       setSingle(initialSingle)
       if (singleFileRef.current) singleFileRef.current.value = ''
     } catch (err) {
-      alert(err?.response?.data?.error || err?.message || 'Single upload failed')
+      showMessage('danger', err?.response?.data?.error || err?.message || 'Single upload failed')
     }
   }
 
   const onBulkSave = async (e) => {
     e.preventDefault()
     if (!isEdit) return
-    if (!institutionId) return alert('Please select Institution.')
+    if (!institutionId) return showMessage('warning', 'Please select Institution.')
     if (!bulk.category || !bulk.files.length) {
-      return alert('Please select category and choose bulk files.')
+      return showMessage('warning', 'Please select category and choose bulk files.')
     }
 
     try {
@@ -234,13 +244,14 @@ const UploadPhotoConfiguration = () => {
         fileOption2: `${bulk.files.length} files`,
       })
 
-      alert(
+      showMessage(
+        'success',
         `Bulk upload completed. Success: ${data.successCount || 0}, Failed: ${data.failedCount || 0}`,
       )
       setBulk(initialBulk)
       if (bulkFileRef.current) bulkFileRef.current.value = ''
     } catch (err) {
-      alert(err?.response?.data?.error || err?.message || 'Bulk upload failed')
+      showMessage('danger', err?.response?.data?.error || err?.message || 'Bulk upload failed')
     }
   }
 
@@ -469,4 +480,3 @@ const UploadPhotoConfiguration = () => {
 }
 
 export default UploadPhotoConfiguration
-

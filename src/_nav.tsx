@@ -58,6 +58,7 @@ const _nav: NavItem[] = [
       { component: CNavItem, name: 'CAY Courses', to: '/setup/cay-courses' },
       { component: CNavItem, name: 'Classes', to: '/setup/classes' },
       { component: CNavItem, name: 'Student', to: '/setup/student' },
+      { component: CNavItem, name: 'Student Promotion', to: '/setup/student-promotion' },
       { component: CNavItem, name: 'Faculty', to: '/setup/faculty' },
       { component: CNavItem, name: 'Timetable', to: '/setup/timetable' },
       { component: CNavItem, name: 'Calendar', to: '/setup/calendar' },
@@ -153,8 +154,7 @@ const _nav: NavItem[] = [
         component: CNavGroup,
         name: 'Internal Assessment',
         items: [
-          { component: CNavItem, name: 'IA Workspace', to: '/evaluation/ia/workspace' },
-          { component: CNavItem, name: 'IA Records Console', to: '/evaluation/ia/records' },
+          { component: CNavItem, name: 'IA Workspace Console', to: '/evaluation/ia/workspace' },
           { component: CNavItem, name: 'Phase 1 - Setup', to: '/evaluation/ia/setup' },
           { component: CNavItem, name: 'Phase 2 - Schedule Planning', to: '/evaluation/ia/schedule-planning' },
           { component: CNavItem, name: 'Phase 3 - Conflict Validation', to: '/evaluation/ia/conflict-validation' },
@@ -162,6 +162,7 @@ const _nav: NavItem[] = [
           { component: CNavItem, name: 'Phase 5 - Operations', to: '/evaluation/ia/operations' },
           { component: CNavItem, name: 'Phase 6 - Mark Entry', to: '/evaluation/ia/mark-entry' },
           { component: CNavItem, name: 'Phase 7 - Result Analysis', to: '/evaluation/ia/result-analysis' },
+          { component: CNavItem, name: 'Phase 8 - Internal Mark Statement', to: '/evaluation/ia/internal-mark-statement' },
         ],
       },
       {

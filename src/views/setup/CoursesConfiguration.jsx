@@ -13,7 +13,7 @@ import {
   CSpinner,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
 
@@ -107,9 +107,7 @@ export default function CoursesConfiguration() {
   const [loadingTable, setLoadingTable] = useState(false)
   const [saving, setSaving] = useState(false)
   const [importing, setImporting] = useState(false)
-
-  // Alerts
-  const [toast, setToast] = useState(null) // {type, message}
+  const toast = useArpToast()
 
   // Masters
   const [institutions, setInstitutions] = useState([])
@@ -140,9 +138,12 @@ export default function CoursesConfiguration() {
   const [importFile, setImportFile] = useState(null)
 
   const showMessage = (type, message) => {
-    setToast({ type, message })
-    window.clearTimeout(window.__arpToastTimer)
-    window.__arpToastTimer = window.setTimeout(() => setToast(null), 3500)
+    toast.show({
+      type,
+      message,
+      autohide: type === 'success',
+      delay: 3500,
+    })
   }
 
   const scopeReady = useMemo(() => {
@@ -545,6 +546,29 @@ setScope((s) => ({
     setShowForm(false)
   }
 
+  const onSearchCourses = async () => {
+    if (!scopeReady) {
+      showMessage('danger', 'Select scope first (Institution → Department → Programme → Regulation → Academic Pattern → Semester).')
+      return
+    }
+    setShowUpload(false)
+    setShowForm(false)
+    resetCourseForm()
+    await loadCourses()
+  }
+
+  const onCancelScope = () => {
+    setScope(initialScope)
+    setSemesters([])
+    setRows([])
+    setSelectedId('')
+    setShowForm(false)
+    setShowTable(false)
+    setShowUpload(false)
+    setImportFile(null)
+    resetCourseForm()
+  }
+
   const onDeleteRow = async (row) => {
     const ok = window.confirm(`Delete course ${row.courseCode}?`)
     if (!ok) return
@@ -759,12 +783,6 @@ setScope((s) => ({
   // -------------------------
   return (
     <div>
-      {toast?.message ? (
-        <CAlert color={toast.type} className="mb-3">
-          {toast.message}
-        </CAlert>
-      ) : null}
-
       {/* Card 1 */}
       <CCard className="mb-3">
         <CCardHeader className="d-flex align-items-center justify-content-between">
@@ -923,6 +941,23 @@ setScope((s) => ({
                       </>
                     )}
                   </CFormSelect>
+                </CCol>
+
+                <CCol xs={12} className="d-flex justify-content-end gap-2">
+                  <ArpButton
+                    color="primary"
+                    icon="search"
+                    label="Search"
+                    onClick={onSearchCourses}
+                    disabled={!scopeReady}
+                  />
+                  <ArpButton
+                    color="secondary"
+                    icon="cancel"
+                    label="Cancel"
+                    onClick={onCancelScope}
+                    disabled={loadingMasters || loadingTable || saving || importing}
+                  />
                 </CCol>
               </CRow>
             </CForm>

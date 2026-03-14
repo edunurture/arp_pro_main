@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   CAlert,
   CBadge,
@@ -16,24 +17,141 @@ import {
   CModalHeader,
   CModalTitle,
   CRow,
-  CTable,
-  CTableBody,
-  CTableDataCell,
-  CTableHead,
-  CTableHeaderCell,
-  CTableRow,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpToastStack } from '../../components/common'
+import { ArpButton, ArpDataTable, useArpToast } from '../../components/common'
 import api from '../../services/apiClient'
-import { IA_PHASE_KEYS, getIACourseResources, saveIAWorkflowPhase } from '../../services/iaWorkflowService'
+import { IA_PHASE_KEYS, getIACourseResources, getIAWorkflowPhase, saveIAWorkflowPhase } from '../../services/iaWorkflowService'
 import IAWorkflowScopeBanner from './IAWorkflowScopeBanner'
 
-const PHASE_1_KEY = 'arp.evaluation.ia.phase1.setup.draft.v1'
-const PHASE_3_KEY = 'arp.evaluation.ia.phase3.validation.draft.v1'
-const PHASE_4_KEY = 'arp.evaluation.ia.phase4.publish.draft.v1'
+const PHASE_1_KEY = 'arp.evaluation.ia.phase1.setup.draft.v2'
+const PHASE_3_KEY = 'arp.evaluation.ia.phase3.validation.draft.v2'
+const PHASE_4_KEY = 'arp.evaluation.ia.phase4.publish.draft.v2'
+const ACTIVE_BUNDLE_KEY = 'arp.evaluation.ia.active-bundle.v2'
+
+const normalizeSemesterList = (values) =>
+  [...new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  )]
+
+const bundleScopeMatches = (bundle = null, phase = {}) => {
+  if (!bundle) return false
+  const activeSemesters = normalizeSemesterList(bundle?.chosenSemesters || []).join(',')
+  const phaseSemesters = normalizeSemesterList(phase?.chosenSemesters || phase?.workflowScope?.chosenSemesters || []).join(',')
+  return (
+    String(bundle?.institutionId || '') === String(phase?.institutionId || phase?.workflowScope?.institutionId || '') &&
+    String(bundle?.academicYearId || '') === String(phase?.academicYearId || phase?.workflowScope?.academicYearId || '') &&
+    String(bundle?.programmeId || '') === String(phase?.programmeId || phase?.workflowScope?.programmeId || '') &&
+    String(bundle?.iaCycle || bundle?.examName || '') === String(phase?.iaCycle || phase?.examName || phase?.workflowScope?.iaCycle || phase?.workflowScope?.examName || '') &&
+    String(bundle?.workspaceType || 'SINGLE') === String(phase?.workspaceType || phase?.workflowScope?.workspaceType || 'SINGLE') &&
+    activeSemesters === phaseSemesters
+  )
+}
+
+const resolveWorkflowScope = (phase1 = {}, phase3 = {}, activeBundle = null) => ({
+  institutionId:
+    activeBundle?.institutionId ||
+    phase3?.workflowScope?.institutionId ||
+    phase3?.institutionId ||
+    phase1?.institutionId ||
+    '',
+  institutionName:
+    activeBundle?.institutionName ||
+    phase3?.workflowScope?.institutionName ||
+    phase3?.institutionName ||
+    phase1?.institutionName ||
+    '',
+  academicYearId:
+    activeBundle?.academicYearId ||
+    phase3?.workflowScope?.academicYearId ||
+    phase3?.academicYearId ||
+    phase1?.academicYearId ||
+    '',
+  academicYearLabel:
+    activeBundle?.academicYearLabel ||
+    phase3?.workflowScope?.academicYearLabel ||
+    phase3?.academicYearLabel ||
+    phase1?.academicYearLabel ||
+    '',
+  semesterCategory:
+    activeBundle?.semesterCategory ||
+    phase3?.workflowScope?.semesterCategory ||
+    phase3?.semesterCategory ||
+    phase1?.semesterCategory ||
+    '',
+  chosenSemester:
+    activeBundle?.chosenSemester ||
+    phase3?.workflowScope?.chosenSemester ||
+    phase3?.chosenSemester ||
+    phase1?.chosenSemester ||
+    '',
+  chosenSemesters: normalizeSemesterList(
+    activeBundle?.chosenSemesters ||
+    phase3?.workflowScope?.chosenSemesters ||
+    phase3?.chosenSemesters ||
+    phase1?.chosenSemesters ||
+    [],
+  ),
+  programmeId:
+    activeBundle?.programmeId ||
+    phase3?.workflowScope?.programmeId ||
+    phase3?.programmeId ||
+    phase1?.programmeScopeKey ||
+    phase1?.programmeId ||
+    '',
+  programmeIds:
+    Array.isArray(activeBundle?.programmeIds) && activeBundle.programmeIds.length > 0
+      ? activeBundle.programmeIds
+      : Array.isArray(phase3?.workflowScope?.programmeIds) && phase3.workflowScope.programmeIds.length > 0
+        ? phase3.workflowScope.programmeIds
+        : Array.isArray(phase3?.programmeIds) && phase3.programmeIds.length > 0
+          ? phase3.programmeIds
+          : Array.isArray(phase1?.programmeIds)
+            ? phase1.programmeIds
+            : [],
+  workspaceType:
+    activeBundle?.workspaceType ||
+    phase3?.workflowScope?.workspaceType ||
+    phase3?.workspaceType ||
+    phase1?.workspaceType ||
+    'SINGLE',
+  bundlePreset:
+    activeBundle?.bundlePreset ||
+    phase3?.workflowScope?.bundlePreset ||
+    phase3?.bundlePreset ||
+    phase1?.bundlePreset ||
+    'MANUAL',
+  examName:
+    activeBundle?.examName ||
+    activeBundle?.iaCycle ||
+    phase3?.workflowScope?.examName ||
+    phase3?.workflowScope?.iaCycle ||
+    phase3?.examName ||
+    phase3?.iaCycle ||
+    phase1?.examName ||
+    phase1?.iaCycle ||
+    '',
+  iaCycle:
+    activeBundle?.iaCycle ||
+    activeBundle?.examName ||
+    phase3?.workflowScope?.iaCycle ||
+    phase3?.workflowScope?.examName ||
+    phase3?.iaCycle ||
+    phase3?.examName ||
+    phase1?.iaCycle ||
+    phase1?.examName ||
+    '',
+  examWindowName:
+    phase3?.workflowScope?.examWindowName ||
+    phase3?.examWindowName ||
+    phase1?.examWindowName ||
+    '',
+})
 
 const IAPublishPhase4 = () => {
+  const navigate = useNavigate()
   const phase1 = useMemo(() => {
     try {
       return JSON.parse(window.sessionStorage.getItem(PHASE_1_KEY) || '{}')
@@ -48,10 +166,34 @@ const IAPublishPhase4 = () => {
       return {}
     }
   }, [])
+  const activeBundle = useMemo(() => {
+    try {
+      return JSON.parse(window.sessionStorage.getItem(ACTIVE_BUNDLE_KEY) || 'null')
+    } catch {
+      return null
+    }
+  }, [])
+  const hasActiveBundle = useMemo(
+    () =>
+      Boolean(
+        String(activeBundle?.institutionId || '').trim() &&
+        String(activeBundle?.academicYearId || '').trim() &&
+        String(activeBundle?.programmeId || '').trim() &&
+        String(activeBundle?.iaCycle || activeBundle?.examName || '').trim(),
+      ),
+    [activeBundle],
+  )
+  const phase4Draft = useMemo(() => {
+    try {
+      return JSON.parse(window.sessionStorage.getItem(PHASE_4_KEY) || '{}')
+    } catch {
+      return {}
+    }
+  }, [])
 
   const phase3Ready = String(phase3.status || '') === 'READY_FOR_PHASE_4'
 
-  const [toast, setToast] = useState(null)
+  const toast = useArpToast()
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewHtml, setPreviewHtml] = useState('')
   const previewFrameRef = useRef(null)
@@ -79,6 +221,8 @@ const IAPublishPhase4 = () => {
     officialSealText: 'Official Seal',
     reportPaperSize: 'A4',
   })
+  const [editMode, setEditMode] = useState(false)
+  const phaseLocked = String(status || '').toUpperCase() === 'PUBLISHED' && !editMode
 
   const slots = Array.isArray(phase3.slots) ? phase3.slots : []
   const courses = Array.isArray(phase3.courses) ? phase3.courses : []
@@ -92,9 +236,74 @@ const IAPublishPhase4 = () => {
     [courses],
   )
 
-  const workflowScope = phase3.workflowScope || {}
+  const workflowScope = useMemo(
+    () => resolveWorkflowScope(phase1, phase3, activeBundle),
+    [phase1, phase3, activeBundle],
+  )
   const institutionId = workflowScope?.institutionId || phase1?.institutionId || ''
   const academicYearId = workflowScope?.academicYearId || phase1?.academicYearId || ''
+  const chosenSemesters = useMemo(
+    () => normalizeSemesterList(workflowScope?.chosenSemesters || phase1?.chosenSemesters),
+    [workflowScope?.chosenSemesters, phase1?.chosenSemesters],
+  )
+
+  useEffect(() => {
+    if (hasActiveBundle) return
+    navigate('/evaluation/ia/workspace', {
+      replace: true,
+      state: { workspaceNotice: 'Select or create an IA Workspace first.' },
+    })
+  }, [hasActiveBundle, navigate])
+
+  useEffect(() => {
+    if (!hasActiveBundle) return
+    let ignore = false
+    ;(async () => {
+      const localOkay = bundleScopeMatches(activeBundle, phase4Draft)
+      let nextStatus = localOkay ? phase4Draft?.status || 'DRAFT' : 'DRAFT'
+      let nextPublishForm = {
+        versionNo: '1',
+        publishDate: '',
+        effectiveFrom: '',
+        publishMode: 'PORTAL',
+        notifyStudents: true,
+        notifyFaculty: true,
+        notifyDepartments: true,
+        notifyAdmin: true,
+        freezeAfterPublish: true,
+        changeReason: '',
+        signatoryName: '',
+        signatoryDesignation: 'Authorized Signatory (Examination)',
+        principalName: '',
+        principalDesignation: 'Principal',
+        officialSealText: 'Official Seal',
+        reportPaperSize: 'A4',
+        ...(localOkay ? phase4Draft : {}),
+      }
+      try {
+        const remote = await getIAWorkflowPhase(IA_PHASE_KEYS.PHASE_4_PUBLISH, {
+          institutionId: activeBundle.institutionId || '',
+          academicYearId: activeBundle.academicYearId || '',
+          chosenSemester: activeBundle.chosenSemester || '',
+          chosenSemesters: normalizeSemesterList(activeBundle.chosenSemesters || []),
+          programmeId: activeBundle.programmeId || '',
+          iaCycle: activeBundle.iaCycle || activeBundle.examName || '',
+          examName: activeBundle.examName || activeBundle.iaCycle || '',
+        })
+        const payload = remote?.payload && typeof remote.payload === 'object' ? remote.payload : null
+        if (payload) {
+          nextStatus = remote.workflowStatus || payload.status || nextStatus
+          nextPublishForm = { ...nextPublishForm, ...payload }
+        }
+      } catch {
+        // keep fallback
+      }
+      if (ignore) return
+      setStatus(nextStatus)
+      setPublishForm(nextPublishForm)
+    })()
+    return () => { ignore = true }
+  }, [activeBundle, phase4Draft])
 
   useEffect(() => {
     if (!institutionId) {
@@ -127,8 +336,11 @@ const IAPublishPhase4 = () => {
           academicYearId,
           programmeId: scopeProgrammeId,
           scopeMode: phase1?.scopeMode || 'SINGLE',
+          workspaceType: workflowScope?.workspaceType || phase1?.workspaceType || 'SINGLE',
           programmeIds: Array.isArray(phase1?.programmeIds) ? phase1.programmeIds.join(',') : '',
           chosenSemester: workflowScope?.chosenSemester || phase1?.chosenSemester || '',
+          chosenSemesters: chosenSemesters.join(','),
+          bundlePreset: workflowScope?.bundlePreset || phase1?.bundlePreset || 'MANUAL',
         })
         const rows = Array.isArray(list) ? list : []
         const byId = {}
@@ -156,11 +368,15 @@ const IAPublishPhase4 = () => {
     academicYearId,
     workflowScope?.programmeId,
     workflowScope?.chosenSemester,
+    workflowScope?.chosenSemesters,
     phase1?.scopeMode,
+    phase1?.workspaceType,
+    phase1?.bundlePreset,
     phase1?.programmeScopeKey,
     phase1?.programmeId,
     phase1?.programmeIds,
     phase1?.chosenSemester,
+    phase1?.chosenSemesters,
   ])
 
   useEffect(() => {
@@ -249,6 +465,7 @@ const IAPublishPhase4 = () => {
             course.semester ||
             metaById.semester ||
             metaByCode.semester ||
+            chosenSemesters.join(', ') ||
             workflowScope?.chosenSemester ||
             phase1?.chosenSemester ||
             '-',
@@ -269,15 +486,81 @@ const IAPublishPhase4 = () => {
   }, [
     courses,
     slotById,
+    chosenSemesters,
     workflowScope?.chosenSemester,
     phase1?.chosenSemester,
     programmeMap,
     courseMetaById,
     courseMetaByCode,
   ])
+  const snapshotRows = useMemo(
+    () => courses.map((course) => {
+      const slot = slotById[course.slotId] || {}
+      const metaById = courseMetaById[String(course.id || '')] || {}
+      const metaByCode = courseMetaByCode[String(course.code || '').trim()] || {}
+      const resolvedProgrammeId = String(
+        course.programmeId ||
+        metaById.programmeId ||
+        metaByCode.programmeId ||
+        '',
+      ).trim()
+      const fallbackProgramme = programmeMap[resolvedProgrammeId] || {}
+      const programmeCode = String(
+        course.programmeCode ||
+        metaById.programmeCode ||
+        metaByCode.programmeCode ||
+        fallbackProgramme.programmeCode ||
+        '',
+      ).trim()
+      const programmeName = String(
+        course.programmeName ||
+        metaById.programmeName ||
+        metaByCode.programmeName ||
+        fallbackProgramme.programmeName ||
+        '',
+      ).trim()
+      const resolvedSemester =
+        course.semester ||
+        metaById.semester ||
+        metaByCode.semester ||
+        chosenSemesters.join(', ') ||
+        workflowScope?.chosenSemester ||
+        phase1?.chosenSemester ||
+        '-'
+      return {
+        ...course,
+        programmeDisplay:
+          programmeCode && programmeName
+            ? `${programmeCode} - ${programmeName}`
+            : programmeCode || programmeName || '-',
+        resolvedSemester,
+        date: slot.date || '-',
+        session: slot.session || '-',
+        time: slot.startTime && slot.endTime ? `${slot.startTime} - ${slot.endTime}` : '-',
+        venue: slot.venue || '-',
+        publishStatus: course.slotId ? 'Scheduled' : 'Pending',
+      }
+    }),
+    [courses, slotById, courseMetaById, courseMetaByCode, programmeMap, chosenSemesters, workflowScope?.chosenSemester, phase1?.chosenSemester],
+  )
+  const snapshotColumns = useMemo(
+    () => [
+      { key: 'code', label: 'Course Code', sortable: true, sortType: 'string' },
+      { key: 'name', label: 'Course Name', sortable: true, sortType: 'string' },
+      { key: 'programmeDisplay', label: 'Programme', sortable: true, sortType: 'string' },
+      { key: 'resolvedSemester', label: 'Semester', sortable: true, sortType: 'string', align: 'center' },
+      { key: 'students', label: 'Students', sortable: true, sortType: 'number', align: 'right' },
+      { key: 'date', label: 'Date', sortable: true, sortType: 'string' },
+      { key: 'session', label: 'Session', sortable: true, sortType: 'string', align: 'center' },
+      { key: 'time', label: 'Time', sortable: true, sortType: 'string' },
+      { key: 'venue', label: 'Venue', sortable: true, sortType: 'string' },
+      { key: 'publishStatus', label: 'Status', sortable: true, sortType: 'string', align: 'center' },
+    ],
+    [],
+  )
 
   const showToast = (type, message) => {
-    setToast({
+    toast.show({
       type,
       message,
       autohide: type === 'success',
@@ -290,7 +573,9 @@ const IAPublishPhase4 = () => {
   }
 
   const onSaveDraft = () => {
+    const wf = resolveWorkflowScope(phase1, phase3, activeBundle)
     const payload = {
+      workflowScope: wf,
       ...publishForm,
       status: 'DRAFT',
       snapshot: { slots, courses },
@@ -299,12 +584,15 @@ const IAPublishPhase4 = () => {
     window.sessionStorage.setItem(PHASE_4_KEY, JSON.stringify(payload))
     ;(async () => {
       try {
-        const wf = phase3.workflowScope || {}
         await saveIAWorkflowPhase(IA_PHASE_KEYS.PHASE_4_PUBLISH, {
           institutionId: wf.institutionId || '',
           academicYearId: wf.academicYearId || '',
           chosenSemester: wf.chosenSemester || '',
+          chosenSemesters: normalizeSemesterList(wf.chosenSemesters),
           programmeId: wf.programmeId || '',
+          programmeIds: Array.isArray(wf.programmeIds) ? wf.programmeIds : [],
+          workspaceType: wf.workspaceType || 'SINGLE',
+          bundlePreset: wf.bundlePreset || 'MANUAL',
           examName: wf.examName || wf.iaCycle || '',
           iaCycle: wf.iaCycle || '',
           workflowStatus: 'DRAFT',
@@ -336,7 +624,9 @@ const IAPublishPhase4 = () => {
       return
     }
 
+    const wf = resolveWorkflowScope(phase1, phase3, activeBundle)
     const payload = {
+      workflowScope: wf,
       ...publishForm,
       status: 'PUBLISHED',
       publishedAt: new Date().toISOString(),
@@ -345,12 +635,15 @@ const IAPublishPhase4 = () => {
     window.sessionStorage.setItem(PHASE_4_KEY, JSON.stringify(payload))
     ;(async () => {
       try {
-        const wf = phase3.workflowScope || {}
         await saveIAWorkflowPhase(IA_PHASE_KEYS.PHASE_4_PUBLISH, {
           institutionId: wf.institutionId || '',
           academicYearId: wf.academicYearId || '',
           chosenSemester: wf.chosenSemester || '',
+          chosenSemesters: normalizeSemesterList(wf.chosenSemesters),
           programmeId: wf.programmeId || '',
+          programmeIds: Array.isArray(wf.programmeIds) ? wf.programmeIds : [],
+          workspaceType: wf.workspaceType || 'SINGLE',
+          bundlePreset: wf.bundlePreset || 'MANUAL',
           examName: wf.examName || wf.iaCycle || '',
           iaCycle: wf.iaCycle || '',
           workflowStatus: 'PUBLISHED',
@@ -365,6 +658,7 @@ const IAPublishPhase4 = () => {
       }
     })()
     setStatus('PUBLISHED')
+    setEditMode(false)
     showToast('success', 'IA schedule published successfully.')
   }
 
@@ -472,13 +766,13 @@ const IAPublishPhase4 = () => {
         <th style="width:50px;text-align:center;">S.No</th>
         <th style="width:120px;">Course Code</th>
         <th>Course Name</th>
-        <th style="width:180px;">Programme</th>
-        <th style="width:85px;text-align:center;">Semester</th>
-        <th style="width:110px;">Date</th>
-        <th style="width:80px;">Session</th>
-        <th style="width:120px;">Time</th>
-        <th style="width:110px;">Venue</th>
-        <th style="width:80px;text-align:right;">Strength</th>
+        <th style="width:150px;">Programme</th>
+        <th style="width:70px;text-align:center;">Semester</th>
+        <th style="width:95px;">Date</th>
+        <th style="width:60px;">Session</th>
+        <th style="width:105px;">Time</th>
+        <th style="width:70px;">Venue</th>
+        <th style="width:65px;text-align:right;">Strength</th>
       </tr>
     </thead>
     <tbody>${rowsHtml}</tbody>
@@ -582,7 +876,6 @@ const IAPublishPhase4 = () => {
   return (
     <CRow>
       <CCol xs={12}>
-        <ArpToastStack toast={toast} onClose={() => setToast(null)} />
         <IAWorkflowScopeBanner scope={workflowScope} />
         {!phase3Ready ? (
           <CAlert color="warning" className="mb-3">
@@ -620,6 +913,7 @@ const IAPublishPhase4 = () => {
                   type="date"
                   value={publishForm.publishDate}
                   onChange={(e) => setField('publishDate', e.target.value)}
+                  disabled={phaseLocked}
                 />
               </CCol>
               <CCol md={2}><CFormLabel>Effective From *</CFormLabel></CCol>
@@ -628,6 +922,7 @@ const IAPublishPhase4 = () => {
                   type="date"
                   value={publishForm.effectiveFrom}
                   onChange={(e) => setField('effectiveFrom', e.target.value)}
+                  disabled={phaseLocked}
                 />
               </CCol>
               <CCol md={2}><CFormLabel>Publish Mode</CFormLabel></CCol>
@@ -635,6 +930,7 @@ const IAPublishPhase4 = () => {
                 <CFormSelect
                   value={publishForm.publishMode}
                   onChange={(e) => setField('publishMode', e.target.value)}
+                  disabled={phaseLocked}
                 >
                   <option value="PORTAL">Portal</option>
                   <option value="PORTAL_EMAIL">Portal + Email</option>
@@ -647,6 +943,7 @@ const IAPublishPhase4 = () => {
                   value={publishForm.changeReason}
                   onChange={(e) => setField('changeReason', e.target.value)}
                   placeholder="Mandatory when republishing with new version."
+                  disabled={phaseLocked}
                 />
               </CCol>
             </CRow>
@@ -662,6 +959,7 @@ const IAPublishPhase4 = () => {
                   label="Notify Students"
                   checked={publishForm.notifyStudents}
                   onChange={(e) => setField('notifyStudents', e.target.checked)}
+                  disabled={phaseLocked}
                 />
               </CCol>
               <CCol md={3}>
@@ -669,6 +967,7 @@ const IAPublishPhase4 = () => {
                   label="Notify Faculty"
                   checked={publishForm.notifyFaculty}
                   onChange={(e) => setField('notifyFaculty', e.target.checked)}
+                  disabled={phaseLocked}
                 />
               </CCol>
               <CCol md={3}>
@@ -676,6 +975,7 @@ const IAPublishPhase4 = () => {
                   label="Notify Departments"
                   checked={publishForm.notifyDepartments}
                   onChange={(e) => setField('notifyDepartments', e.target.checked)}
+                  disabled={phaseLocked}
                 />
               </CCol>
               <CCol md={3}>
@@ -683,6 +983,7 @@ const IAPublishPhase4 = () => {
                   label="Notify Admin"
                   checked={publishForm.notifyAdmin}
                   onChange={(e) => setField('notifyAdmin', e.target.checked)}
+                  disabled={phaseLocked}
                 />
               </CCol>
               <CCol md={3}>
@@ -690,6 +991,7 @@ const IAPublishPhase4 = () => {
                   label="Freeze After Publish"
                   checked={publishForm.freezeAfterPublish}
                   onChange={(e) => setField('freezeAfterPublish', e.target.checked)}
+                  disabled={phaseLocked}
                 />
               </CCol>
             </CRow>
@@ -702,91 +1004,20 @@ const IAPublishPhase4 = () => {
             <CBadge color="info">Courses: {courses.length}</CBadge>
           </CCardHeader>
           <CCardBody>
-            <CTable responsive hover align="middle">
-                <CTableHead color="light">
-                  <CTableRow>
-                    <CTableHeaderCell>Course Code</CTableHeaderCell>
-                    <CTableHeaderCell>Course Name</CTableHeaderCell>
-                    <CTableHeaderCell>Programme</CTableHeaderCell>
-                    <CTableHeaderCell>Semester</CTableHeaderCell>
-                    <CTableHeaderCell>Students</CTableHeaderCell>
-                    <CTableHeaderCell>Date</CTableHeaderCell>
-                    <CTableHeaderCell>Session</CTableHeaderCell>
-                  <CTableHeaderCell>Time</CTableHeaderCell>
-                  <CTableHeaderCell>Venue</CTableHeaderCell>
-                  <CTableHeaderCell>Status</CTableHeaderCell>
-                </CTableRow>
-              </CTableHead>
-              <CTableBody>
-                {courses.length === 0 ? (
-                  <CTableRow>
-                    <CTableDataCell colSpan={10} className="text-center text-muted py-4">
-                      No validated schedule found.
-                    </CTableDataCell>
-                  </CTableRow>
-                ) : (
-                  courses.map((course) => {
-                    const slot = slotById[course.slotId]
-                    const metaById = courseMetaById[String(course.id || '')] || {}
-                    const metaByCode = courseMetaByCode[String(course.code || '').trim()] || {}
-                    const resolvedProgrammeId = String(
-                      course.programmeId ||
-                      metaById.programmeId ||
-                      metaByCode.programmeId ||
-                      '',
-                    ).trim()
-                    const fallbackProgramme = programmeMap[resolvedProgrammeId] || {}
-                    const programmeCode = String(
-                      course.programmeCode ||
-                      metaById.programmeCode ||
-                      metaByCode.programmeCode ||
-                      fallbackProgramme.programmeCode ||
-                      '',
-                    ).trim()
-                    const programmeName = String(
-                      course.programmeName ||
-                      metaById.programmeName ||
-                      metaByCode.programmeName ||
-                      fallbackProgramme.programmeName ||
-                      '',
-                    ).trim()
-                    const resolvedSemester =
-                      course.semester ||
-                      metaById.semester ||
-                      metaByCode.semester ||
-                      workflowScope?.chosenSemester ||
-                      phase1?.chosenSemester ||
-                      '-'
-                    return (
-                      <CTableRow key={course.id}>
-                        <CTableDataCell>{course.code}</CTableDataCell>
-                        <CTableDataCell>{course.name}</CTableDataCell>
-                        <CTableDataCell>
-                          {programmeCode && programmeName
-                            ? `${programmeCode} - ${programmeName}`
-                            : programmeCode || programmeName || '-'}
-                        </CTableDataCell>
-                        <CTableDataCell>{resolvedSemester}</CTableDataCell>
-                        <CTableDataCell>{course.students}</CTableDataCell>
-                        <CTableDataCell>{slot?.date || '-'}</CTableDataCell>
-                        <CTableDataCell>{slot?.session || '-'}</CTableDataCell>
-                        <CTableDataCell>
-                          {slot ? `${slot.startTime} - ${slot.endTime}` : '-'}
-                        </CTableDataCell>
-                        <CTableDataCell>{slot?.venue || '-'}</CTableDataCell>
-                        <CTableDataCell>
-                          {course.conflict ? (
-                            <CBadge color="danger">{course.conflict}</CBadge>
-                          ) : (
-                            <CBadge color="success">Ready</CBadge>
-                          )}
-                        </CTableDataCell>
-                      </CTableRow>
-                    )
-                  })
-                )}
-              </CTableBody>
-            </CTable>
+            <ArpDataTable
+              title="Final Timetable Snapshot"
+              rows={snapshotRows}
+              columns={snapshotColumns}
+              searchable={false}
+              defaultPageSize={10}
+              pageSizeOptions={[10, 25, 50, 100]}
+              emptyText="No validated schedule found."
+              scopedColumns={{
+                publishStatus: (row) => (
+                  row.conflict ? <CBadge color="danger">{row.conflict}</CBadge> : <CBadge color="success">Ready</CBadge>
+                ),
+              }}
+            />
           </CCardBody>
         </CCard>
 
@@ -803,6 +1034,7 @@ const IAPublishPhase4 = () => {
                   value={publishForm.signatoryName}
                   onChange={(e) => setField('signatoryName', e.target.value)}
                   placeholder="Authorized Signatory Name"
+                  disabled={phaseLocked}
                 />
               </CCol>
               <CCol md={2}><CFormLabel>Signatory Designation</CFormLabel></CCol>
@@ -810,6 +1042,7 @@ const IAPublishPhase4 = () => {
                 <CFormInput
                   value={publishForm.signatoryDesignation}
                   onChange={(e) => setField('signatoryDesignation', e.target.value)}
+                  disabled={phaseLocked}
                 />
               </CCol>
               <CCol md={2}><CFormLabel>Principal Name</CFormLabel></CCol>
@@ -818,6 +1051,7 @@ const IAPublishPhase4 = () => {
                   value={publishForm.principalName}
                   onChange={(e) => setField('principalName', e.target.value)}
                   placeholder="Principal Name"
+                  disabled={phaseLocked}
                 />
               </CCol>
               <CCol md={2}><CFormLabel>Principal Designation</CFormLabel></CCol>
@@ -825,6 +1059,7 @@ const IAPublishPhase4 = () => {
                 <CFormInput
                   value={publishForm.principalDesignation}
                   onChange={(e) => setField('principalDesignation', e.target.value)}
+                  disabled={phaseLocked}
                 />
               </CCol>
               <CCol md={2}><CFormLabel>Official Seal Text</CFormLabel></CCol>
@@ -833,6 +1068,7 @@ const IAPublishPhase4 = () => {
                   value={publishForm.officialSealText}
                   onChange={(e) => setField('officialSealText', e.target.value)}
                   placeholder="Official Seal"
+                  disabled={phaseLocked}
                 />
               </CCol>
               <CCol md={2}><CFormLabel>Paper Size</CFormLabel></CCol>
@@ -840,6 +1076,7 @@ const IAPublishPhase4 = () => {
                 <CFormSelect
                   value={publishForm.reportPaperSize}
                   onChange={(e) => setField('reportPaperSize', e.target.value)}
+                  disabled={phaseLocked}
                 >
                   <option value="A4">A4</option>
                   <option value="LEGAL">Legal</option>
@@ -863,9 +1100,18 @@ const IAPublishPhase4 = () => {
         <CCard>
           <CCardHeader><strong>Phase 4 Actions</strong></CCardHeader>
           <CCardBody className="d-flex justify-content-end gap-2">
-            <ArpButton label="Save Draft" icon="save" color="secondary" onClick={onSaveDraft} />
-            <ArpButton label="Republish (Next Version)" icon="edit" color="warning" onClick={onRepublish} />
-            <ArpButton label="Publish Schedule" icon="publish" color="success" onClick={onPublish} />
+            {phaseLocked ? (
+              <>
+                <ArpButton label="Enable Edit" icon="edit" color="warning" onClick={() => setEditMode(true)} />
+                <ArpButton label="Go to Workspace Console" icon="view" color="secondary" onClick={() => navigate('/evaluation/ia/workspace')} />
+              </>
+            ) : (
+              <>
+                <ArpButton label="Save Draft" icon="save" color="secondary" onClick={onSaveDraft} />
+                <ArpButton label="Republish (Next Version)" icon="edit" color="warning" onClick={onRepublish} disabled={phaseLocked} />
+                <ArpButton label="Publish Schedule" icon="publish" color="success" onClick={onPublish} />
+              </>
+            )}
           </CCardBody>
         </CCard>
 

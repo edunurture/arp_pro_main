@@ -55,16 +55,20 @@ const ArpDataTable = ({
   defaultSearch = '',
   pageSizeOptions = [5, 10, 20, 50],
   defaultPageSize = 10,
+  pageSize = null,
+  onPageSizeChange = null,
+  showPageSizeControl = true,
   rowKey = 'id',
   selection = null,
   emptyText = 'No records found.',
   className = 'mb-3',
+  rowClassName = null,
 }) => {
   const safeColumns = Array.isArray(columns) ? columns : []
   const safeRows = Array.isArray(rows) ? rows : []
 
   const [search, setSearch] = useState(defaultSearch)
-  const [pageSize, setPageSize] = useState(defaultPageSize)
+  const [internalPageSize, setInternalPageSize] = useState(defaultPageSize)
   const [page, setPage] = useState(1) // 1-based
   const [sort, setSort] = useState(() => {
     // pick first sortable column as default; otherwise rowKey
@@ -72,10 +76,12 @@ const ArpDataTable = ({
     return { key: firstSortable?.key || rowKey, dir: 'asc' }
   })
 
+  const effectivePageSize = Number(pageSize) > 0 ? Number(pageSize) : internalPageSize
+
   // Reset paging when search/pageSize changes
   useEffect(() => {
     setPage(1)
-  }, [search, pageSize])
+  }, [search, effectivePageSize])
 
   const normalize = (v) =>
     String(v ?? '')
@@ -135,15 +141,15 @@ const ArpDataTable = ({
   }, [filteredRows, sort, columns])
 
   const total = sortedRows.length
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const totalPages = Math.max(1, Math.ceil(total / effectivePageSize))
 
   const pageRows = useMemo(() => {
-    const start = (page - 1) * pageSize
-    return sortedRows.slice(start, start + pageSize)
-  }, [sortedRows, page, pageSize])
+    const start = (page - 1) * effectivePageSize
+    return sortedRows.slice(start, start + effectivePageSize)
+  }, [sortedRows, page, effectivePageSize])
 
-  const showingFrom = total === 0 ? 0 : (page - 1) * pageSize + 1
-  const showingTo = Math.min(page * pageSize, total)
+  const showingFrom = total === 0 ? 0 : (page - 1) * effectivePageSize + 1
+  const showingTo = Math.min(page * effectivePageSize, total)
 
   const sortToggle = (key) => {
     const col = safeColumns.find((c) => c.key === key)
@@ -228,19 +234,28 @@ const ArpDataTable = ({
             />
           )}
 
-          <CFormSelect
-            value={pageSize}
-            onChange={(e) => setPageSize(Number(e.target.value))}
-            style={{ width: 130 }}
-            title="Rows per page"
-            aria-label="Rows per page"
-          >
-            {pageSizeOptions.map((n) => (
-              <option key={n} value={n}>
-                {n} / page
-              </option>
-            ))}
-          </CFormSelect>
+          {showPageSizeControl ? (
+            <CFormSelect
+              value={effectivePageSize}
+              onChange={(e) => {
+                const next = Number(e.target.value)
+                if (typeof onPageSizeChange === 'function') {
+                  onPageSizeChange(next)
+                } else {
+                  setInternalPageSize(next)
+                }
+              }}
+              style={{ width: 130 }}
+              title="Rows per page"
+              aria-label="Rows per page"
+            >
+              {pageSizeOptions.map((n) => (
+                <option key={n} value={n}>
+                  {n} / page
+                </option>
+              ))}
+            </CFormSelect>
+          ) : null}
 
           {headerActions ? (
             <div className="d-flex align-items-center gap-2">{headerActions}</div>
@@ -304,8 +319,11 @@ const ArpDataTable = ({
                 </CTableDataCell>
               </CTableRow>
             ) : (
-              pageRows.map((row) => (
-                <CTableRow key={row?.[rowKey]}>
+              pageRows.map((row, rowIndex) => (
+                <CTableRow
+                  key={row?.[rowKey]}
+                  className={typeof rowClassName === 'function' ? rowClassName(row, rowIndex) : rowClassName || ''}
+                >
                   {renderSelectionCell(row)}
 
                   {safeColumns.map((c) => {
@@ -415,6 +433,9 @@ ArpDataTable.propTypes = {
   defaultSearch: PropTypes.string,
   pageSizeOptions: PropTypes.arrayOf(PropTypes.number),
   defaultPageSize: PropTypes.number,
+  pageSize: PropTypes.number,
+  onPageSizeChange: PropTypes.func,
+  showPageSizeControl: PropTypes.bool,
   rowKey: PropTypes.string,
   selection: PropTypes.shape({
     type: PropTypes.oneOf(['radio', 'checkbox']),
@@ -428,6 +449,7 @@ ArpDataTable.propTypes = {
   }),
   emptyText: PropTypes.string,
   className: PropTypes.string,
+  rowClassName: PropTypes.oneOfType([PropTypes.string, PropTypes.func]),
 }
 
 
@@ -446,9 +468,13 @@ ArpDataTable.defaultProps = {
   selectedRowKeys: [],
   defaultPageSize: 10,
   pageSizeOptions: [10, 25, 50, 100],
+  pageSize: null,
+  onPageSizeChange: null,
+  showPageSizeControl: true,
   defaultSearch: '',
   emptyText: 'No Records Found',
   className: '',
+  rowClassName: null,
 }
 
 export default ArpDataTable

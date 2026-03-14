@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios'
 import {
-  CAlert,
   CCard,
   CCardBody,
   CCardHeader,
@@ -17,8 +16,9 @@ import {
   CSpinner,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
+import { deriveAdmissionSemester } from '../../services/lmsService'
 
 /**
  * RegulationMapConfiguration.jsx (ARP CoreUI React Pro Standard)
@@ -47,6 +47,7 @@ const initialForm = {
   programmeId: '',
   batchId: '',
   regulationId: '',
+  mappingMode: 'REGULAR',
   semesterPattern: 'ALL',
   semesterList: [],
 }
@@ -69,17 +70,41 @@ export default function RegulationMapConfiguration() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const toast = useArpToast()
 
-  const [toast, setToast] = useState(null) // {type:'success'|'danger'|'warning', message:''}
+  const selectedAcademicYear = useMemo(
+    () => academicYears.find((x) => String(x.id) === String(form.academicYearId)) || null,
+    [academicYears, form.academicYearId],
+  )
+  const selectedBatch = useMemo(
+    () => batches.find((x) => String(x.id) === String(form.batchId)) || null,
+    [batches, form.batchId],
+  )
+  const selectedProgramme = useMemo(
+    () => programmes.find((x) => String(x.id) === String(form.programmeId)) || null,
+    [programmes, form.programmeId],
+  )
+  const derivedSemesterMeta = useMemo(
+    () =>
+      deriveAdmissionSemester({
+        academicYear: selectedAcademicYear?.academicYear,
+        semesterCategory: selectedAcademicYear?.semesterCategory,
+        batchName: selectedBatch?.batchName,
+        totalSemesters: selectedProgramme?.totalSemesters,
+      }),
+    [selectedAcademicYear, selectedBatch, selectedProgramme],
+  )
 
   // Upload ref (reserved for future use)
   const fileRef = useRef(null)
 
   const showToast = (type, message) => {
-    setToast({ type, message })
-    // auto clear
-    window.clearTimeout(showToast._t)
-    showToast._t = window.setTimeout(() => setToast(null), 3500)
+    toast.show({
+      type,
+      message,
+      autohide: type === 'success',
+      delay: 3500,
+    })
   }
 
   const onChange = (key) => (e) => setForm((p) => ({ ...p, [key]: e.target.value }))
@@ -259,6 +284,7 @@ export default function RegulationMapConfiguration() {
   }
 
   const onSearch = async () => {
+    const semesterList = normalizeSemesterSelection(form.semesterPattern, form.semesterList)
     // Filter table based on dropdown selections (optional fields)
     const params = {
       ...(institutionId ? { institutionId } : {}),
@@ -266,9 +292,8 @@ export default function RegulationMapConfiguration() {
       ...(form.programmeId ? { programmeId: form.programmeId } : {}),
       ...(form.batchId ? { batchId: form.batchId } : {}),
       ...(form.regulationId ? { regulationId: form.regulationId } : {}),
-      ...(Array.isArray(form.semesterList) && form.semesterList.length === 1
-        ? { semester: form.semesterList[0] }
-        : {}),
+      ...(semesterList.length === 1 ? { semester: semesterList[0] } : {}),
+      ...(semesterList.length > 1 ? { semesterList: semesterList.join(',') } : {}),
     }
     await loadMappings(params)
   }
@@ -279,9 +304,14 @@ export default function RegulationMapConfiguration() {
     if (!institutionId) return showToast('danger', 'Institution is not available. Please create an Institution first.')
     if (!form.academicYearId) return showToast('danger', 'Academic Year is required')
     if (!form.programmeId) return showToast('danger', 'Programme is required')
-    if (!form.batchId) return showToast('danger', 'Batch is required')
+    if (!form.batchId) return showToast('danger', 'Admission Batch is required')
     if (!form.regulationId) return showToast('danger', 'Regulation Code is required')
-    if (!semesterList.length) return showToast('danger', 'At least one Semester must be selected')
+    if (form.mappingMode === 'REGULAR' && derivedSemesterMeta.error) {
+      return showToast('danger', derivedSemesterMeta.error)
+    }
+    if (form.mappingMode === 'EXCEPTION' && !semesterList.length) {
+      return showToast('danger', 'At least one Semester must be selected for exception mapping')
+    }
 
     setSaving(true)
     try {
@@ -291,6 +321,7 @@ export default function RegulationMapConfiguration() {
         programmeId: form.programmeId,
         batchId: form.batchId,
         regulationId: form.regulationId,
+        mappingMode: form.mappingMode,
         semesterPattern: form.semesterPattern,
         semesterList,
         override,
@@ -337,27 +368,29 @@ Do you want to override and force update?`)
   const onView = () => {
     if (!selectedRow) return
     // View just loads into form but keeps disabled
-    setForm({
-      academicYearId: selectedRow.academicYearId || '',
-      programmeId: selectedRow.programmeId || '',
-      batchId: selectedRow.batchId || '',
-      regulationId: selectedRow.regulationId || '',
-      semesterPattern: 'CUSTOM',
-      semesterList: selectedRow.semester ? [Number(selectedRow.semester)] : [],
-    })
+      setForm({
+        academicYearId: selectedRow.academicYearId || '',
+        programmeId: selectedRow.programmeId || '',
+        batchId: selectedRow.batchId || '',
+        regulationId: selectedRow.regulationId || '',
+        mappingMode: selectedRow.mappingType || 'REGULAR',
+        semesterPattern: 'CUSTOM',
+        semesterList: selectedRow.semester ? [Number(selectedRow.semester)] : [],
+      })
     setIsEdit(false)
   }
 
   const onEdit = () => {
     if (!selectedRow) return
-    setForm({
-      academicYearId: selectedRow.academicYearId || '',
-      programmeId: selectedRow.programmeId || '',
-      batchId: selectedRow.batchId || '',
-      regulationId: selectedRow.regulationId || '',
-      semesterPattern: 'CUSTOM',
-      semesterList: selectedRow.semester ? [Number(selectedRow.semester)] : [],
-    })
+      setForm({
+        academicYearId: selectedRow.academicYearId || '',
+        programmeId: selectedRow.programmeId || '',
+        batchId: selectedRow.batchId || '',
+        regulationId: selectedRow.regulationId || '',
+        mappingMode: selectedRow.mappingType || 'REGULAR',
+        semesterPattern: 'CUSTOM',
+        semesterList: selectedRow.semester ? [Number(selectedRow.semester)] : [],
+      })
     setIsEdit(true)
   }
 
@@ -419,13 +452,6 @@ Do you want to override and force update?`)
   return (
     <CRow>
       <CCol xs={12}>
-        {/* Toast / Alert */}
-        {toast && (
-          <CAlert color={toast.type} className="mb-3">
-            {toast.message}
-          </CAlert>
-        )}
-
         {/* ===================== A) HEADER ACTION CARD ===================== */}
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
@@ -440,7 +466,7 @@ Do you want to override and force update?`)
         {/* ===================== B) FORM CARD ===================== */}
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>Map Regulation to Batch</strong>
+            <strong>Map Regulation to Admission Batch</strong>
             {(loading || saving) && (
               <div className="d-flex align-items-center gap-2">
                 <CSpinner size="sm" />
@@ -481,11 +507,11 @@ Do you want to override and force update?`)
                 </CCol>
 
                 <CCol md={3}>
-                  <CFormLabel>Batch</CFormLabel>
+                  <CFormLabel>Admission Batch</CFormLabel>
                 </CCol>
                 <CCol md={3}>
                   <CFormSelect value={form.batchId} onChange={onChange('batchId')} disabled={formDisabled}>
-                    <option value="">Select Batch</option>
+                    <option value="">Select Admission Batch</option>
                     {batches.map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.batchName}
@@ -513,25 +539,29 @@ Do you want to override and force update?`)
 
                 
                 <CCol md={3}>
-                  <CFormLabel>Semester Pattern</CFormLabel>
+                  <CFormLabel>Mapping Type</CFormLabel>
                 </CCol>
                 <CCol md={3}>
                   <CFormSelect
-                    value={form.semesterPattern}
-                    onChange={onSemesterPatternChange}
-                    disabled={formDisabled || !form.programmeId}
+                    value={form.mappingMode}
+                    onChange={onChange('mappingMode')}
+                    disabled={formDisabled}
                   >
-                    <option value="ALL">All</option>
-                    <option value="ODD">Odd</option>
-                    <option value="EVEN">Even</option>
-                    <option value="CUSTOM">Custom</option>
+                    <option value="REGULAR">Regular</option>
+                    <option value="EXCEPTION">Exception</option>
                   </CFormSelect>
                 </CCol>
 
                 <CCol md={3}>
-                  <CFormLabel>Semesters</CFormLabel>
+                  <CFormLabel>{form.mappingMode === 'REGULAR' ? 'Derived Semester' : 'Exception Semester Pattern'}</CFormLabel>
                 </CCol>
                 <CCol md={3}>
+                  {form.mappingMode === 'REGULAR' ? (
+                    <CFormSelect value={derivedSemesterMeta.semester} disabled>
+                      <option value="">{derivedSemesterMeta.error || 'Derived from Academic Year + Admission Batch'}</option>
+                      {derivedSemesterMeta.semester ? <option value={derivedSemesterMeta.semester}>{`Sem-${derivedSemesterMeta.semester}`}</option> : null}
+                    </CFormSelect>
+                  ) : (
                   <CDropdown className="w-100" autoClose="outside">
                     <CDropdownToggle
                       color="light"
@@ -574,7 +604,54 @@ Do you want to override and force update?`)
                       ))}
                     </CDropdownMenu>
                   </CDropdown>
+                  )}
                 </CCol>
+
+                {form.mappingMode === 'REGULAR' ? (
+                  <CCol xs={12}>
+                    <div className="text-muted">
+                      Regular mapping derives semester automatically from Academic Year + Admission Batch. Use Exception only for retained / repeat semester cases.
+                    </div>
+                  </CCol>
+                ) : null}
+                {form.mappingMode === 'EXCEPTION' ? (
+                  <>
+                    <CCol md={3}>
+                      <CFormLabel>Exception Semester Pattern</CFormLabel>
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormSelect
+                        value={form.semesterPattern}
+                        onChange={onSemesterPatternChange}
+                        disabled={formDisabled || !form.programmeId}
+                      >
+                        <option value="ALL">All</option>
+                        <option value="ODD">Odd</option>
+                        <option value="EVEN">Even</option>
+                        <option value="CUSTOM">Custom</option>
+                      </CFormSelect>
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormLabel>Exception Semesters</CFormLabel>
+                    </CCol>
+                    <CCol md={3}>
+                      <div className="text-muted small pt-2">Use only for retained / repeat cases.</div>
+                    </CCol>
+                  </>
+                ) : null}
+
+                {derivedSemesterMeta.error ? (
+                  <CCol xs={12}>
+                    <div className="text-danger">{derivedSemesterMeta.error}</div>
+                  </CCol>
+                ) : null}
+                {form.mappingMode === 'REGULAR' && derivedSemesterMeta.semester ? (
+                  <CCol xs={12}>
+                    <div className="text-info">
+                      Regular mapping result: Academic Year {selectedAcademicYear?.academicYear} ({String(selectedAcademicYear?.semesterCategory || '').toUpperCase()}) + Admission Batch {selectedBatch?.batchName} = Semester {derivedSemesterMeta.semester}.
+                    </div>
+                  </CCol>
+                ) : null}
 {/* Actions */}
                 <CCol xs={12} className="d-flex justify-content-end gap-2">
                   <ArpButton

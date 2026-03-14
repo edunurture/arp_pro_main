@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { CAlert, CCard, CCardBody, CCardHeader, CCol, CForm, CFormInput, CFormLabel, CFormSelect, CRow } from '@coreui/react-pro'
+import { CCard, CCardBody, CCardHeader, CCol, CForm, CFormInput, CFormLabel, CFormSelect, CRow } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
 
@@ -57,11 +57,15 @@ export default function QuestionModelConfiguration() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState(null)
+  const toast = useArpToast()
 
   const showToast = (type, message) => {
-    setToast({ type, message })
-    window.setTimeout(() => setToast(null), 4500)
+    toast.show({
+      type,
+      message,
+      autohide: type === 'success',
+      delay: 4500,
+    })
   }
 
   const sectionTotal = (s) => numberOrZero(s.totalQuestions) * numberOrZero(s.markEach)
@@ -310,13 +314,6 @@ export default function QuestionModelConfiguration() {
             box-shadow: 0 0 0 9999px rgba(0,0,0,.25);
           }
         `}</style>
-
-        {toast && (
-          <CAlert color={toast.type} className="mb-3">
-            {toast.message}
-          </CAlert>
-        )}
-
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>QUESTION MODEL CONFIGURATION</strong>
@@ -383,7 +380,7 @@ export default function QuestionModelConfiguration() {
                 <CCol md={6} />
 
                 <CCol xs={12} className="d-flex justify-content-between align-items-center">
-                  <ArpButton label="+Add Section" color="success" type="button" onClick={addSection} disabled={!isEdit} />
+                  <ArpButton label="+Add Section" color="success" type="button" onClick={addSection} disabled={!isEdit} className="text-white" />
                   <div className="d-flex gap-2">
                     <ArpButton label="Save" icon="save" color="success" type="submit" disabled={!isEdit || saving} />
                     <ArpButton label="Cancel" icon="cancel" color="secondary" type="button" onClick={onCancel} />

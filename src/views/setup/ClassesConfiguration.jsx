@@ -13,7 +13,7 @@ import {
   CSpinner,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
 
@@ -66,11 +66,29 @@ export default function ClassesConfiguration() {
   const [loadingRows, setLoadingRows] = useState(false)
   const [saving, setSaving] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [message, setMessage] = useState(null)
+  const toast = useArpToast()
   const [importSummary, setImportSummary] = useState(null)
   const fileRef = useRef(null)
 
-  const showMessage = (type, text) => setMessage({ type, text })
+  const selectedProgramme = useMemo(
+    () => programmes.find((x) => String(x.id) === String(scope.programmeId)) || null,
+    [programmes, scope.programmeId],
+  )
+
+  const expectedClassLabels = useMemo(() => {
+    const totalSemesters = Number(selectedProgramme?.totalSemesters)
+    const totalYears = Number.isFinite(totalSemesters) && totalSemesters > 0 ? Math.ceil(totalSemesters / 2) : 0
+    const roman = ['I', 'II', 'III', 'IV', 'V', 'VI']
+    return Array.from({ length: totalYears }, (_, index) => `${roman[index] || `${index + 1}`} ${selectedProgramme?.programmeCode || selectedProgramme?.programmeName || 'Programme'}`)
+  }, [selectedProgramme])
+
+  const showMessage = (type, text) =>
+    toast.show({
+      type,
+      message: text,
+      autohide: type === 'success',
+      delay: 3500,
+    })
   const scopeReady = useMemo(
     () => Boolean(scope.institutionId && scope.departmentId && scope.programmeId),
     [scope],
@@ -175,7 +193,6 @@ export default function ClassesConfiguration() {
 
   const onCancelScope = () => {
     clearTableState()
-    setMessage(null)
   }
 
   const loadSelectedToForm = (mode) => {
@@ -379,8 +396,6 @@ export default function ClassesConfiguration() {
   return (
     <CRow>
       <CCol xs={12}>
-        {message ? <CAlert color={message.type}>{message.text}</CAlert> : null}
-
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>CLASSES SETUP</strong>
@@ -421,6 +436,21 @@ export default function ClassesConfiguration() {
                       {programmes.map((x) => <option key={x.id} value={x.id}>{x.programmeCode ? `${x.programmeCode} - ${x.programmeName}` : x.programmeName}</option>)}
                     </CFormSelect>
                   </CCol>
+
+                  {selectedProgramme && expectedClassLabels.length ? (
+                    <CCol xs={12}>
+                      <CAlert color="info" className="mb-0">
+                        Configure class master before Student Configuration. Suggested year-wise class names for this programme: {expectedClassLabels.join(', ')}. Student setup will use these class masters later based on Admission Batch and derived semester, and Student Promotion will move students between these year-wise classes in the next academic year.
+                      </CAlert>
+                    </CCol>
+                  ) : null}
+                  {selectedProgramme ? (
+                    <CCol xs={12}>
+                      <CAlert color="secondary" className="mb-0">
+                        Class master is maintained separately from Admission Batch. Do not create duplicate classes batch-wise here. Create reusable year-wise classes like `I {selectedProgramme?.programmeCode || selectedProgramme?.programmeName}`, `II ...`, `III ...`, and let Student Configuration / Student Promotion assign the correct batch into them.
+                      </CAlert>
+                    </CCol>
+                  ) : null}
 
                   <CCol xs={12} className="d-flex justify-content-between align-items-center">
                     <div className="d-flex gap-2 align-items-center">

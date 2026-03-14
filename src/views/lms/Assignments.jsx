@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CAlert,
   CBadge,
@@ -23,7 +23,7 @@ import {
   CTableHeaderCell,
   CTableRow,
 } from '@coreui/react-pro'
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpDataTable, ArpIconButton } from '../../components/common'
 import { lmsService, semesterOptionsFromAcademicYear } from '../../services/lmsService'
 
 const initialScope = {
@@ -62,6 +62,7 @@ const toDateValue = (v) => {
 }
 
 const Assignments = () => {
+  const scoreInputRefs = useRef({})
   const [scope, setScope] = useState(initialScope)
 
   const [institutions, setInstitutions] = useState([])
@@ -120,6 +121,42 @@ const Assignments = () => {
       ),
     )
   }, [ciaComputations, form.ciaComputationId])
+
+  const trackedAssignmentRows = useMemo(
+    () =>
+      assignments.map((r) => ({
+        ...r,
+        assignmentDateText: toDateValue(r.assignmentDate),
+        dueDateText: toDateValue(r.lastDate),
+        classText: `${r.className || ''}${r.classLabel ? ` (${r.classLabel})` : ''}`.trim() || '-',
+        courseText: [r.courseCode, r.courseTitle].filter(Boolean).join(' - ') || '-',
+        facultyText: [r.facultyCode, r.facultyName].filter(Boolean).join(' - ') || '-',
+        iaTypeText: r.isIALinked ? 'IA' : 'General',
+        ciaAssessmentCodeText: r.ciaAssessmentCode || '-',
+        iaComponentLabelText: r.iaComponentLabel || '-',
+        statusText: r.status ? 'Active' : 'Inactive',
+        submissionsText: `${r.scoredCount || 0} / ${r.submissionCount || 0}`,
+      })),
+    [assignments],
+  )
+
+  const trackedAssignmentColumns = useMemo(
+    () => [
+      { key: 'select', label: 'Select', sortable: false, width: 90 },
+      { key: 'assignmentDateText', label: 'Date', sortable: true, sortType: 'string' },
+      { key: 'title', label: 'Title', sortable: true, sortType: 'string' },
+      { key: 'classText', label: 'Class', sortable: true, sortType: 'string' },
+      { key: 'courseText', label: 'Course', sortable: true, sortType: 'string' },
+      { key: 'facultyText', label: 'Faculty', sortable: true, sortType: 'string' },
+      { key: 'dueDateText', label: 'Due Date', sortable: true, sortType: 'string' },
+      { key: 'iaTypeText', label: 'IA Type', sortable: true, sortType: 'string' },
+      { key: 'ciaAssessmentCodeText', label: 'CIA Assessment Code', sortable: true, sortType: 'string' },
+      { key: 'iaComponentLabelText', label: 'IA Component Label', sortable: true, sortType: 'string' },
+      { key: 'statusText', label: 'Status', sortable: true, sortType: 'string' },
+      { key: 'submissionsText', label: 'Submissions', sortable: true, sortType: 'string' },
+    ],
+    [],
+  )
 
   useEffect(() => {
     ;(async () => {
@@ -519,6 +556,27 @@ const Assignments = () => {
     )
   }
 
+  const focusNextScoreInput = (studentId) => {
+    const studentRows = Array.isArray(submissions?.students) ? submissions.students : []
+    const currentIndex = studentRows.findIndex((row) => String(row.studentId) === String(studentId))
+    if (currentIndex < 0) return
+    for (let index = currentIndex + 1; index < studentRows.length; index += 1) {
+      const nextId = String(studentRows[index]?.studentId || '')
+      const nextInput = scoreInputRefs.current[nextId]
+      if (nextInput && !nextInput.disabled) {
+        nextInput.focus()
+        nextInput.select?.()
+        return
+      }
+    }
+  }
+
+  const onScoreInputKeyDown = (event, studentId) => {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    focusNextScoreInput(studentId)
+  }
+
   const saveScores = async () => {
     if (!selectedAssignment) return
     if (!selectedAssignment.isIALinked) {
@@ -655,45 +713,34 @@ const Assignments = () => {
         <CCard className="mb-3">
           <CCardHeader><strong>Tracked Assignments</strong></CCardHeader>
           <CCardBody>
-            <CTable bordered hover responsive>
-              <CTableHead>
-                <CTableRow>
-                  <CTableHeaderCell>Select</CTableHeaderCell>
-                  <CTableHeaderCell>Date</CTableHeaderCell>
-                  <CTableHeaderCell>Title</CTableHeaderCell>
-                  <CTableHeaderCell>Class</CTableHeaderCell>
-                  <CTableHeaderCell>Course</CTableHeaderCell>
-                  <CTableHeaderCell>Faculty</CTableHeaderCell>
-                  <CTableHeaderCell>Due Date</CTableHeaderCell>
-                  <CTableHeaderCell>IA</CTableHeaderCell>
-                  <CTableHeaderCell>Status</CTableHeaderCell>
-                  <CTableHeaderCell>Submissions</CTableHeaderCell>
-                </CTableRow>
-              </CTableHead>
-              <CTableBody>
-                {assignments.map((r) => (
-                  <CTableRow key={r.id}>
-                    <CTableDataCell>
-                      <input type="radio" name="assignmentSel" checked={String(selectedAssignmentId) === String(r.id)} onChange={() => setSelectedAssignmentId(r.id)} />
-                    </CTableDataCell>
-                    <CTableDataCell>{toDateValue(r.assignmentDate)}</CTableDataCell>
-                    <CTableDataCell>{r.title}</CTableDataCell>
-                    <CTableDataCell>{r.className} {r.classLabel ? `(${r.classLabel})` : ''}</CTableDataCell>
-                    <CTableDataCell>{r.courseCode} - {r.courseTitle}</CTableDataCell>
-                    <CTableDataCell>{r.facultyCode} - {r.facultyName}</CTableDataCell>
-                    <CTableDataCell>{toDateValue(r.lastDate)}</CTableDataCell>
-                    <CTableDataCell>{r.isIALinked ? <CBadge color="info">IA</CBadge> : <CBadge color="secondary">General</CBadge>}</CTableDataCell>
-                    <CTableDataCell>{r.status ? <CBadge color="success">Active</CBadge> : <CBadge color="secondary">Inactive</CBadge>}</CTableDataCell>
-                    <CTableDataCell>{r.scoredCount || 0} / {r.submissionCount || 0}</CTableDataCell>
-                  </CTableRow>
-                ))}
-                {!assignments.length ? (
-                  <CTableRow>
-                    <CTableDataCell colSpan={10} className="text-center text-medium-emphasis">No assignments found</CTableDataCell>
-                  </CTableRow>
-                ) : null}
-              </CTableBody>
-            </CTable>
+            <ArpDataTable
+              rows={trackedAssignmentRows}
+              columns={trackedAssignmentColumns}
+              rowKey="id"
+              pageSize={10}
+              searchable={false}
+              emptyText="No assignments found"
+              scopedColumns={{
+                select: (row) => (
+                  <input
+                    type="radio"
+                    name="assignmentSel"
+                    checked={String(selectedAssignmentId) === String(row.id)}
+                    onChange={() => setSelectedAssignmentId(row.id)}
+                  />
+                ),
+                iaTypeText: (row) => (
+                  row.isIALinked
+                    ? <CBadge color="info">IA</CBadge>
+                    : <CBadge color="secondary">General</CBadge>
+                ),
+                statusText: (row) => (
+                  row.status
+                    ? <CBadge color="success">Active</CBadge>
+                    : <CBadge color="secondary">Inactive</CBadge>
+                ),
+              }}
+            />
             <div className="d-flex justify-content-end">
               <ArpButton label="View Submissions / Mark Entry" icon="view" color="dark" onClick={loadSubmissions} disabled={!selectedAssignment || loading} className="text-white" />
             </div>
@@ -738,6 +785,11 @@ const Assignments = () => {
                             size="sm"
                             value={row.score ?? ''}
                             onChange={(e) => setScoreCell(s.studentId, 'score', e.target.value)}
+                            onKeyDown={(e) => onScoreInputKeyDown(e, s.studentId)}
+                            ref={(el) => {
+                              if (el) scoreInputRefs.current[String(s.studentId)] = el
+                              else delete scoreInputRefs.current[String(s.studentId)]
+                            }}
                             disabled={!submissions?.assignment?.isIALinked}
                           />
                         </CTableDataCell>
@@ -786,7 +838,23 @@ const Assignments = () => {
               <CCol md={3}><CFormLabel>Allow Late Submission</CFormLabel></CCol>
               <CCol md={3} className="d-flex align-items-center"><CFormCheck checked={form.allowLateSubmission} onChange={(e) => setForm((p) => ({ ...p, allowLateSubmission: e.target.checked }))} /></CCol>
               <CCol md={3}><CFormLabel>IA Linked</CFormLabel></CCol>
-              <CCol md={3} className="d-flex align-items-center"><CFormCheck checked={form.isIALinked} onChange={(e) => setForm((p) => ({ ...p, isIALinked: e.target.checked }))} /></CCol>
+              <CCol md={3} className="d-flex align-items-center">
+                <button
+                  type="button"
+                  className={`btn btn-sm ${form.isIALinked ? 'btn-success' : 'btn-outline-secondary'}`}
+                  onClick={() =>
+                    setForm((p) => ({
+                      ...p,
+                      isIALinked: !p.isIALinked,
+                      ciaComputationId: !p.isIALinked ? p.ciaComputationId : '',
+                      iaComponentLabel: !p.isIALinked ? p.iaComponentLabel : '',
+                      maxMarks: !p.isIALinked ? p.maxMarks : '',
+                    }))
+                  }
+                >
+                  {form.isIALinked ? 'IA Linking Enabled' : 'Enable IA Linking'}
+                </button>
+              </CCol>
               {form.isIALinked ? (
                 <>
                   <CCol md={3}><CFormLabel>CIA Assessment Code</CFormLabel></CCol>

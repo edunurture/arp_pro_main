@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  CAlert,
   CCard,
   CCardBody,
   CCardHeader,
@@ -13,7 +12,7 @@ import {
   CSpinner,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
 
@@ -45,7 +44,7 @@ export default function CalendarConfiguration() {
   const [form, setForm] = useState(initialForm)
   const [rows, setRows] = useState([])
   const [academicYears, setAcademicYears] = useState([])
-  const [message, setMessage] = useState(null)
+  const toast = useArpToast()
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [selectedFile, setSelectedFile] = useState(null)
@@ -79,9 +78,12 @@ export default function CalendarConfiguration() {
   )
 
   const showMessage = (type, text) => {
-    setMessage({ type, text })
-    window.clearTimeout(showMessage._t)
-    showMessage._t = window.setTimeout(() => setMessage(null), 4500)
+    toast.show({
+      type,
+      message: text,
+      autohide: type === 'success',
+      delay: 4500,
+    })
   }
 
   const loadDetailRows = async (uploadId) => {
@@ -396,8 +398,6 @@ export default function CalendarConfiguration() {
   return (
     <CRow>
       <CCol xs={12}>
-        {message ? <CAlert color={message.type}>{message.text}</CAlert> : null}
-
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>CALENDAR CONFIGURATION</strong>
@@ -548,6 +548,7 @@ export default function CalendarConfiguration() {
               rows={filteredDayRows}
               columns={detailColumns}
               loading={detailLoading}
+              rowClassName={(row) => (row?.isHoliday ? 'arp-row-primary' : 'arp-row-default')}
               headerActions={dayHeaderActions}
               selection={{
                 type: 'radio',

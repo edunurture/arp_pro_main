@@ -11,20 +11,23 @@ import {
   CRow,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpDataTable, ArpIconButton, ArpToastStack } from '../../components/common'
+import { ArpButton, ArpDataTable, ArpIconButton, useArpToast } from '../../components/common'
 import api from '../../services/apiClient'
 import { deleteIAWorkflowBundle, listIAWorkflowRecords } from '../../services/iaWorkflowService'
 import { resolveCurrentIARole } from './iaRoleAccess'
 
 const phaseLocalKeys = {
-  PHASE_1_SETUP: 'arp.evaluation.ia.phase1.setup.draft.v1',
-  PHASE_2_SCHEDULE: 'arp.evaluation.ia.phase2.schedule.draft.v1',
-  PHASE_3_VALIDATION: 'arp.evaluation.ia.phase3.validation.draft.v1',
-  PHASE_4_PUBLISH: 'arp.evaluation.ia.phase4.publish.draft.v1',
-  PHASE_5_OPERATIONS: 'arp.evaluation.ia.phase5.operations.draft.v1',
-  PHASE_6_MARK_ENTRY: 'arp.evaluation.ia.phase6.mark-entry.draft.v1',
-  PHASE_7_RESULT_ANALYSIS: 'arp.evaluation.ia.phase7.result-analysis.draft.v1',
+  PHASE_1_SETUP: 'arp.evaluation.ia.phase1.setup.draft.v2',
+  PHASE_2_SCHEDULE: 'arp.evaluation.ia.phase2.schedule.draft.v2',
+  PHASE_3_VALIDATION: 'arp.evaluation.ia.phase3.validation.draft.v2',
+  PHASE_4_PUBLISH: 'arp.evaluation.ia.phase4.publish.draft.v2',
+  PHASE_5_OPERATIONS: 'arp.evaluation.ia.phase5.operations.draft.v2',
+  PHASE_6_MARK_ENTRY: 'arp.evaluation.ia.phase6.mark-entry.draft.v2',
+  PHASE_7_RESULT_ANALYSIS: 'arp.evaluation.ia.phase7.result-analysis.draft.v2',
+  PHASE_8_INTERNAL_MARK_STATEMENT: 'arp.evaluation.ia.phase8.internal-mark-statement.draft.v2',
 }
+
+const ACTIVE_BUNDLE_KEY = 'arp.evaluation.ia.active-bundle.v2'
 
 const phasePaths = {
   PHASE_1_SETUP: '/evaluation/ia/setup',
@@ -34,12 +37,13 @@ const phasePaths = {
   PHASE_5_OPERATIONS: '/evaluation/ia/operations',
   PHASE_6_MARK_ENTRY: '/evaluation/ia/mark-entry',
   PHASE_7_RESULT_ANALYSIS: '/evaluation/ia/result-analysis',
+  PHASE_8_INTERNAL_MARK_STATEMENT: '/evaluation/ia/internal-mark-statement',
 }
 
 const statusColor = (status) => {
   const s = String(status || '').toUpperCase()
   if (!s) return 'secondary'
-  if (s.includes('READY') || s === 'PUBLISHED' || s === 'READY_FOR_EVALUATION_FLOW' || s === 'IA_RESULT_ANALYSIS_COMPLETED') return 'success'
+  if (s.includes('READY') || s === 'PUBLISHED' || s === 'READY_FOR_EVALUATION_FLOW' || s === 'IA_RESULT_ANALYSIS_COMPLETED' || s === 'INTERNAL_MARK_STATEMENT_COMPLETED') return 'success'
   if (s === 'DRAFT' || s.includes('PROGRESS')) return 'warning'
   return 'info'
 }
@@ -93,9 +97,36 @@ const toText = (value, fallback = '-') => {
   return fallback
 }
 
-const IARecordsAdmin = () => {
+const normalizeSemesterList = (values) =>
+  [...new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  )]
+
+const getBundleChosenSemesters = (bundle) =>
+  normalizeSemesterList(
+    bundle?.phases?.PHASE_1_SETUP?.payload?.chosenSemesters ||
+      bundle?.phases?.PHASE_1_SETUP?.payload?.workflowScope?.chosenSemesters,
+  )
+
+const bundleMatchesActive = (bundle, activeBundle) => {
+  if (!bundle || !activeBundle) return false
+  const bundleSemesters = getBundleChosenSemesters(bundle).join(',')
+  const activeSemesters = normalizeSemesterList(activeBundle?.chosenSemesters || []).join(',')
+  return (
+    String(bundle.institutionId || '') === String(activeBundle.institutionId || '') &&
+    String(bundle.academicYearId || '') === String(activeBundle.academicYearId || '') &&
+    String(bundle.programmeId || '') === String(activeBundle.programmeId || '') &&
+    String(bundle.iaCycle || '') === String(activeBundle.iaCycle || activeBundle.examName || '') &&
+    String(bundle.workspaceType || 'SINGLE') === String(activeBundle.workspaceType || 'SINGLE') &&
+    bundleSemesters === activeSemesters
+  )
+}
+
+const IARecordsAdmin = ({ embedded = false, forceAdmin = false, refreshSignal = 0, onBundleActivated = null }) => {
   const navigate = useNavigate()
-  const [toast, setToast] = useState(null)
+  const toast = useArpToast()
   const [loading, setLoading] = useState(false)
   const [records, setRecords] = useState([])
   const [selectedBundleKey, setSelectedBundleKey] = useState('')
@@ -107,14 +138,15 @@ const IARecordsAdmin = () => {
     institutionId: '',
     academicYearId: '',
     chosenSemester: '',
+    workspaceType: '',
     programmeId: '',
     iaCycle: '',
   })
 
-  const isAdminUser = resolveCurrentIARole() === 'ADMIN'
+  const isAdminUser = forceAdmin || resolveCurrentIARole() === 'ADMIN'
 
   const showToast = (type, message) => {
-    setToast({
+    toast.show({
       type,
       message,
       autohide: type === 'success',
@@ -185,7 +217,7 @@ const IARecordsAdmin = () => {
   useEffect(() => {
     loadRecords()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope.institutionId, scope.academicYearId, scope.chosenSemester, scope.programmeId, scope.iaCycle, isAdminUser])
+  }, [scope.institutionId, scope.academicYearId, scope.chosenSemester, scope.programmeId, scope.iaCycle, isAdminUser, refreshSignal])
 
   const groupedBundles = useMemo(() => {
     const map = new Map()
@@ -194,6 +226,7 @@ const IARecordsAdmin = () => {
         toText(record.institutionId, ''),
         toText(record.academicYearId, ''),
         toText(record.chosenSemester, ''),
+        toText(record?.payload?.workflowScope?.workspaceType || record?.payload?.workspaceType, ''),
         toText(record.programmeId, ''),
         toText(record.iaCycle, ''),
       ].join('|')
@@ -203,6 +236,7 @@ const IARecordsAdmin = () => {
           institutionId: toText(record.institutionId, ''),
           academicYearId: toText(record.academicYearId, ''),
           chosenSemester: toText(record.chosenSemester, ''),
+          workspaceType: toText(record?.payload?.workflowScope?.workspaceType || record?.payload?.workspaceType, ''),
           programmeId: toText(record.programmeId, ''),
           iaCycle: toText(record.iaCycle, ''),
           phases: {},
@@ -210,17 +244,39 @@ const IARecordsAdmin = () => {
         })
       }
       const bundle = map.get(key)
-      bundle.phases[record.phaseKey] = record
+      const existingPhaseRecord = bundle.phases[record.phaseKey]
+      if (
+        !existingPhaseRecord ||
+        String(toText(record.updatedAt, '')) > String(toText(existingPhaseRecord.updatedAt, ''))
+      ) {
+        bundle.phases[record.phaseKey] = record
+      }
       if (String(toText(record.updatedAt, '')) > String(bundle.updatedAt || '')) {
         bundle.updatedAt = toText(record.updatedAt, '')
       }
     })
-    return [...map.values()].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
-  }, [records])
+    return [...map.values()]
+      .filter((bundle) => !scope.workspaceType || String(bundle.workspaceType || '') === String(scope.workspaceType))
+      .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+  }, [records, scope.workspaceType])
 
   useEffect(() => {
     if (!groupedBundles.length) {
       setSelectedBundleKey('')
+      return
+    }
+    if (!selectedBundleKey) {
+      try {
+        const activeBundle = JSON.parse(window.sessionStorage.getItem(ACTIVE_BUNDLE_KEY) || 'null')
+        const activeMatch = groupedBundles.find((bundle) => bundleMatchesActive(bundle, activeBundle))
+        if (activeMatch) {
+          setSelectedBundleKey(activeMatch.key)
+          return
+        }
+      } catch {
+        // ignore invalid active bundle
+      }
+      setSelectedBundleKey(groupedBundles[0].key)
       return
     }
     if (!groupedBundles.some((bundle) => bundle.key === selectedBundleKey)) {
@@ -251,6 +307,68 @@ const IARecordsAdmin = () => {
     [groupedBundles, selectedBundleKey],
   )
 
+  const activateBundle = (bundle) => {
+    if (!bundle) return null
+    const lastPhase = ['PHASE_8_INTERNAL_MARK_STATEMENT', 'PHASE_7_RESULT_ANALYSIS', 'PHASE_6_MARK_ENTRY', 'PHASE_5_OPERATIONS', 'PHASE_4_PUBLISH', 'PHASE_3_VALIDATION', 'PHASE_2_SCHEDULE', 'PHASE_1_SETUP']
+      .find((phaseKey) => Boolean(bundle.phases[phaseKey]))
+    const target = bundle.phases[lastPhase || 'PHASE_1_SETUP']
+    if (!target) return null
+
+    Object.entries(bundle.phases).forEach(([phaseKey, record]) => {
+      const localKey = phaseLocalKeys[phaseKey]
+      if (!localKey) return
+      window.sessionStorage.setItem(localKey, JSON.stringify({
+        ...(record.payload || {}),
+        status: record.payload?.status || record.workflowStatus || 'DRAFT',
+      }))
+    })
+
+    const workflowScope = target.payload?.workflowScope || {}
+    const phase1Payload = bundle.phases.PHASE_1_SETUP?.payload || {}
+    const activeBundle = {
+      key: bundle.key,
+      institutionId: bundle.institutionId || workflowScope.institutionId || '',
+      academicYearId: bundle.academicYearId || workflowScope.academicYearId || '',
+      chosenSemester: bundle.chosenSemester || workflowScope.chosenSemester || '',
+      chosenSemesters: getBundleChosenSemesters(bundle),
+      workspaceType:
+        bundle.workspaceType ||
+        workflowScope.workspaceType ||
+        target.payload?.workspaceType ||
+        'SINGLE',
+      programmeId: bundle.programmeId || workflowScope.programmeId || '',
+      programmeIds: target.payload?.programmeIds || workflowScope.programmeIds || [],
+      iaCycle: bundle.iaCycle || workflowScope.iaCycle || workflowScope.examName || '',
+      examName: bundle.iaCycle || workflowScope.examName || workflowScope.iaCycle || '',
+      lastPhase: lastPhase || 'PHASE_1_SETUP',
+      status: target.payload?.status || target.workflowStatus || 'DRAFT',
+    }
+    window.sessionStorage.setItem(ACTIVE_BUNDLE_KEY, JSON.stringify(activeBundle))
+    window.sessionStorage.setItem(
+      phaseLocalKeys.PHASE_1_SETUP,
+      JSON.stringify({
+        ...phase1Payload,
+        ...workflowScope,
+        institutionId: bundle.institutionId || workflowScope.institutionId || '',
+        academicYearId: bundle.academicYearId || workflowScope.academicYearId || '',
+        chosenSemester: bundle.chosenSemester || workflowScope.chosenSemester || '',
+        chosenSemesters: getBundleChosenSemesters(bundle),
+        workspaceType:
+          bundle.workspaceType ||
+          workflowScope.workspaceType ||
+          target.payload?.workspaceType ||
+          'SINGLE',
+        programmeId: bundle.programmeId || workflowScope.programmeId || '',
+        programmeScopeKey: bundle.programmeId || workflowScope.programmeId || '',
+        programmeIds: target.payload?.programmeIds || workflowScope.programmeIds || [],
+        iaCycle: bundle.iaCycle || workflowScope.iaCycle || workflowScope.examName || '',
+        examName: bundle.iaCycle || workflowScope.examName || workflowScope.iaCycle || '',
+      }),
+    )
+    if (typeof onBundleActivated === 'function') onBundleActivated(activeBundle)
+    return { activeBundle, lastPhase: lastPhase || 'PHASE_1_SETUP' }
+  }
+
   const bundleRows = useMemo(
     () => groupedBundles.map((bundle) => ({
       ...bundle,
@@ -274,6 +392,10 @@ const IARecordsAdmin = () => {
         toText(bundle.phases.PHASE_1_SETUP?.payload?.workflowScope?.examWindowName, '') ||
         '-',
       programmeScopeLabel: formatProgrammeScope(bundle),
+      workspaceTypeText:
+        toText(bundle.phases.PHASE_1_SETUP?.payload?.workspaceType, '') ||
+        toText(bundle.phases.PHASE_1_SETUP?.payload?.workflowScope?.workspaceType, '') ||
+        toText(bundle.workspaceType, 'SINGLE'),
       updatedAtText: toText(bundle.updatedAt),
       phase1Status: toText(bundle.phases.PHASE_1_SETUP?.workflowStatus),
       phase2Status: toText(bundle.phases.PHASE_2_SCHEDULE?.workflowStatus),
@@ -282,8 +404,9 @@ const IARecordsAdmin = () => {
       phase5Status: toText(bundle.phases.PHASE_5_OPERATIONS?.workflowStatus),
       phase6Status: toText(bundle.phases.PHASE_6_MARK_ENTRY?.workflowStatus),
       phase7Status: toText(bundle.phases.PHASE_7_RESULT_ANALYSIS?.workflowStatus),
+      phase8Status: toText(bundle.phases.PHASE_8_INTERNAL_MARK_STATEMENT?.workflowStatus),
       iaCycleText: toText(bundle.iaCycle),
-      semesterText: toText(bundle.chosenSemester),
+      semesterText: toText(getBundleChosenSemesters(bundle), toText(bundle.chosenSemester)),
     })),
     [groupedBundles],
   )
@@ -294,6 +417,7 @@ const IARecordsAdmin = () => {
       { key: 'examWindowText', label: 'Exam Month & Year', sortable: true, sortType: 'string' },
       { key: 'academicYearSemesterText', label: 'Academic Year / Semester', sortable: true, sortType: 'string' },
       { key: 'programmeScopeLabel', label: 'Programme', sortable: true, sortType: 'string' },
+      { key: 'workspaceTypeText', label: 'Workspace', sortable: true, sortType: 'string', width: 120 },
       { key: 'semesterText', label: 'Semester', sortable: true, sortType: 'string', align: 'center', width: 100 },
       {
         key: 'phase1Status',
@@ -344,42 +468,22 @@ const IARecordsAdmin = () => {
         width: 120,
         render: (row) => <CBadge color={statusColor(row.phase7Status)}>{row.phase7Status}</CBadge>,
       },
+      {
+        key: 'phase8Status',
+        label: 'P8',
+        align: 'center',
+        width: 120,
+        render: (row) => <CBadge color={statusColor(row.phase8Status)}>{row.phase8Status}</CBadge>,
+      },
       { key: 'updatedAtText', label: 'Updated At', sortable: true, sortType: 'string', width: 190 },
     ],
     [],
   )
 
   const openBundle = (bundle) => {
-    const lastPhase = ['PHASE_7_RESULT_ANALYSIS', 'PHASE_6_MARK_ENTRY', 'PHASE_5_OPERATIONS', 'PHASE_4_PUBLISH', 'PHASE_3_VALIDATION', 'PHASE_2_SCHEDULE', 'PHASE_1_SETUP']
-      .find((phaseKey) => Boolean(bundle.phases[phaseKey]))
-    const target = bundle.phases[lastPhase || 'PHASE_1_SETUP']
-    if (!target) return
-
-    Object.entries(bundle.phases).forEach(([phaseKey, record]) => {
-      const localKey = phaseLocalKeys[phaseKey]
-      if (!localKey) return
-      window.sessionStorage.setItem(localKey, JSON.stringify({
-        ...(record.payload || {}),
-        status: record.payload?.status || record.workflowStatus || 'DRAFT',
-      }))
-    })
-
-    const workflowScope = target.payload?.workflowScope || {}
-    window.sessionStorage.setItem(
-      phaseLocalKeys.PHASE_1_SETUP,
-      JSON.stringify({
-        ...workflowScope,
-        institutionId: bundle.institutionId || workflowScope.institutionId || '',
-        academicYearId: bundle.academicYearId || workflowScope.academicYearId || '',
-        chosenSemester: bundle.chosenSemester || workflowScope.chosenSemester || '',
-        programmeId: bundle.programmeId || workflowScope.programmeId || '',
-        programmeScopeKey: bundle.programmeId || workflowScope.programmeId || '',
-        iaCycle: bundle.iaCycle || workflowScope.iaCycle || workflowScope.examName || '',
-        examName: bundle.iaCycle || workflowScope.examName || workflowScope.iaCycle || '',
-      }),
-    )
-
-    navigate(phasePaths[lastPhase || 'PHASE_1_SETUP'])
+    const activated = activateBundle(bundle)
+    if (!activated) return
+    navigate(phasePaths[activated.lastPhase])
   }
 
   const downloadBundle = (bundle) => {
@@ -402,6 +506,7 @@ const IARecordsAdmin = () => {
         institutionId: bundle.institutionId,
         academicYearId: bundle.academicYearId,
         chosenSemester: bundle.chosenSemester,
+        chosenSemesters: getBundleChosenSemesters(bundle),
         programmeId: bundle.programmeId,
         iaCycle: bundle.iaCycle,
       })
@@ -429,7 +534,7 @@ const IARecordsAdmin = () => {
           courseCode: course.code || '-',
           courseName: course.name || '-',
           programme: programmeLabel,
-          semester: course.semester || bundle.chosenSemester || '-',
+          semester: course.semester || toText(getBundleChosenSemesters(bundle), bundle.chosenSemester || '-') || '-',
           date: slot.date || '-',
           session: slot.session || '-',
           time: slot.startTime && slot.endTime ? `${slot.startTime} - ${slot.endTime}` : '-',
@@ -595,6 +700,9 @@ const IARecordsAdmin = () => {
   }
 
   if (!isAdminUser) {
+    if (embedded) {
+      return null
+    }
     return (
       <CRow>
         <CCol xs={12}>
@@ -605,13 +713,11 @@ const IARecordsAdmin = () => {
   }
 
   return (
-    <CRow>
+    <CRow className={embedded ? 'mt-3' : ''}>
       <CCol xs={12}>
-        <ArpToastStack toast={toast} onClose={() => setToast(null)} />
-
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>IA RECORDS CONSOLE</strong>
+            <strong>{embedded ? 'SAVED IA WORKSPACES' : 'IA RECORDS CONSOLE'}</strong>
             <CBadge color="dark">Admin Only</CBadge>
           </CCardHeader>
           <CCardBody>
@@ -628,6 +734,14 @@ const IARecordsAdmin = () => {
                 <CFormSelect value={scope.academicYearId} onChange={(e) => setScope((p) => ({ ...p, academicYearId: e.target.value }))}>
                   <option value="">All Academic Years</option>
                   {academicYears.map((x) => <option key={x.id} value={x.id}>{x.academicYearLabel || x.academicYear || x.id}</option>)}
+                </CFormSelect>
+              </CCol>
+              <CCol md={2}><CFormLabel>Workspace</CFormLabel></CCol>
+              <CCol md={4}>
+                <CFormSelect value={scope.workspaceType} onChange={(e) => setScope((p) => ({ ...p, workspaceType: e.target.value }))}>
+                  <option value="">All Workspace Types</option>
+                  <option value="SINGLE">Single Workspace</option>
+                  <option value="BUNDLE">Bundle Workspace</option>
                 </CFormSelect>
               </CCol>
               <CCol md={2}><CFormLabel>Semester</CFormLabel></CCol>
@@ -677,7 +791,12 @@ const IARecordsAdmin = () => {
               selection={{
                 type: 'radio',
                 selected: selectedBundleKey,
-                onChange: (value) => setSelectedBundleKey(String(value || '')),
+                onChange: (value) => {
+                  const nextKey = String(value || '')
+                  setSelectedBundleKey(nextKey)
+                  const nextBundle = groupedBundles.find((bundle) => bundle.key === nextKey) || null
+                  if (nextBundle) activateBundle(nextBundle)
+                },
                 key: 'key',
                 headerLabel: 'Select',
                 width: 70,

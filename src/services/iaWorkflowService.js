@@ -14,6 +14,7 @@ export const IA_PHASE_KEYS = {
   PHASE_5_OPERATIONS: 'PHASE_5_OPERATIONS',
   PHASE_6_MARK_ENTRY: 'PHASE_6_MARK_ENTRY',
   PHASE_7_RESULT_ANALYSIS: 'PHASE_7_RESULT_ANALYSIS',
+  PHASE_8_INTERNAL_MARK_STATEMENT: 'PHASE_8_INTERNAL_MARK_STATEMENT',
 }
 
 export const saveIAWorkflowPhase = async (phaseKey, payload) => {
@@ -43,6 +44,21 @@ export const getIACourseResources = async (params) => {
 
 export const getIAOperationRoster = async (params) => {
   const res = await api.get('/api/evaluation/ia-workflow/operation-roster', { params })
+  return unwrap(res)
+}
+
+export const getIAPhase8Statement = async (params) => {
+  const res = await api.get('/api/evaluation/ia-workflow/phase8/statement', { params })
+  return unwrap(res)
+}
+
+export const getIAMarkStatementConfig = async (params) => {
+  const res = await api.get('/api/evaluation/ia-workflow/mark-statement-config', { params })
+  return unwrap(res)
+}
+
+export const saveIAMarkStatementConfig = async (payload) => {
+  const res = await api.post('/api/evaluation/ia-workflow/mark-statement-config', payload)
   return unwrap(res)
 }
 

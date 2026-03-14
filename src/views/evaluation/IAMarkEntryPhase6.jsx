@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   CBadge,
   CCard,
@@ -17,21 +18,55 @@ import {
   CRow,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpDataTable, ArpIconButton, ArpToastStack } from '../../components/common'
+import { ArpButton, ArpDataTable, ArpIconButton, useArpToast } from '../../components/common'
+import api from '../../services/apiClient'
 import { getIAOperationRoster, getIAWorkflowPhase, IA_PHASE_KEYS, saveIAWorkflowPhase } from '../../services/iaWorkflowService'
 import IAWorkflowScopeBanner from './IAWorkflowScopeBanner'
 
-const PHASE_4_KEY = 'arp.evaluation.ia.phase4.publish.draft.v1'
-const PHASE_5_KEY = 'arp.evaluation.ia.phase5.operations.draft.v1'
-const PHASE_6_KEY = 'arp.evaluation.ia.phase6.mark-entry.draft.v1'
+const PHASE_4_KEY = 'arp.evaluation.ia.phase4.publish.draft.v2'
+const PHASE_5_KEY = 'arp.evaluation.ia.phase5.operations.draft.v2'
+const PHASE_6_KEY = 'arp.evaluation.ia.phase6.mark-entry.draft.v2'
+const PHASE_1_KEY = 'arp.evaluation.ia.phase1.setup.draft.v2'
+const ACTIVE_BUNDLE_KEY = 'arp.evaluation.ia.active-bundle.v2'
+
+const normalizeSemesterList = (values) =>
+  [...new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  )]
+
+const bundleScopeMatches = (bundle = null, phase = {}) => {
+  if (!bundle) return false
+  const activeSemesters = normalizeSemesterList(bundle?.chosenSemesters || []).join(',')
+  const phaseSemesters = normalizeSemesterList(phase?.chosenSemesters || phase?.workflowScope?.chosenSemesters || []).join(',')
+  return (
+    String(bundle?.institutionId || '') === String(phase?.institutionId || phase?.workflowScope?.institutionId || '') &&
+    String(bundle?.academicYearId || '') === String(phase?.academicYearId || phase?.workflowScope?.academicYearId || '') &&
+    String(bundle?.programmeId || '') === String(phase?.programmeId || phase?.workflowScope?.programmeId || '') &&
+    String(bundle?.iaCycle || bundle?.examName || '') === String(phase?.iaCycle || phase?.examName || phase?.workflowScope?.iaCycle || phase?.workflowScope?.examName || '') &&
+    activeSemesters === phaseSemesters
+  )
+}
+
+const hasSemesterScope = (workflowScope = {}) =>
+  Boolean(String(workflowScope?.chosenSemester || '').trim()) || normalizeSemesterList(workflowScope?.chosenSemesters).length > 0
 
 const buildCourseRows = (opsRows = []) =>
   opsRows
-    .filter((row) => String(row.operationStatus || '').toUpperCase() === 'COMPLETED')
+    .filter(
+      (row) =>
+        String(row.operationStatus || '').toUpperCase() === 'COMPLETED' &&
+        String(row.iaDecision || '').toUpperCase() === 'SCHEDULED',
+    )
     .map((row) => ({
       courseId: row.id,
       courseCode: row.code || '-',
       courseName: row.name || '-',
+      programmeId: row.programmeId || '',
+      programmeCode: row.programmeCode || '',
+      programmeName: row.programmeName || '',
+      semester: row.semester || '',
       totalStudents: Number(row.students || 0),
       status: 'PENDING',
       rosterSource: Array.isArray(row.studentRoster) && row.studentRoster.length > 0 ? 'PHASE5' : 'MISSING',
@@ -55,7 +90,163 @@ const buildCourseRows = (opsRows = []) =>
 const hasAnyStudents = (courseRows = []) =>
   courseRows.some((course) => Array.isArray(course.students) && course.students.length > 0)
 
+const unwrapList = (res) => {
+  if (Array.isArray(res?.data?.data)) return res.data.data
+  if (Array.isArray(res?.data)) return res.data
+  return []
+}
+
+const toNumberOrNull = (value) => {
+  if (value === null || value === undefined || value === '') return null
+  const next = Number(value)
+  return Number.isFinite(next) ? next : null
+}
+
+const getStudentValidation = (student, maximumMarks, minimumMarks) => {
+  const attendance = String(student?.attendanceStatus || '').toUpperCase()
+  const markValue = toNumberOrNull(student?.mark)
+  const errors = []
+  const hasMarkInput = String(student?.mark || '').trim() !== ''
+
+  if (attendance === 'ABSENT') {
+    if (hasMarkInput) errors.push('Absent student cannot have marks')
+    return { invalid: errors.length > 0, errors }
+  }
+
+  if (attendance === 'MALPRACTICE') {
+    if (hasMarkInput) errors.push('Malpractice student cannot have marks')
+    return { invalid: errors.length > 0, errors }
+  }
+
+  if (attendance === 'PRESENT') {
+    if (!hasMarkInput) return { invalid: false, errors: [] }
+    if (markValue === null) {
+      errors.push('Mark must be numeric')
+      return { invalid: true, errors }
+    }
+    if (markValue < 0) errors.push('Mark cannot be negative')
+    if (maximumMarks !== null && markValue > maximumMarks) errors.push(`Maximum allowed is ${maximumMarks}`)
+  }
+
+  return { invalid: errors.length > 0, errors }
+}
+
+const resolveWorkflowScope = (phase1 = {}, phase4 = {}, activeBundle = null) => ({
+  institutionId:
+    activeBundle?.institutionId ||
+    phase4?.workflowScope?.institutionId ||
+    phase4?.institutionId ||
+    phase1?.institutionId ||
+    '',
+  institutionName:
+    activeBundle?.institutionName ||
+    phase4?.workflowScope?.institutionName ||
+    phase4?.institutionName ||
+    phase1?.institutionName ||
+    '',
+  academicYearId:
+    activeBundle?.academicYearId ||
+    phase4?.workflowScope?.academicYearId ||
+    phase4?.academicYearId ||
+    phase1?.academicYearId ||
+    '',
+  academicYearLabel:
+    activeBundle?.academicYearLabel ||
+    phase4?.workflowScope?.academicYearLabel ||
+    phase4?.academicYearLabel ||
+    phase1?.academicYearLabel ||
+    '',
+  semesterCategory:
+    activeBundle?.semesterCategory ||
+    phase4?.workflowScope?.semesterCategory ||
+    phase4?.semesterCategory ||
+    phase1?.semesterCategory ||
+    '',
+  chosenSemester:
+    activeBundle?.chosenSemester ||
+    phase4?.workflowScope?.chosenSemester ||
+    phase4?.chosenSemester ||
+    phase1?.chosenSemester ||
+    '',
+  chosenSemesters:
+    normalizeSemesterList(
+      activeBundle?.chosenSemesters ||
+      phase4?.workflowScope?.chosenSemesters ||
+      phase4?.chosenSemesters ||
+      phase1?.chosenSemesters ||
+      [],
+    ),
+  programmeId:
+    activeBundle?.programmeId ||
+    phase4?.workflowScope?.programmeId ||
+    phase4?.programmeId ||
+    phase1?.programmeScopeKey ||
+    phase1?.programmeId ||
+    '',
+  programmeIds:
+    Array.isArray(activeBundle?.programmeIds) && activeBundle.programmeIds.length > 0
+      ? activeBundle.programmeIds
+      : Array.isArray(phase4?.workflowScope?.programmeIds) && phase4.workflowScope.programmeIds.length > 0
+        ? phase4.workflowScope.programmeIds
+        : Array.isArray(phase4?.programmeIds) && phase4.programmeIds.length > 0
+          ? phase4.programmeIds
+          : Array.isArray(phase1?.programmeIds)
+            ? phase1.programmeIds
+            : [],
+  workspaceType:
+    activeBundle?.workspaceType ||
+    phase4?.workflowScope?.workspaceType ||
+    phase4?.workspaceType ||
+    phase1?.workspaceType ||
+    'SINGLE',
+  bundlePreset:
+    activeBundle?.bundlePreset ||
+    phase4?.workflowScope?.bundlePreset ||
+    phase4?.bundlePreset ||
+    phase1?.bundlePreset ||
+    'MANUAL',
+  examName:
+    activeBundle?.examName ||
+    activeBundle?.iaCycle ||
+    phase4?.workflowScope?.examName ||
+    phase4?.workflowScope?.iaCycle ||
+    phase4?.examName ||
+    phase4?.iaCycle ||
+    phase1?.examName ||
+    phase1?.iaCycle ||
+    '',
+  iaCycle:
+    activeBundle?.iaCycle ||
+    activeBundle?.examName ||
+    phase4?.workflowScope?.iaCycle ||
+    phase4?.workflowScope?.examName ||
+    phase4?.iaCycle ||
+    phase4?.examName ||
+    phase1?.iaCycle ||
+    phase1?.examName ||
+    '',
+  examWindowName:
+    phase4?.workflowScope?.examWindowName ||
+    phase4?.examWindowName ||
+    phase1?.examWindowName ||
+    '',
+  examMonthYear:
+    activeBundle?.examMonthYear ||
+    phase4?.workflowScope?.examMonthYear ||
+    phase4?.examMonthYear ||
+    phase1?.examMonthYear ||
+    '',
+})
+
 const IAMarkEntryPhase6 = () => {
+  const navigate = useNavigate()
+  const phase1 = useMemo(() => {
+    try {
+      return JSON.parse(window.sessionStorage.getItem(PHASE_1_KEY) || '{}')
+    } catch {
+      return {}
+    }
+  }, [])
   const phase4 = useMemo(() => {
     try {
       return JSON.parse(window.sessionStorage.getItem(PHASE_4_KEY) || '{}')
@@ -71,24 +262,61 @@ const IAMarkEntryPhase6 = () => {
       return {}
     }
   }, [])
+  const activeBundle = useMemo(() => {
+    try {
+      return JSON.parse(window.sessionStorage.getItem(ACTIVE_BUNDLE_KEY) || 'null')
+    } catch {
+      return null
+    }
+  }, [])
+  const hasActiveBundle = useMemo(
+    () =>
+      Boolean(
+        String(activeBundle?.institutionId || '').trim() &&
+        String(activeBundle?.academicYearId || '').trim() &&
+        String(activeBundle?.programmeId || '').trim() &&
+        String(activeBundle?.iaCycle || activeBundle?.examName || '').trim(),
+      ),
+    [activeBundle],
+  )
 
-  const [toast, setToast] = useState(null)
+  const toast = useArpToast()
   const [status, setStatus] = useState('DRAFT')
   const [courseRows, setCourseRows] = useState(() => buildCourseRows(phase5.rows || []))
+  const [programmeFilter, setProgrammeFilter] = useState('')
+  const [semesterFilter, setSemesterFilter] = useState('')
+  const [courseStatusFilter, setCourseStatusFilter] = useState('')
   const [courseFilter, setCourseFilter] = useState('')
-  const [entryMode, setEntryMode] = useState('VIEW')
+  const [entryMode, setEntryMode] = useState('EDIT')
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewHtml, setPreviewHtml] = useState('')
-  const workflowScope = phase4.workflowScope || phase4 || {}
+  const [pendingPrint, setPendingPrint] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [computationRows, setComputationRows] = useState([])
+  const [assessmentMappingsByScope, setAssessmentMappingsByScope] = useState({})
+  const workflowScope = useMemo(
+    () => resolveWorkflowScope(phase1, phase4, activeBundle),
+    [activeBundle, phase1, phase4],
+  )
+  const previewFrameRef = useRef(null)
+  const markInputRefs = useRef(new Map())
 
   const showToast = (type, message) => {
-    setToast({ type, message, autohide: type === 'success', delay: 4500 })
+    toast.show({ type, message, autohide: type === 'success', delay: 4500 })
   }
+
+  useEffect(() => {
+    if (hasActiveBundle) return
+    navigate('/evaluation/ia/workspace', {
+      replace: true,
+      state: { workspaceNotice: 'Select or create an IA Workspace first.' },
+    })
+  }, [hasActiveBundle, navigate])
 
   useEffect(() => {
     try {
       const saved = JSON.parse(window.sessionStorage.getItem(PHASE_6_KEY) || '{}')
-      if (saved && typeof saved === 'object') {
+      if (saved && typeof saved === 'object' && bundleScopeMatches(activeBundle, saved)) {
         if (String(saved.status || '').trim()) setStatus(String(saved.status))
         if (Array.isArray(saved.courseRows) && saved.courseRows.length > 0) setCourseRows(saved.courseRows)
       }
@@ -98,8 +326,23 @@ const IAMarkEntryPhase6 = () => {
   }, [])
 
   useEffect(() => {
-    const wf = phase4.workflowScope || {}
-    if (!wf.institutionId || !wf.academicYearId || !wf.chosenSemester || !wf.programmeId || !(wf.iaCycle || wf.examName)) {
+    const institutionId = String(workflowScope?.institutionId || '').trim()
+    if (!institutionId) return
+    ;(async () => {
+      try {
+        const res = await api.get('/api/setup/cia-computations', {
+          params: { institutionId },
+        })
+        setComputationRows(unwrapList(res))
+      } catch {
+        setComputationRows([])
+      }
+    })()
+  }, [workflowScope?.institutionId])
+
+  useEffect(() => {
+    const wf = workflowScope || {}
+    if (!wf.institutionId || !wf.academicYearId || !hasSemesterScope(wf) || !wf.programmeId || !(wf.iaCycle || wf.examName)) {
       return
     }
     ;(async () => {
@@ -108,6 +351,7 @@ const IAMarkEntryPhase6 = () => {
           institutionId: wf.institutionId || '',
           academicYearId: wf.academicYearId || '',
           chosenSemester: wf.chosenSemester || '',
+          chosenSemesters: normalizeSemesterList(wf.chosenSemesters),
           programmeId: wf.programmeId || '',
           iaCycle: wf.iaCycle || wf.examName || '',
           examName: wf.examName || wf.iaCycle || '',
@@ -124,7 +368,7 @@ const IAMarkEntryPhase6 = () => {
         // keep local/session state
       }
     })()
-  }, [phase4])
+  }, [workflowScope])
 
   useEffect(() => {
     if (hasAnyStudents(courseRows) || courseRows.length === 0) return
@@ -170,53 +414,228 @@ const IAMarkEntryPhase6 = () => {
     })()
   }, [courseRows])
 
+  const programmeOptions = useMemo(() => {
+    const map = new Map()
+    courseRows.forEach((course) => {
+      const programmeId = String(course.programmeId || '').trim()
+      const programmeCode = String(course.programmeCode || '').trim()
+      const programmeName = String(course.programmeName || '').trim()
+      const label = [programmeCode, programmeName].filter(Boolean).join(' - ') || programmeId
+      if (programmeId && !map.has(programmeId)) {
+        map.set(programmeId, { value: programmeId, label })
+      }
+    })
+    return [...map.values()].sort((a, b) => a.label.localeCompare(b.label))
+  }, [courseRows])
+
+  const semesterOptions = useMemo(
+    () => [...new Set(
+      courseRows
+        .map((course) => String(course.semester || '').trim())
+        .filter(Boolean),
+    )].sort((a, b) => Number(a) - Number(b)),
+    [courseRows],
+  )
+
+  const filteredCourseList = useMemo(
+    () => courseRows.filter((row) => {
+      const programmeMatch = !programmeFilter || String(row.programmeId || '').trim() === programmeFilter
+      const semesterMatch = !semesterFilter || String(row.semester || '').trim() === semesterFilter
+      const statusMatch = !courseStatusFilter || String(row.status || '').toUpperCase() === courseStatusFilter
+      return programmeMatch && semesterMatch && statusMatch
+    }),
+    [courseRows, programmeFilter, semesterFilter, courseStatusFilter],
+  )
+
   const filteredCourses = useMemo(() => {
-    if (!courseFilter) return courseRows
-    return courseRows.filter((row) => String(row.courseId) === String(courseFilter))
-  }, [courseRows, courseFilter])
+    if (!courseFilter) return filteredCourseList
+    return filteredCourseList.filter((row) => String(row.courseId) === String(courseFilter))
+  }, [filteredCourseList, courseFilter])
 
   useEffect(() => {
-    if (!courseRows.length) {
+    if (!filteredCourseList.length) {
+      if (courseRows.length > 0 && courseStatusFilter) {
+        setCourseStatusFilter('')
+        setCourseFilter('')
+        return
+      }
       if (courseFilter) setCourseFilter('')
       return
     }
-    if (!courseFilter || !courseRows.some((row) => String(row.courseId) === String(courseFilter))) {
-      setCourseFilter(String(courseRows[0].courseId))
+    if (!courseFilter || !filteredCourseList.some((row) => String(row.courseId) === String(courseFilter))) {
+      setCourseFilter(String(filteredCourseList[0].courseId))
     }
-  }, [courseRows, courseFilter])
+  }, [filteredCourseList, courseFilter, courseRows.length, courseStatusFilter])
 
   const currentCourse = useMemo(
     () => filteredCourses[0] || null,
     [filteredCourses],
   )
 
-  const isReadOnly = status === 'READY_FOR_PHASE_7' || entryMode === 'VIEW'
+  useEffect(() => {
+    const institutionId = String(workflowScope?.institutionId || '').trim()
+    const academicYearId = String(workflowScope?.academicYearId || '').trim()
+    const semesterCategory = String(workflowScope?.semesterCategory || '').trim()
+    const programmeId = String(currentCourse?.programmeId || '').trim()
+    const chosenSemester = String(currentCourse?.semester || '').trim()
+    if (!institutionId || !academicYearId || !programmeId || !chosenSemester) return
+    const scopeKey = [institutionId, academicYearId, semesterCategory, programmeId, chosenSemester].join('|')
+    if (assessmentMappingsByScope[scopeKey]) return
+    ;(async () => {
+      try {
+        const res = await api.get('/api/setup/assessment-setup', {
+          params: {
+            institutionId,
+            academicYearId,
+            semesterCategory,
+            chosenSemester,
+            programmeId,
+          },
+        })
+        setAssessmentMappingsByScope((prev) => ({
+          ...prev,
+          [scopeKey]: unwrapList(res),
+        }))
+      } catch {
+        setAssessmentMappingsByScope((prev) => ({
+          ...prev,
+          [scopeKey]: [],
+        }))
+      }
+    })()
+  }, [
+    assessmentMappingsByScope,
+    currentCourse?.programmeId,
+    currentCourse?.semester,
+    workflowScope?.academicYearId,
+    workflowScope?.institutionId,
+    workflowScope?.semesterCategory,
+  ])
+
+  const currentCourseAssessment = useMemo(() => {
+    if (!currentCourse) return null
+    const institutionId = String(workflowScope?.institutionId || '').trim()
+    const academicYearId = String(workflowScope?.academicYearId || '').trim()
+    const semesterCategory = String(workflowScope?.semesterCategory || '').trim()
+    const programmeId = String(currentCourse?.programmeId || '').trim()
+    const chosenSemester = String(currentCourse?.semester || '').trim()
+    const examName = String(workflowScope?.examName || workflowScope?.iaCycle || '').trim()
+    const scopeKey = [institutionId, academicYearId, semesterCategory, programmeId, chosenSemester].join('|')
+    const mappingRows = assessmentMappingsByScope[scopeKey] || []
+    const mappingRow =
+      mappingRows.find((row) => String(row.courseOfferingId || '').trim() === String(currentCourse.courseId || '').trim()) ||
+      mappingRows.find((row) => String(row.courseCode || '').trim() === String(currentCourse.courseCode || '').trim()) ||
+      null
+    const computation =
+      computationRows.find((row) => String(row.id || '').trim() === String(mappingRow?.ciaComputationId || '').trim()) || null
+    const matchedComponent =
+      (Array.isArray(computation?.components) ? computation.components : []).find(
+        (row) => String(row.examination || '').trim().toLowerCase() === examName.toLowerCase(),
+      ) || null
+    return {
+      examinationName: matchedComponent?.examination || examName || '-',
+      ciaAssessmentCode: computation?.ciaAssessmentCode || mappingRow?.ciaAssessmentCode || '-',
+      maximumMarks:
+        matchedComponent?.maxMarks ?? mappingRow?.cia ?? null,
+      minimumMarks:
+        matchedComponent?.minMarks ?? mappingRow?.minimumCIA ?? null,
+      contributionMax:
+        matchedComponent?.contributionMax ?? null,
+      source: matchedComponent ? 'COMPONENT_MAPPING' : mappingRow ? 'COURSE_CIA_FALLBACK' : 'UNAVAILABLE',
+    }
+  }, [
+    assessmentMappingsByScope,
+    computationRows,
+    currentCourse,
+    workflowScope?.academicYearId,
+    workflowScope?.examName,
+    workflowScope?.iaCycle,
+    workflowScope?.institutionId,
+    workflowScope?.semesterCategory,
+  ])
+
+  const phaseLocked = status === 'READY_FOR_PHASE_7' && !editMode
+  const isReadOnly = phaseLocked || entryMode === 'VIEW'
+  const currentMaximumMarks = toNumberOrNull(currentCourseAssessment?.maximumMarks)
+  const currentMinimumMarks = toNumberOrNull(currentCourseAssessment?.minimumMarks)
+  const currentCourseValidation = useMemo(() => {
+    const map = new Map()
+    ;(currentCourse?.students || []).forEach((student) => {
+      map.set(String(student.studentId), getStudentValidation(student, currentMaximumMarks, currentMinimumMarks))
+    })
+    return map
+  }, [currentCourse, currentMaximumMarks, currentMinimumMarks])
+
+  useEffect(() => {
+    if (phaseLocked) {
+      setEntryMode('VIEW')
+      return
+    }
+    setEntryMode('EDIT')
+  }, [phaseLocked, currentCourse?.courseId])
 
   const setStudentField = (courseId, studentId, key, value) => {
     setCourseRows((prev) =>
       prev.map((course) => {
-        if (String(course.courseId) !== String(courseId) || status === 'READY_FOR_PHASE_7') return course
+        if (String(course.courseId) !== String(courseId) || phaseLocked) return course
         const students = (course.students || []).map((student) => {
           if (String(student.studentId) !== String(studentId)) return student
-        const next = { ...student, [key]: value }
+          const next = { ...student, [key]: value }
+          if (key === 'mark') {
+            const markValue = toNumberOrNull(value)
+            if (student.attendanceStatus === 'ABSENT') {
+              next.mark = ''
+              next.result = 'ABSENT'
+              return next
+            }
+            if (student.attendanceStatus === 'MALPRACTICE') {
+              next.mark = ''
+              next.result = 'MALPRACTICE'
+              return next
+            }
+            if (markValue === null) {
+              next.result = ''
+              return next
+            }
+            if (currentMinimumMarks !== null) {
+              next.result = markValue >= currentMinimumMarks ? 'PASS' : 'FAIL'
+            }
+          }
           return next
         })
         return {
           ...course,
           students,
-          status: 'MARK_ENTRY_UPDATED',
+          status: course.status === 'COMPLETED' ? 'COMPLETED' : 'PENDING',
         }
       }),
     )
   }
 
+  const focusRelativeMarkInput = (studentId, direction = 1) => {
+    const students = Array.isArray(currentCourse?.students) ? currentCourse.students : []
+    const eligibleIds = students
+      .filter((student) => String(student.attendanceStatus || '').toUpperCase() === 'PRESENT')
+      .map((student) => String(student.studentId))
+    const currentIndex = eligibleIds.findIndex((id) => id === String(studentId))
+    if (currentIndex === -1) return
+    const nextIndex = currentIndex + direction
+    if (nextIndex < 0 || nextIndex >= eligibleIds.length) return
+    const nextInput = markInputRefs.current.get(eligibleIds[nextIndex])
+    if (nextInput && typeof nextInput.focus === 'function') {
+      nextInput.focus()
+      nextInput.select?.()
+    }
+  }
+
   const setStudentResult = (courseId, studentId, resultValue, checked) => {
     setCourseRows((prev) =>
       prev.map((course) => {
-        if (String(course.courseId) !== String(courseId) || status === 'READY_FOR_PHASE_7') return course
+        if (String(course.courseId) !== String(courseId) || phaseLocked) return course
         const students = (course.students || []).map((student) => {
           if (String(student.studentId) !== String(studentId)) return student
           if (student.attendanceStatus !== 'PRESENT') return student
+          if (currentMinimumMarks !== null) return student
           return {
             ...student,
             result: checked ? resultValue : '',
@@ -225,35 +644,90 @@ const IAMarkEntryPhase6 = () => {
         return {
           ...course,
           students,
-          status: 'MARK_ENTRY_UPDATED',
+          status: course.status === 'COMPLETED' ? 'COMPLETED' : 'PENDING',
         }
       }),
     )
   }
 
-  const onCompleteCourse = (courseId) => {
-    setCourseRows((prev) =>
-      prev.map((course) => {
-        if (String(course.courseId) !== String(courseId)) return course
-        const missingMark = (course.students || []).some(
-          (student) => student.attendanceStatus === 'PRESENT' && String(student.mark || '').trim() === '',
-        )
-        if (missingMark) {
-          showToast('danger', `Enter marks for all present students in ${course.courseCode}.`)
-          return course
-        }
-        const missingResult = (course.students || []).some(
-          (student) => student.attendanceStatus === 'PRESENT' && !String(student.result || '').trim(),
-        )
-        if (missingResult) {
-          showToast('danger', `Select P, F or R for all present students in ${course.courseCode}.`)
-          return course
-        }
-        return { ...course, status: 'COMPLETED' }
-      }),
+  const validateCourseForSubmission = (course) => {
+    const invalidRange = (course.students || []).some((student) => {
+      if (student.attendanceStatus !== 'PRESENT') return false
+      const markValue = toNumberOrNull(student.mark)
+      if (markValue === null) return false
+      if (markValue < 0) return true
+      if (currentMaximumMarks !== null && markValue > currentMaximumMarks) return true
+      return false
+    })
+    if (invalidRange) return `Entered marks exceed the allowed range for ${course.courseCode}.`
+
+    const missingMark = (course.students || []).some(
+      (student) => student.attendanceStatus === 'PRESENT' && String(student.mark || '').trim() === '',
     )
+    if (missingMark) return `Enter marks for all present students in ${course.courseCode}.`
+
+    const invalidAbsentMark = (course.students || []).some(
+      (student) =>
+        (student.attendanceStatus === 'ABSENT' || student.attendanceStatus === 'MALPRACTICE') &&
+        String(student.mark || '').trim() !== '',
+    )
+    if (invalidAbsentMark) return `Absent or malpractice students cannot have marks in ${course.courseCode}.`
+
+    const missingResult = (course.students || []).some(
+      (student) => student.attendanceStatus === 'PRESENT' && !String(student.result || '').trim(),
+    )
+    if (missingResult) return `Select P, F or R for all present students in ${course.courseCode}.`
+
+    return ''
+  }
+
+  const onSubmitCurrentCourse = async () => {
+    if (!currentCourse) {
+      showToast('warning', 'Select a course to submit marks.')
+      return
+    }
+    const error = validateCourseForSubmission(currentCourse)
+    if (error) {
+      showToast('danger', error)
+      return
+    }
+    const nextCourseRows = courseRows.map((course) =>
+      String(course.courseId) === String(currentCourse.courseId)
+        ? { ...course, status: 'COMPLETED' }
+        : course,
+    )
+    setCourseRows(nextCourseRows)
+    const payload = {
+      status: status === 'READY_FOR_PHASE_7' ? 'READY_FOR_PHASE_7' : 'DRAFT',
+      courseRows: nextCourseRows,
+      updatedAt: new Date().toISOString(),
+    }
+    window.sessionStorage.setItem(PHASE_6_KEY, JSON.stringify(payload))
+    try {
+      const wf = workflowScope || {}
+      await saveIAWorkflowPhase(IA_PHASE_KEYS.PHASE_6_MARK_ENTRY, {
+        institutionId: wf.institutionId || '',
+        academicYearId: wf.academicYearId || '',
+        chosenSemester: wf.chosenSemester || '',
+        chosenSemesters: normalizeSemesterList(wf.chosenSemesters),
+        programmeId: wf.programmeId || '',
+        programmeIds: Array.isArray(wf.programmeIds) ? wf.programmeIds : [],
+        workspaceType: wf.workspaceType || 'SINGLE',
+        bundlePreset: wf.bundlePreset || 'MANUAL',
+        examName: wf.examName || wf.iaCycle || '',
+        iaCycle: wf.iaCycle || '',
+        workflowStatus: payload.status,
+        versionNo: 1,
+        payload: {
+          workflowScope: wf,
+          ...payload,
+        },
+      })
+    } catch {
+      // keep local/session state
+    }
     setEntryMode('VIEW')
-    showToast('success', 'Selected course mark entry completed.')
+    showToast('success', `Marks submitted for ${currentCourse.courseCode}.`)
   }
 
   const persist = async (nextStatus) => {
@@ -264,12 +738,16 @@ const IAMarkEntryPhase6 = () => {
     }
     window.sessionStorage.setItem(PHASE_6_KEY, JSON.stringify(payload))
     try {
-      const wf = phase4.workflowScope || {}
+      const wf = workflowScope || {}
       await saveIAWorkflowPhase(IA_PHASE_KEYS.PHASE_6_MARK_ENTRY, {
         institutionId: wf.institutionId || '',
         academicYearId: wf.academicYearId || '',
         chosenSemester: wf.chosenSemester || '',
+        chosenSemesters: normalizeSemesterList(wf.chosenSemesters),
         programmeId: wf.programmeId || '',
+        programmeIds: Array.isArray(wf.programmeIds) ? wf.programmeIds : [],
+        workspaceType: wf.workspaceType || 'SINGLE',
+        bundlePreset: wf.bundlePreset || 'MANUAL',
         examName: wf.examName || wf.iaCycle || '',
         iaCycle: wf.iaCycle || '',
         workflowStatus: nextStatus,
@@ -288,16 +766,6 @@ const IAMarkEntryPhase6 = () => {
   const onSaveDraft = async () => {
     await persist(status === 'READY_FOR_PHASE_7' ? 'READY_FOR_PHASE_7' : 'DRAFT')
     showToast('success', 'Phase 6 mark entry draft saved.')
-  }
-
-  const onSaveCurrentCourse = async () => {
-    if (!currentCourse) {
-      showToast('warning', 'Select a course to save mark entry.')
-      return
-    }
-    await persist(status === 'READY_FOR_PHASE_7' ? 'READY_FOR_PHASE_7' : 'DRAFT')
-    setEntryMode('VIEW')
-    showToast('success', `Mark entry saved for ${currentCourse.courseCode}.`)
   }
 
   const onDownloadCurrentCourse = async () => {
@@ -350,9 +818,12 @@ const IAMarkEntryPhase6 = () => {
     if (!currentCourse) return ''
     const institutionName = workflowScope?.institutionName || workflowScope?.institutionId || 'Institution'
     const academicYear = workflowScope?.academicYearLabel || workflowScope?.academicYearId || '-'
-    const semester = workflowScope?.semesterCategory || '-'
+    const semester = normalizeSemesterList(workflowScope?.chosenSemesters).join(', ') || workflowScope?.chosenSemester || workflowScope?.semesterCategory || '-'
     const examination = workflowScope?.examName || workflowScope?.iaCycle || '-'
     const examMonthYear = workflowScope?.examWindowName || '-'
+    const maxMarks = currentCourseAssessment?.maximumMarks ?? '-'
+    const minMarks = currentCourseAssessment?.minimumMarks ?? '-'
+    const ciaAssessmentCode = currentCourseAssessment?.ciaAssessmentCode || '-'
     const studentsHtml = (currentCourse.students || []).length === 0
       ? '<tr><td colspan="8" style="text-align:center;padding:12px;color:#6b7280;">No student rows available.</td></tr>'
       : (currentCourse.students || [])
@@ -413,6 +884,9 @@ const IAMarkEntryPhase6 = () => {
   <div class="meta-grid">
     <div><strong>Course Code:</strong> ${escapeHtml(currentCourse.courseCode || '-')}</div>
     <div><strong>Course Name:</strong> ${escapeHtml(currentCourse.courseName || '-')}</div>
+    <div><strong>CIA Assessment Code:</strong> ${escapeHtml(ciaAssessmentCode)}</div>
+    <div><strong>Maximum Marks:</strong> ${escapeHtml(maxMarks)}</div>
+    <div><strong>Minimum Marks:</strong> ${escapeHtml(minMarks)}</div>
     <div><strong>Total Students:</strong> ${escapeHtml(currentCourse.students.length || 0)}</div>
     <div><strong>Roster Source:</strong> ${escapeHtml(currentCourse.rosterSource || '-')}</div>
   </div>
@@ -464,20 +938,27 @@ const IAMarkEntryPhase6 = () => {
       showToast('warning', 'Select a course to print mark entry.')
       return
     }
-    const html = buildCourseReportHtml({ includeToolbar: true })
-    const win = window.open('', '_blank', 'noopener,noreferrer')
-    if (!win) {
-      showToast('warning', 'Unable to open print preview window.')
-      return
-    }
-    win.document.open()
-    win.document.write(html)
-    win.document.close()
-    window.setTimeout(() => {
-      win.focus()
-      win.print()
-    }, 250)
+    setPreviewHtml(buildCourseReportHtml({ includeToolbar: false }))
+    setPreviewOpen(true)
+    setPendingPrint(true)
   }
+
+  useEffect(() => {
+    if (!previewOpen || !pendingPrint) return
+    const frame = previewFrameRef.current
+    if (!frame) return
+    const timer = window.setTimeout(() => {
+      try {
+        frame.contentWindow?.focus()
+        frame.contentWindow?.print()
+      } catch {
+        showToast('warning', 'Unable to start print from preview.')
+      } finally {
+        setPendingPrint(false)
+      }
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [pendingPrint, previewOpen])
 
   const onClosePhase6 = async () => {
     const pending = courseRows.filter((course) => course.status !== 'COMPLETED').length
@@ -486,6 +967,7 @@ const IAMarkEntryPhase6 = () => {
       return
     }
     await persist('READY_FOR_PHASE_7')
+    setEditMode(false)
     showToast('success', 'Phase 6 completed. Ready for Phase 7 result analysis.')
   }
 
@@ -516,16 +998,36 @@ const IAMarkEntryPhase6 = () => {
         key: 'mark',
         label: 'Mark',
         align: 'center',
-        render: (row) => (
-          <CFormInput
-            type="number"
-            min={0}
-            max={100}
-            value={row.mark}
-            disabled={isReadOnly || row.attendanceStatus !== 'PRESENT'}
-            onChange={(e) => setStudentField(currentCourse?.courseId, row.studentId, 'mark', e.target.value)}
-          />
-        ),
+        render: (row) => {
+          const validation = currentCourseValidation.get(String(row.studentId))
+          return (
+            <div>
+              <CFormInput
+                ref={(node) => {
+                  const key = String(row.studentId)
+                  if (node) markInputRefs.current.set(key, node)
+                  else markInputRefs.current.delete(key)
+                }}
+                type="number"
+                min={0}
+                max={Number.isFinite(Number(currentCourseAssessment?.maximumMarks)) ? Number(currentCourseAssessment.maximumMarks) : undefined}
+                value={row.mark}
+                invalid={Boolean(validation?.invalid && row.attendanceStatus === 'PRESENT')}
+                disabled={isReadOnly || row.attendanceStatus !== 'PRESENT'}
+                onChange={(e) => setStudentField(currentCourse?.courseId, row.studentId, 'mark', e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    focusRelativeMarkInput(row.studentId, 1)
+                  }
+                }}
+              />
+              {validation?.invalid ? (
+                <small className="text-danger d-block mt-1">{validation.errors[0]}</small>
+              ) : null}
+            </div>
+          )
+        },
       },
       {
         key: 'passFlag',
@@ -534,7 +1036,7 @@ const IAMarkEntryPhase6 = () => {
         render: (row) => (
           <CFormCheck
             checked={row.result === 'PASS'}
-            disabled={isReadOnly || row.attendanceStatus !== 'PRESENT'}
+            disabled={isReadOnly || row.attendanceStatus !== 'PRESENT' || currentMinimumMarks !== null}
             onChange={(e) => setStudentResult(currentCourse?.courseId, row.studentId, 'PASS', e.target.checked)}
           />
         ),
@@ -546,7 +1048,7 @@ const IAMarkEntryPhase6 = () => {
         render: (row) => (
           <CFormCheck
             checked={row.result === 'FAIL'}
-            disabled={isReadOnly || row.attendanceStatus !== 'PRESENT'}
+            disabled={isReadOnly || row.attendanceStatus !== 'PRESENT' || currentMinimumMarks !== null}
             onChange={(e) => setStudentResult(currentCourse?.courseId, row.studentId, 'FAIL', e.target.checked)}
           />
         ),
@@ -558,7 +1060,7 @@ const IAMarkEntryPhase6 = () => {
         render: (row) => (
           <CFormCheck
             checked={row.result === 'REAPPEAR'}
-            disabled={isReadOnly || row.attendanceStatus !== 'PRESENT'}
+            disabled={isReadOnly || row.attendanceStatus !== 'PRESENT' || currentMinimumMarks !== null}
             onChange={(e) => setStudentResult(currentCourse?.courseId, row.studentId, 'REAPPEAR', e.target.checked)}
           />
         ),
@@ -576,13 +1078,12 @@ const IAMarkEntryPhase6 = () => {
         ),
       },
     ],
-    [currentCourse?.courseId, isReadOnly],
+    [currentCourse?.courseId, currentCourseAssessment?.maximumMarks, currentCourseValidation, currentMinimumMarks, isReadOnly],
   )
 
   return (
     <CRow>
       <CCol xs={12}>
-        <ArpToastStack toast={toast} onClose={() => setToast(null)} />
         <IAWorkflowScopeBanner scope={workflowScope} />
 
         <CCard className="mb-3">
@@ -592,18 +1093,49 @@ const IAMarkEntryPhase6 = () => {
           </CCardHeader>
           <CCardBody>
             <CRow className="g-3">
-              <CCol md={2}><CFormLabel>Filter by Course</CFormLabel></CCol>
-              <CCol md={4}>
-                <CFormSelect value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)}>
-                  <option value="">All Completed Courses</option>
-                  {courseRows.map((course) => (
+              <CCol md={3}>
+                <CFormLabel>Filter by Programme</CFormLabel>
+                <CFormSelect value={programmeFilter} onChange={(e) => setProgrammeFilter(e.target.value)} disabled={phaseLocked}>
+                  <option value="">All Programmes</option>
+                  {programmeOptions.map((programme) => (
+                    <option key={programme.value} value={programme.value}>
+                      {programme.label}
+                    </option>
+                  ))}
+                </CFormSelect>
+              </CCol>
+              <CCol md={2}>
+                <CFormLabel>Filter by Semester</CFormLabel>
+                <CFormSelect value={semesterFilter} onChange={(e) => setSemesterFilter(e.target.value)} disabled={phaseLocked}>
+                  <option value="">All Semesters</option>
+                  {semesterOptions.map((semester) => (
+                    <option key={semester} value={semester}>
+                      Semester {semester}
+                    </option>
+                  ))}
+                </CFormSelect>
+              </CCol>
+              <CCol md={2}>
+                <CFormLabel>Filter by Status</CFormLabel>
+                <CFormSelect value={courseStatusFilter} onChange={(e) => setCourseStatusFilter(e.target.value)} disabled={phaseLocked}>
+                  <option value="">All Status</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="COMPLETED">Completed</option>
+                  <option value="MARK_ENTRY_UPDATED">Updated</option>
+                </CFormSelect>
+              </CCol>
+              <CCol md={5}>
+                <CFormLabel>Filter by Course</CFormLabel>
+                <CFormSelect value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} disabled={phaseLocked}>
+                  <option value="">All Matching Courses</option>
+                  {filteredCourseList.map((course) => (
                     <option key={course.courseId} value={course.courseId}>
                       {course.courseCode} - {course.courseName}
                     </option>
                   ))}
                 </CFormSelect>
               </CCol>
-              <CCol md={6} className="d-flex align-items-end justify-content-end">
+              <CCol md={12} className="d-flex align-items-end justify-content-end">
                 <small className="text-muted">
                   Phase 6 uses only Phase 5 completed courses with saved student attendance.
                 </small>
@@ -637,6 +1169,37 @@ const IAMarkEntryPhase6 = () => {
                 </div>
               </CCardHeader>
               <CCardBody>
+                <CRow className="g-3 mb-3">
+                  <CCol md={3}>
+                    <CFormLabel>Examination Name</CFormLabel>
+                    <CFormInput value={currentCourseAssessment?.examinationName || (workflowScope?.examName || workflowScope?.iaCycle || '-')} disabled />
+                  </CCol>
+                  <CCol md={3}>
+                    <CFormLabel>CIA Assessment Code</CFormLabel>
+                    <CFormInput value={currentCourseAssessment?.ciaAssessmentCode || '-'} disabled />
+                  </CCol>
+                  <CCol md={2}>
+                    <CFormLabel>Maximum Marks</CFormLabel>
+                    <CFormInput value={currentCourseAssessment?.maximumMarks ?? '-'} disabled />
+                  </CCol>
+                  <CCol md={2}>
+                    <CFormLabel>Minimum Marks</CFormLabel>
+                    <CFormInput value={currentCourseAssessment?.minimumMarks ?? '-'} disabled />
+                  </CCol>
+                  <CCol md={2}>
+                    <CFormLabel>Source</CFormLabel>
+                    <CFormInput
+                      value={
+                        currentCourseAssessment?.source === 'COMPONENT_MAPPING'
+                          ? 'Component Mapping'
+                          : currentCourseAssessment?.source === 'COURSE_CIA_FALLBACK'
+                            ? 'Course CIA Fallback'
+                            : 'Not Available'
+                      }
+                      disabled
+                    />
+                  </CCol>
+                </CRow>
                 <ArpDataTable
                   title="Student Mark Entry"
                   rows={Array.isArray(currentCourse.students) ? currentCourse.students : []}
@@ -654,16 +1217,15 @@ const IAMarkEntryPhase6 = () => {
                         color="warning"
                         title="Edit"
                         onClick={() => setEntryMode('EDIT')}
-                        disabled={!currentCourse || status === 'READY_FOR_PHASE_7'}
+                        disabled={!currentCourse || phaseLocked}
                       />
                       <ArpIconButton
-                        icon="upload"
-                        color="success"
-                        title="Save"
-                        onClick={onSaveCurrentCourse}
-                        disabled={!currentCourse || entryMode !== 'EDIT'}
+                        icon="preview"
+                        color="secondary"
+                        title="Preview"
+                        onClick={openCoursePreview}
+                        disabled={!currentCourse}
                       />
-                      <ArpIconButton icon="preview" color="secondary" title="Preview" onClick={openCoursePreview} disabled={!currentCourse} />
                       <ArpIconButton icon="print" color="dark" title="Print" onClick={printCourseReport} disabled={!currentCourse} />
                       <ArpIconButton icon="download" color="primary" title="Download" onClick={onDownloadCurrentCourse} disabled={!currentCourse} />
                     </div>
@@ -671,11 +1233,11 @@ const IAMarkEntryPhase6 = () => {
                 />
                 <div className="d-flex justify-content-end gap-2">
                   <ArpButton
-                    label="Complete Course"
+                    label="Submit Marks"
                     icon="submit"
                     color="success"
-                    onClick={() => onCompleteCourse(currentCourse.courseId)}
-                    disabled={!currentCourse || status === 'READY_FOR_PHASE_7'}
+                    onClick={onSubmitCurrentCourse}
+                    disabled={!currentCourse || phaseLocked}
                   />
                 </div>
               </CCardBody>
@@ -686,18 +1248,27 @@ const IAMarkEntryPhase6 = () => {
         <CCard>
           <CCardHeader><strong>Phase 6 Actions</strong></CCardHeader>
           <CCardBody className="d-flex justify-content-end gap-2">
-            <ArpButton label="Save Draft" icon="save" color="secondary" onClick={onSaveDraft} />
-            <ArpButton label="Close Phase 6" icon="submit" color="success" onClick={onClosePhase6} />
+            {phaseLocked ? (
+              <>
+                <ArpButton label="Enable Edit" icon="edit" color="warning" onClick={() => setEditMode(true)} />
+                <ArpButton label="Go to Workspace Console" icon="view" color="secondary" onClick={() => navigate('/evaluation/ia/workspace')} />
+              </>
+            ) : (
+              <>
+                <ArpButton label="Save Draft" icon="save" color="secondary" onClick={onSaveDraft} />
+                <ArpButton label="Close Phase 6" icon="submit" color="success" onClick={onClosePhase6} />
+              </>
+            )}
           </CCardBody>
         </CCard>
 
         <CModal size="xl" visible={previewOpen} onClose={() => setPreviewOpen(false)}>
-          <CModalHeader>
-            <CModalTitle>IA Mark Entry Preview</CModalTitle>
-          </CModalHeader>
-          <CModalBody>
-            <iframe title="IA Mark Entry Preview" srcDoc={previewHtml} style={{ width: '100%', minHeight: '75vh', border: 0 }} />
-          </CModalBody>
+        <CModalHeader>
+          <CModalTitle>IA Mark Entry Preview</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <iframe ref={previewFrameRef} title="IA Mark Entry Preview" srcDoc={previewHtml} style={{ width: '100%', minHeight: '75vh', border: 0 }} />
+        </CModalBody>
           <CModalFooter className="d-flex justify-content-end gap-2">
             <ArpButton label="Close" icon="cancel" color="dark" onClick={() => setPreviewOpen(false)} />
             <ArpButton label="Print" icon="print" color="primary" onClick={printCourseReport} />

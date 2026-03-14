@@ -238,3 +238,45 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.arp-toast-host {
+  z-index: 1095;
+}
+
+.arp-toast {
+  overflow: hidden;
+  border-radius: 0.5rem;
+}
+
+.arp-toast__header {
+  background: var(--cui-info) !important;
+  color: #fff !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--cui-info) 78%, #000);
+}
+
+.arp-toast__header .fw-bold,
+.arp-toast__timestamp {
+  color: #fff !important;
+}
+
+.arp-toast__close {
+  filter: invert(1) grayscale(1) brightness(200%);
+  opacity: 0.9;
+}
+
+.arp-toast__body {
+  background: #fff !important;
+  color: #000 !important;
+}
+
+.arp-row-primary > td,
+.arp-row-primary > th {
+  background: var(--cui-primary) !important;
+  color: #fff !important;
+}
+
+.arp-row-default > td,
+.arp-row-default > th {
+  background: #fff !important;
+  color: inherit !important;
+}

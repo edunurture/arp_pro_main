@@ -594,7 +594,6 @@ const CourseContentsConfiguration = () => {
                 icon="download"
                 color="secondary"
                 onClick={onDownloadTemplate}
-                disabled={!scope.courseOfferingId || scope.courseOfferingId === 'ALL'}
               />
             </div>
           </CCardHeader>

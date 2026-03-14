@@ -13,7 +13,7 @@ import {
   CSpinner,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
 
@@ -102,7 +102,7 @@ export default function FacultyConfiguration() {
   const [academicYears, setAcademicYears] = useState([])
   const [rows, setRows] = useState([])
   const [selectedId, setSelectedId] = useState(null)
-  const [message, setMessage] = useState(null)
+  const toast = useArpToast()
   const [statusText, setStatusText] = useState('Faculty Data Not Uploaded')
   const [previewSummary, setPreviewSummary] = useState(null)
   const [importSummary, setImportSummary] = useState(null)
@@ -114,7 +114,13 @@ export default function FacultyConfiguration() {
 
   const fileRef = useRef(null)
 
-  const showMessage = (type, text) => setMessage({ type, text })
+  const showMessage = (type, text) =>
+    toast.show({
+      type,
+      message: text,
+      autohide: type === 'success',
+      delay: 3500,
+    })
   const scopeReady = useMemo(
     () => Boolean(scope.institutionId && scope.departmentId && scope.academicYearId),
     [scope],
@@ -465,7 +471,6 @@ export default function FacultyConfiguration() {
 
   const onCancel = () => {
     clearResults()
-    setMessage(null)
     if (fileRef.current) fileRef.current.value = ''
   }
 
@@ -500,8 +505,6 @@ export default function FacultyConfiguration() {
   return (
     <CRow>
       <CCol xs={12}>
-        {message ? <CAlert color={message.type}>{message.text}</CAlert> : null}
-
         <CCard className="mb-3">
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>FACULTY CONFIGURATION</strong>

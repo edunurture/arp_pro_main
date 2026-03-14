@@ -14,7 +14,7 @@ import {
   CSpinner,
 } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
 import api from '../../services/apiClient'
 
@@ -71,7 +71,7 @@ const scopeTypeLabel = (x) =>
 
 export default function TimetableConfiguration() {
   const [activeTab, setActiveTab] = useState('SHIFT_MASTER')
-  const [message, setMessage] = useState(null)
+  const toast = useArpToast()
 
   const [scope, setScope] = useState(initialScope)
   const [institutions, setInstitutions] = useState([])
@@ -127,7 +127,13 @@ export default function TimetableConfiguration() {
     [programmes],
   )
 
-  const showMessage = (type, text) => setMessage({ type, text })
+  const showMessage = (type, text) =>
+    toast.show({
+      type,
+      message: text,
+      autohide: type === 'success',
+      delay: 3500,
+    })
   const resetMappingDraft = () => {
     setMappingDraft(createMappingDraft())
     setEditingMappingId('')
@@ -511,9 +517,6 @@ export default function TimetableConfiguration() {
             </div>
           </CCardHeader>
         </CCard>
-
-        {message ? <CAlert color={message.type}>{message.text}</CAlert> : null}
-
         <CCard className="mb-3">
           <CCardBody className="d-flex gap-2 flex-wrap">
             <button className={`btn ${activeTab === 'SHIFT_MASTER' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setActiveTab('SHIFT_MASTER')}>1. Shift Master</button>

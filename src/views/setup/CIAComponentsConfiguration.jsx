@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { CCard, CCardBody, CCardHeader, CCol, CForm, CFormCheck, CFormInput, CFormLabel, CFormSelect, CRow } from '@coreui/react-pro'
 
-import { ArpButton, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import api from '../../services/apiClient'
 
 /**
@@ -72,6 +72,7 @@ const mapApiRowsToUiRows = (components = []) =>
   }))
 
 export default function CIAComponentsConfiguration() {
+  const toast = useArpToast()
   const [isEdit, setIsEdit] = useState(false)
   const [scope, setScope] = useState(initialScope)
   const [institutions, setInstitutions] = useState([])
@@ -86,6 +87,15 @@ export default function CIAComponentsConfiguration() {
 
   // Computation switches
   const [compute, setCompute] = useState(initialCompute)
+
+  const showMessage = (type, message) => {
+    toast.show({
+      type,
+      message,
+      autohide: true,
+      delay: 3000,
+    })
+  }
 
   useEffect(() => {
     const loadInstitutions = async () => {
@@ -197,16 +207,16 @@ export default function CIAComponentsConfiguration() {
   const onViewSelectedExamRow = () => {
     if (!selectedExamRow) return
     const row = selectedExamRow
-    alert(`Examination Type: ${row.examType || '-'}\nName of the Examination: ${row.examName || '-'}`)
+    showMessage('info', `Examination Type: ${row.examType || '-'} | Name of the Examination: ${row.examName || '-'}`)
   }
 
   const onEditSelectedExamRow = () => {
     if (!selectedExamRow) {
-      alert('Please select a row first.')
+      showMessage('warning', 'Please select a row first.')
       return
     }
     if (!scope.institutionId) {
-      alert('Please select Institution in Scope of Selection.')
+      showMessage('warning', 'Please select Institution in Scope of Selection.')
       return
     }
     setIsEdit(true)
@@ -214,7 +224,7 @@ export default function CIAComponentsConfiguration() {
 
   const onDeleteSelectedExamRow = () => {
     if (!selectedExamRow) {
-      alert('Please select a row first.')
+      showMessage('warning', 'Please select a row first.')
       return
     }
     if (!isEdit) return
@@ -223,7 +233,7 @@ export default function CIAComponentsConfiguration() {
 
   const onDownloadAllExamComponents = async () => {
     if (!scope.institutionId) {
-      alert('Please select Institution in Scope of Selection.')
+      showMessage('warning', 'Please select Institution in Scope of Selection.')
       return
     }
     try {
@@ -233,7 +243,7 @@ export default function CIAComponentsConfiguration() {
       })
       downloadBlob(res.data, 'CIA_Components_Export.xlsx')
     } catch {
-      alert('Failed to download Examination Components.')
+      showMessage('danger', 'Failed to download Examination Components.')
     }
   }
 
@@ -259,7 +269,7 @@ export default function CIAComponentsConfiguration() {
 
   const onSearchScope = async () => {
     if (!scope.institutionId) {
-      alert('Please select Institution in Scope of Selection.')
+      showMessage('warning', 'Please select Institution in Scope of Selection.')
       return
     }
     await loadCIAComponents(scope.institutionId)
@@ -267,25 +277,25 @@ export default function CIAComponentsConfiguration() {
 
   const onDownloadTemplate = async () => {
     if (!scope.institutionId) {
-      alert('Please select Institution in Scope of Selection.')
+      showMessage('warning', 'Please select Institution in Scope of Selection.')
       return
     }
     try {
       const res = await api.get('/api/setup/cia-components/template', { responseType: 'blob' })
       downloadBlob(res.data, 'CIA_Components_Template.xlsx')
     } catch {
-      alert('Failed to download template.')
+      showMessage('danger', 'Failed to download template.')
     }
   }
 
   const onImport = async () => {
     if (!scope.institutionId) {
-      alert('Please select Institution in Scope of Selection.')
+      showMessage('warning', 'Please select Institution in Scope of Selection.')
       return
     }
     const file = fileRef.current?.files?.[0]
     if (!file) {
-      alert('Choose an Excel file first.')
+      showMessage('warning', 'Choose an Excel file first.')
       return
     }
 
@@ -308,26 +318,26 @@ export default function CIAComponentsConfiguration() {
         if (res.status >= 400) {
           const reportBlob = toErrorReportBlob(data?.details || data?.error || 'Import failed')
           downloadBlob(reportBlob, 'CIA_Components_Import_Errors.txt')
-          alert(data?.error || 'Import failed. Error report downloaded.')
+          showMessage('danger', data?.error || 'Import failed. Error report downloaded.')
           return
         }
         await loadCIAComponents(scope.institutionId)
-        alert(data?.message || 'CIA Components imported successfully.')
+        showMessage('success', data?.message || 'CIA Components imported successfully.')
         if (fileRef.current) fileRef.current.value = ''
         return
       }
 
       if (res.status >= 400) {
         downloadBlob(res.data, 'CIA_Components_Import_Errors.xlsx')
-        alert('Import completed with errors. Error report downloaded.')
+        showMessage('warning', 'Import completed with errors. Error report downloaded.')
         return
       }
 
       await loadCIAComponents(scope.institutionId)
-      alert('CIA Components imported successfully.')
+      showMessage('success', 'CIA Components imported successfully.')
       if (fileRef.current) fileRef.current.value = ''
     } catch {
-      alert('Failed to import excel.')
+      showMessage('danger', 'Failed to import excel.')
     } finally {
       setImporting(false)
     }
@@ -337,7 +347,7 @@ export default function CIAComponentsConfiguration() {
     e.preventDefault()
     if (!isEdit) return
     if (!scope.institutionId) {
-      alert('Please select Institution in Scope of Selection.')
+      showMessage('warning', 'Please select Institution in Scope of Selection.')
       return
     }
 
@@ -349,13 +359,13 @@ export default function CIAComponentsConfiguration() {
       .filter((r) => r.examType || r.examName)
 
     if (normalizedRows.length === 0) {
-      alert('Please enter at least one Internal Examination Component.')
+      showMessage('warning', 'Please enter at least one Internal Examination Component.')
       return
     }
 
     const hasIncomplete = normalizedRows.some((r) => !r.examType || !r.examName)
     if (hasIncomplete) {
-      alert('Both Examination Type and Name of the Examination are required for each entered row.')
+      showMessage('warning', 'Both Examination Type and Name of the Examination are required for each entered row.')
       return
     }
 
@@ -374,12 +384,12 @@ export default function CIAComponentsConfiguration() {
       })
       await loadCIAComponents(scope.institutionId)
       setIsEdit(false)
-      alert('Saved successfully.')
+      showMessage('success', 'Saved successfully.')
     } catch (err) {
       const error = err?.response?.data?.error || 'Failed to save CIA Components.'
       const details = err?.response?.data?.details
       const detailText = Array.isArray(details) ? `\n${details.join('\n')}` : details ? `\n${details}` : ''
-      alert(`${error}${detailText}`)
+      showMessage('danger', `${error}${detailText}`)
     }
   }
 

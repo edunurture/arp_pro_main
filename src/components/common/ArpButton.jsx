@@ -55,6 +55,8 @@ const COLOR_ALIASES = {
   purple: 'primary',
 }
 
+const WHITE_TEXT_COLORS = new Set(['primary', 'secondary', 'success', 'danger', 'dark', 'info'])
+
 const ArpButton = ({
   label,
   icon,
@@ -89,9 +91,11 @@ const ArpButton = ({
         }
       : style
 
-  // Keep label/icon in white for icon buttons across modules.
-  const enforceIconContrast = Boolean(iconSvg) || isLmsRoute
-  const resolvedStyle = enforceIconContrast
+  // Keep label/icon readable on filled buttons that use darker backgrounds.
+  const prefersWhiteText =
+    className.split(/\s+/).includes('text-white') || WHITE_TEXT_COLORS.has(normalizedColor)
+  const enforceContrast = Boolean(iconSvg) || isLmsRoute || prefersWhiteText
+  const resolvedStyle = enforceContrast
     ? {
         ...(purpleStyle || {}),
         color: '#fff',
@@ -103,11 +107,11 @@ const ArpButton = ({
       color={normalizedColor}
       onClick={onClick}
       disabled={disabled}
-      className={`${className} ${enforceIconContrast ? 'text-white' : ''}`.trim()}
+      className={`${className} ${enforceContrast ? 'text-white' : ''}`.trim()}
       style={resolvedStyle}
       {...rest}
     >
-      {iconSvg && <CIcon icon={iconSvg} className="me-2" style={enforceIconContrast ? { color: 'inherit' } : undefined} />}
+      {iconSvg && <CIcon icon={iconSvg} className="me-2" style={enforceContrast ? { color: 'inherit' } : undefined} />}
       {label || title}
     </CButton>
   )

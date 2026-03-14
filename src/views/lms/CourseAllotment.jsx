@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CAlert,
   CCard,
@@ -20,7 +20,7 @@ import {
   CPagination,
   CPaginationItem,
 } from '@coreui/react-pro'
-import { ArpButton, ArpIconButton, TableToolbar } from '../../components/common'
+import { ArpButton, ArpIconButton, TableToolbar, useArpToast } from '../../components/common'
 import { lmsService, semesterOptionsFromAcademicYear } from '../../services/lmsService'
 
 const initialForm = {
@@ -54,6 +54,7 @@ const parseChosenSemesters = (value) => {
 }
 
 const CourseAllotmentConfiguration = () => {
+  const toast = useArpToast()
   const [form, setForm] = useState(initialForm)
   const [showDetails, setShowDetails] = useState(false)
   const [rows, setRows] = useState([])
@@ -88,6 +89,17 @@ const CourseAllotmentConfiguration = () => {
   const [academicYears, setAcademicYears] = useState([])
   const [regulationMaps, setRegulationMaps] = useState([])
   const [batches, setBatches] = useState([])
+  const lastToastKeyRef = useRef('')
+
+  const showToast = (type, message, options = {}) => {
+    toast.show({
+      type,
+      message,
+      autohide: type === 'success',
+      delay: 4500,
+      ...options,
+    })
+  }
 
   useEffect(() => {
     ;(async () => {
@@ -254,6 +266,27 @@ const CourseAllotmentConfiguration = () => {
 
     setCourses(mapped)
     setForm((p) => ({ ...p, status: 'Course Allotment not done' }))
+    if (!mapped.length) {
+      const toastKey = ['no-offerings', scope.academicYearId, scope.programmeId, scope.regulationId, scope.batchId, scope.semester]
+        .map((x) => String(x || 'ALL'))
+        .join('::')
+      setError(
+        scope.batchId
+          ? 'No course offerings are available for the selected batch and semester. Complete Setup -> CAY Courses for this scope first.'
+          : 'No course offerings are available for the selected scope.',
+      )
+      if (scope.batchId && lastToastKeyRef.current !== toastKey) {
+        lastToastKeyRef.current = toastKey
+        showToast(
+          'warning',
+          'No CAY course offerings are available for this batch and semester. Please complete Setup -> CAY Courses first, then return to Course Allotment.',
+          { autohide: false },
+        )
+      }
+    } else {
+      setError('')
+      lastToastKeyRef.current = ''
+    }
     return mapped
   }
 
