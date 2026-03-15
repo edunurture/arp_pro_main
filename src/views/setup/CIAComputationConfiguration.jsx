@@ -186,7 +186,7 @@ export default function CIAComputationConfiguration() {
   const loadAcademicYears = async (instId) => {
     if (!instId) return setAcademicYears([])
     try {
-      const res = await api.get('/api/setup/academic-year', { params: { institutionId: instId } })
+      const res = await api.get('/api/setup/academic-year', { params: { institutionId: instId, view: 'annual' } })
       setAcademicYears(unwrapList(res))
     } catch {
       setAcademicYears([])
@@ -329,6 +329,12 @@ export default function CIAComputationConfiguration() {
   const isMultiSelectComp = (row) => {
     const v = normalizeCompValue(row.computationValue)
     return v === 'BEST OF TWO' || v === 'BEST OF THREE' || v === 'AVERAGE' || v === 'TOTAL'
+  }
+  const getMultiSelectLimit = (row) => {
+    const v = normalizeCompValue(row?.computationValue)
+    if (v === 'BEST OF TWO') return 2
+    if (v === 'BEST OF THREE') return 3
+    return null
   }
 
   const getFormulaValueMap = () => {
@@ -484,68 +490,12 @@ export default function CIAComputationConfiguration() {
 
   const onView = () => {
     if (!selectedRow) return
-    setIsEdit(false)
-    setAcademicYearId(selectedRow.academicYearId || '')
-    setCiaAssessmentCode(selectedRow.ciaAssessmentCode || '')
-    setCourseType(selectedRow.courseType || 'Theory')
-    setCiaWeight(selectedRow.ciaWeight === null || selectedRow.ciaWeight === undefined ? '' : String(selectedRow.ciaWeight))
-    setEseWeight(selectedRow.eseWeight === null || selectedRow.eseWeight === undefined ? '' : String(selectedRow.eseWeight))
-    setTotalWeight(selectedRow.totalWeight === null || selectedRow.totalWeight === undefined ? '' : String(selectedRow.totalWeight))
-    setCredit(selectedRow.credit === null || selectedRow.credit === undefined ? '' : String(selectedRow.credit))
-
-    const loadedRows = (selectedRow.components || []).map((x) =>
-      createRow({
-        id: x.id || uid(),
-        examination: x.examination || '',
-        minMarks: x.minMarks ?? '',
-        maxMarks: x.maxMarks ?? '',
-      }),
-    )
-    setCacRows(loadedRows.length > 0 ? loadedRows : [createRow()])
-
-    const loadedFormula = (selectedRow.evaluationFormula || []).map((f) =>
-      createFormulaRow({
-        computationValue: f.computationValue || 'Convert into',
-        cacIndex: Array.isArray(f.cacIndex) ? f.cacIndex : f.cacIndex ? [String(f.cacIndex)] : [],
-        maxMarks: f.maxMarks ?? '',
-        expression: f.expression || '',
-        total: f.total ?? '',
-      }),
-    )
-    setFormulaRows(loadedFormula.length > 0 ? loadedFormula : [createFormulaRow()])
+    loadCIAComputationDetail(selectedRow.id, false)
   }
 
   const onEdit = () => {
     if (!selectedRow) return
-    setIsEdit(true)
-    setAcademicYearId(selectedRow.academicYearId || '')
-    setCiaAssessmentCode(selectedRow.ciaAssessmentCode || '')
-    setCourseType(selectedRow.courseType || 'Theory')
-    setCiaWeight(selectedRow.ciaWeight === null || selectedRow.ciaWeight === undefined ? '' : String(selectedRow.ciaWeight))
-    setEseWeight(selectedRow.eseWeight === null || selectedRow.eseWeight === undefined ? '' : String(selectedRow.eseWeight))
-    setTotalWeight(selectedRow.totalWeight === null || selectedRow.totalWeight === undefined ? '' : String(selectedRow.totalWeight))
-    setCredit(selectedRow.credit === null || selectedRow.credit === undefined ? '' : String(selectedRow.credit))
-
-    const loadedRows = (selectedRow.components || []).map((x) =>
-      createRow({
-        id: x.id || uid(),
-        examination: x.examination || '',
-        minMarks: x.minMarks ?? '',
-        maxMarks: x.maxMarks ?? '',
-      }),
-    )
-    setCacRows(loadedRows.length > 0 ? loadedRows : [createRow()])
-
-    const loadedFormula = (selectedRow.evaluationFormula || []).map((f) =>
-      createFormulaRow({
-        computationValue: f.computationValue || 'Convert into',
-        cacIndex: Array.isArray(f.cacIndex) ? f.cacIndex : f.cacIndex ? [String(f.cacIndex)] : [],
-        maxMarks: f.maxMarks ?? '',
-        expression: f.expression || '',
-        total: f.total ?? '',
-      }),
-    )
-    setFormulaRows(loadedFormula.length > 0 ? loadedFormula : [createFormulaRow()])
+    loadCIAComputationDetail(selectedRow.id, true)
   }
 
   const onDelete = async () => {
@@ -589,6 +539,57 @@ export default function CIAComputationConfiguration() {
 
   const formulaErrLive = isEdit ? formulaValidationError() : ''
   const grandTotalDisplay = getGrandTotalFromExpression()
+
+  const populateFormFromRow = (row, editMode) => {
+    if (!row) return
+
+    const annualAcademicYearId =
+      academicYears.find((x) => String(x.academicYear || '') === String(row.academicYear || ''))?.id ||
+      row.academicYearId ||
+      ''
+
+    setIsEdit(editMode)
+    setAcademicYearId(annualAcademicYearId)
+    setCiaAssessmentCode(row.ciaAssessmentCode || '')
+    setCourseType(row.courseType || 'Theory')
+    setCiaWeight(row.ciaWeight === null || row.ciaWeight === undefined ? '' : String(row.ciaWeight))
+    setEseWeight(row.eseWeight === null || row.eseWeight === undefined ? '' : String(row.eseWeight))
+    setTotalWeight(row.totalWeight === null || row.totalWeight === undefined ? '' : String(row.totalWeight))
+    setCredit(row.credit === null || row.credit === undefined ? '' : String(row.credit))
+
+    const loadedRows = (row.components || []).map((x) =>
+      createRow({
+        id: x.id || uid(),
+        examination: x.examination || '',
+        minMarks: x.minMarks ?? '',
+        maxMarks: x.maxMarks ?? '',
+      }),
+    )
+    setCacRows(loadedRows.length > 0 ? loadedRows : [createRow()])
+
+    const loadedFormula = (row.evaluationFormula || []).map((f) =>
+      createFormulaRow({
+        computationValue: f.computationValue || 'Convert into',
+        cacIndex: Array.isArray(f.cacIndex) ? f.cacIndex : f.cacIndex ? [String(f.cacIndex)] : [],
+        maxMarks: f.maxMarks ?? '',
+        expression: f.expression || '',
+        total: f.total ?? '',
+      }),
+    )
+    setFormulaRows(loadedFormula.length > 0 ? loadedFormula : [createFormulaRow()])
+  }
+
+  const loadCIAComputationDetail = async (rowId, editMode) => {
+    if (!rowId) return
+    try {
+      const res = await api.get(`/api/setup/cia-computations/${rowId}`)
+      const row = mapApiRow(res?.data?.data || {})
+      populateFormFromRow(row, editMode)
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to load CIA computation.'
+      showToast('danger', msg)
+    }
+  }
 
   return (
     <CRow>
@@ -733,25 +734,36 @@ export default function CIAComputationConfiguration() {
                                 </td>
                                 <td>
                                   {isMultiSelectComp(r) ? (
-                                    <div className="d-flex flex-wrap gap-2">
+                                    <div className="d-flex flex-column gap-2">
+                                      <div className="d-flex flex-wrap gap-2">
                                       {getFormulaIndexOptions(idx).map((opt) => {
                                         const selected = Array.isArray(r.cacIndex) ? r.cacIndex : []
                                         const checked = selected.includes(opt)
+                                        const selectionLimit = getMultiSelectLimit(r)
+                                        const disableUnchecked =
+                                          !checked && selectionLimit !== null && selected.length >= selectionLimit
                                         return (
                                           <CFormCheck
                                             key={`${r.id}_${opt}`}
                                             label={opt}
                                             checked={checked}
-                                            disabled={!isEdit || isGrandTotal(r)}
+                                            disabled={!isEdit || isGrandTotal(r) || disableUnchecked}
                                             onChange={(e) => {
+                                              const current = Array.isArray(selected) ? selected : []
                                               const next = e.target.checked
-                                                ? Array.from(new Set([...(selected || []), opt]))
-                                                : (selected || []).filter((x) => x !== opt)
+                                                ? Array.from(new Set([...(current || []), opt])).slice(0, selectionLimit || undefined)
+                                                : current.filter((x) => x !== opt)
                                               updateFormulaRow(r.id, 'cacIndex', next)
                                             }}
                                           />
                                         )
                                       })}
+                                      </div>
+                                      {getMultiSelectLimit(r) ? (
+                                        <small className="text-muted">
+                                          Select exactly {getMultiSelectLimit(r)} CAC Index{getMultiSelectLimit(r) > 1 ? ' values' : ''}
+                                        </small>
+                                      ) : null}
                                     </div>
                                   ) : (
                                     <CFormSelect

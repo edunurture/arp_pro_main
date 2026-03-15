@@ -199,6 +199,7 @@ export default function FacultyConfiguration() {
     try {
       const res = await api.get('/api/setup/academic-year', {
         headers: { 'x-institution-id': institutionId },
+        params: { view: 'annual' },
       })
       setAcademicYears(unwrapList(res))
     } catch {
@@ -549,7 +550,7 @@ export default function FacultyConfiguration() {
                       <option value="">Select Academic Year</option>
                       {academicYears.map((x) => (
                         <option key={x.id} value={x.id}>
-                          {x.academicYearLabel || `${x.academicYear}${x.semesterCategory ? ` (${x.semesterCategory})` : ''}`}
+                          {x.academicYearLabel || x.academicYear}
                         </option>
                       ))}
                     </CFormSelect>

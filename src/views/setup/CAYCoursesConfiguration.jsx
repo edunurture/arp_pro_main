@@ -77,7 +77,6 @@ export default function CAYCoursesConfiguration() {
   const [regulations, setRegulations] = useState([])
   const [academicYears, setAcademicYears] = useState([])
   const [batches, setBatches] = useState([])
-  const [semesters, setSemesters] = useState([])
 
   const [loadingMasters, setLoadingMasters] = useState(false)
   const [loadingCourses, setLoadingCourses] = useState(false)
@@ -86,6 +85,7 @@ export default function CAYCoursesConfiguration() {
 
   const [availableCourses, setAvailableCourses] = useState([])
   const [offeredCourses, setOfferedCourses] = useState([])
+  const [savedOfferedCourseIds, setSavedOfferedCourseIds] = useState([])
 
   const [selectedAvailable, setSelectedAvailable] = useState([])
   const [selectedOffered, setSelectedOffered] = useState([])
@@ -109,37 +109,32 @@ export default function CAYCoursesConfiguration() {
     [academicYears, scope.academicYearId],
   )
 
-  const fallbackSemesters = useMemo(() => {
-    const all = [1, 2, 3, 4, 5, 6, 7, 8]
-    return filterBySemesterPattern(all, scope.semesterPattern).map((n) => ({
-      value: String(n),
-      label: String(n),
-    }))
-  }, [scope.semesterPattern])
+  const selectedAcademicYearTermId = useMemo(() => {
+    if (!selectedAcademicYear) return ''
+    const pattern = String(scope.semesterPattern || '').toUpperCase()
+    if (pattern === 'ODD') return selectedAcademicYear.oddAcademicYearId || selectedAcademicYear.id || ''
+    if (pattern === 'EVEN') return selectedAcademicYear.evenAcademicYearId || selectedAcademicYear.id || ''
+    return ''
+  }, [selectedAcademicYear, scope.semesterPattern])
 
   const academicYearSemesterOptions = useMemo(() => {
     if (!selectedAcademicYear) return []
-    let list = parseChosenSemesters(selectedAcademicYear.chosenSemesters)
+    const pattern = String(scope.semesterPattern || '').toUpperCase()
+    let list =
+      pattern === 'ODD'
+        ? parseChosenSemesters(selectedAcademicYear.oddChosenSemesters)
+        : pattern === 'EVEN'
+          ? parseChosenSemesters(selectedAcademicYear.evenChosenSemesters)
+          : [
+              ...parseChosenSemesters(selectedAcademicYear.oddChosenSemesters),
+              ...parseChosenSemesters(selectedAcademicYear.evenChosenSemesters),
+            ]
     if (!list.length) return []
     list = filterBySemesterPattern(list, scope.semesterPattern)
     return list.map((n) => ({ value: String(n), label: String(n) }))
   }, [selectedAcademicYear, scope.semesterPattern])
 
-  const filteredMappedSemesters = useMemo(() => {
-    const nums = semesters
-      .map((s) => Number(s.value))
-      .filter((n) => Number.isFinite(n))
-    return filterBySemesterPattern(nums, scope.semesterPattern).map((n) => ({
-      value: String(n),
-      label: String(n),
-    }))
-  }, [semesters, scope.semesterPattern])
-
-  const semesterOptions = academicYearSemesterOptions.length
-    ? academicYearSemesterOptions
-    : filteredMappedSemesters.length
-      ? filteredMappedSemesters
-      : fallbackSemesters
+  const semesterOptions = academicYearSemesterOptions
 
   const showMessage = (type, text) =>
     toast.show({
@@ -152,6 +147,7 @@ export default function CAYCoursesConfiguration() {
   const clearCourseSelections = () => {
     setAvailableCourses([])
     setOfferedCourses([])
+    setSavedOfferedCourseIds([])
     setSelectedAvailable([])
     setSelectedOffered([])
   }
@@ -163,7 +159,6 @@ export default function CAYCoursesConfiguration() {
     setRegulations([])
     setAcademicYears([])
     setBatches([])
-    setSemesters([])
     clearCourseSelections()
   }
 
@@ -219,6 +214,7 @@ export default function CAYCoursesConfiguration() {
   const loadAcademicYears = async (institutionId) => {
     try {
       const res = await api.get('/api/setup/academic-year', {
+        params: { view: 'annual', institutionId },
         headers: { 'x-institution-id': institutionId },
       })
       setAcademicYears(unwrapList(res))
@@ -238,47 +234,67 @@ export default function CAYCoursesConfiguration() {
     }
   }
 
-  const loadSemestersFromRegulationMap = async (
-    institutionId,
-    academicYearId,
-    programmeId,
-    regulationId,
-    semesterPattern,
-    batchId,
-  ) => {
-    if (!institutionId || !academicYearId || !programmeId || !regulationId || !semesterPattern) {
-      setSemesters([])
-      return
+  const getMappedSemestersForScope = async () => {
+    if (
+      !scope.institutionId ||
+      !scope.programmeId ||
+      !scope.regulationId ||
+      !scope.batchId ||
+      !selectedAcademicYearTermId
+    ) {
+      return []
     }
 
     try {
       const res = await api.get('/api/setup/regulation-map', {
         params: {
-          institutionId,
-          academicYearId,
-          programmeId,
-          regulationId,
-          ...(batchId ? { batchId } : {}),
+          institutionId: scope.institutionId,
+          academicYearId: selectedAcademicYearTermId,
+          programmeId: scope.programmeId,
+          regulationId: scope.regulationId,
+          batchId: scope.batchId,
         },
       })
 
-      const mapped = unwrapList(res)
-      const allSems = Array.from(
-        new Set(mapped.map((x) => Number(x.semester)).filter((n) => Number.isFinite(n))),
+      return Array.from(
+        new Set(
+          unwrapList(res)
+            .flatMap((row) =>
+              Array.isArray(row.mappedSemesters)
+                ? row.mappedSemesters
+                : row.semester !== undefined && row.semester !== null
+                  ? [row.semester]
+                  : [],
+            )
+            .map((n) => Number(n))
+            .filter((n) => Number.isFinite(n)),
+        ),
       ).sort((a, b) => a - b)
-
-      const filtered =
-        semesterPattern === 'ODD'
-          ? allSems.filter((n) => n % 2 === 1)
-          : semesterPattern === 'EVEN'
-            ? allSems.filter((n) => n % 2 === 0)
-            : allSems
-
-      setSemesters(filtered.map((n) => ({ value: String(n), label: String(n) })))
-    } catch (e) {
-      setSemesters([])
-      showMessage('danger', e?.response?.data?.message || 'Failed to load semesters from regulation map')
+    } catch {
+      return []
     }
+  }
+
+  const validateSelectedSemester = async () => {
+    if (!scope.batchId) return true
+    const chosenSemester = Number(scope.semester)
+    if (!Number.isFinite(chosenSemester)) return false
+
+    const mappedSemesters = await getMappedSemestersForScope()
+    if (!mappedSemesters.length) {
+      showMessage('danger', 'No Regulation Map found for the selected Academic Year, Batch, Programme, and Regulation.')
+      return false
+    }
+
+    if (!mappedSemesters.includes(chosenSemester)) {
+      showMessage(
+        'danger',
+        `Selected semester is not mapped for this batch in the selected academic year. Allowed semester(s): ${mappedSemesters.join(', ')}.`,
+      )
+      return false
+    }
+
+    return true
   }
 
   useEffect(() => {
@@ -292,7 +308,6 @@ export default function CAYCoursesConfiguration() {
       setRegulations([])
       setAcademicYears([])
       setBatches([])
-      setSemesters([])
       return
     }
     setScope((s) => ({
@@ -305,7 +320,6 @@ export default function CAYCoursesConfiguration() {
       semesterPattern: '',
       semester: '',
     }))
-    setSemesters([])
     clearCourseSelections()
     loadDepartments(scope.institutionId)
     loadAcademicYears(scope.institutionId)
@@ -326,7 +340,6 @@ export default function CAYCoursesConfiguration() {
       semesterPattern: '',
       semester: '',
     }))
-    setSemesters([])
     clearCourseSelections()
     loadProgrammes(scope.institutionId, scope.departmentId)
   }, [scope.departmentId])
@@ -337,41 +350,21 @@ export default function CAYCoursesConfiguration() {
       return
     }
     setScope((s) => ({ ...s, regulationId: '', semesterPattern: '', semester: '' }))
-    setSemesters([])
     clearCourseSelections()
     loadRegulations(scope.institutionId, scope.programmeId)
   }, [scope.programmeId])
 
-  useEffect(() => {
-    if (!scope.academicYearId) return
-    const selected = academicYears.find((x) => String(x.id) === String(scope.academicYearId))
-    const ayPattern = String(selected?.semesterCategory || '').toUpperCase()
-    if (!['ODD', 'EVEN'].includes(ayPattern)) return
-
-    setScope((s) => ({
-      ...s,
-      semesterPattern: ayPattern,
-      semester: '',
-    }))
-  }, [scope.academicYearId, academicYears])
-
-  useEffect(() => {
-    setScope((s) => ({ ...s, semester: '' }))
-    setSemesters([])
-    clearCourseSelections()
-    loadSemestersFromRegulationMap(
-      scope.institutionId,
-      scope.academicYearId,
-      scope.programmeId,
-      scope.regulationId,
-      scope.semesterPattern,
-      scope.batchId,
-    )
-  }, [scope.regulationId, scope.academicYearId, scope.semesterPattern, scope.batchId])
-
   const loadScopeCourses = async () => {
     if (!scopeReady) {
       showMessage('danger', 'Please complete Institution, Department, Programme, Regulation, Academic Year, Pattern, and Semester.')
+      return
+    }
+    if (!selectedAcademicYearTermId) {
+      showMessage('danger', 'Selected Academic Year term is not configured for the chosen pattern.')
+      return
+    }
+    if (!(await validateSelectedSemester())) {
+      clearCourseSelections()
       return
     }
     setLoadingCourses(true)
@@ -392,7 +385,7 @@ export default function CAYCoursesConfiguration() {
         const offeredRes = await api.get('/api/setup/course-offering', {
           params: {
             institutionId: scope.institutionId,
-            academicYearId: scope.academicYearId,
+            academicYearId: selectedAcademicYearTermId,
             programmeId: scope.programmeId,
             regulationId: scope.regulationId,
             ...(scope.batchId ? { batchId: scope.batchId } : {}),
@@ -416,6 +409,7 @@ export default function CAYCoursesConfiguration() {
       const offeredIds = new Set(offered.map((x) => x.id))
       setAvailableCourses(rows.filter((x) => !offeredIds.has(x.id)))
       setOfferedCourses(offered)
+      setSavedOfferedCourseIds(Array.from(offeredIds))
       setSelectedAvailable([])
       setSelectedOffered([])
       showMessage('success', `Loaded ${rows.length} master course(s). ${offered.length} already mapped as CAY offerings.`)
@@ -437,11 +431,21 @@ export default function CAYCoursesConfiguration() {
     setSelectedAvailable([])
   }
 
+  const addAllCourses = () => {
+    if (!availableCourses.length) return
+    const existing = new Set(offeredCourses.map((r) => r.id))
+    const toAdd = availableCourses.filter((r) => !existing.has(r.id))
+    setOfferedCourses((prev) => [...prev, ...toAdd])
+    setAvailableCourses([])
+    setSelectedAvailable([])
+  }
+
   const removeSelectedCourses = () => {
     if (!selectedOffered.length) return
     const selectedSet = new Set(selectedOffered)
     const removed = offeredCourses.filter((r) => selectedSet.has(r.id))
     setOfferedCourses((prev) => prev.filter((r) => !selectedSet.has(r.id)))
+    setSavedOfferedCourseIds((prev) => prev.filter((id) => !selectedSet.has(id)))
     setAvailableCourses((prev) => {
       const existing = new Set(prev.map((r) => r.id))
       return [...prev, ...removed.filter((r) => !existing.has(r.id))]
@@ -458,6 +462,9 @@ export default function CAYCoursesConfiguration() {
       showMessage('danger', 'Add at least one offered course.')
       return
     }
+    if (!(await validateSelectedSemester())) {
+      return
+    }
 
     setSaving(true)
     try {
@@ -466,7 +473,7 @@ export default function CAYCoursesConfiguration() {
         departmentId: scope.departmentId,
         programmeId: scope.programmeId,
         regulationId: scope.regulationId,
-        academicYearId: scope.academicYearId,
+        academicYearId: selectedAcademicYearTermId,
         ...(scope.batchId ? { batchId: scope.batchId } : {}),
         semesterPattern: scope.semesterPattern,
         semester: Number(scope.semester),
@@ -486,6 +493,14 @@ export default function CAYCoursesConfiguration() {
     }
   }
 
+  const onSaveAllCourses = async () => {
+    if (!offeredCourses.length) {
+      showMessage('danger', 'No offered courses available to save.')
+      return
+    }
+    await onSaveCayCourses()
+  }
+
   const columns = [
     { key: 'courseCode', label: 'Course Code', sortable: true },
     { key: 'courseTitle', label: 'Course Title', sortable: true },
@@ -493,6 +508,13 @@ export default function CAYCoursesConfiguration() {
     { key: 'credits', label: 'Credits', sortable: true, sortType: 'number', align: 'center' },
     { key: 'semesterPattern', label: 'Pattern', sortable: true, align: 'center' },
     { key: 'semester', label: 'Semester', sortable: true, sortType: 'number', align: 'center' },
+    {
+      key: 'saveStatus',
+      label: 'Save Status',
+      sortable: false,
+      align: 'center',
+      render: (row) => (savedOfferedCourseIds.includes(row.id) ? 'Saved' : 'Pending'),
+    },
   ]
 
   return (
@@ -597,14 +619,14 @@ export default function CAYCoursesConfiguration() {
                     <option value="">Select Academic Year</option>
                     {academicYears.map((x) => (
                       <option key={x.id} value={x.id}>
-                        {x.academicYearLabel || `${x.academicYear}${x.semesterCategory ? ` (${x.semesterCategory})` : ''}`}
+                        {x.academicYearLabel || x.academicYear}
                       </option>
                     ))}
                 </CFormSelect>
               </CCol>
 
               <CCol md={3}>
-                <CFormLabel>Batch</CFormLabel>
+                <CFormLabel>Admission Batch</CFormLabel>
               </CCol>
               <CCol md={3}>
                 <CFormSelect
@@ -677,13 +699,22 @@ export default function CAYCoursesConfiguration() {
       <CCard className="mb-3">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <strong>Available Master Courses</strong>
-          <ArpButton
-            color="primary"
-            icon="add"
-            label="Add Selected"
-            onClick={addSelectedCourses}
-            disabled={!selectedAvailable.length}
-          />
+          <div className="d-flex gap-2">
+            <ArpButton
+              color="secondary"
+              icon="add"
+              label="Pick All Courses"
+              onClick={addAllCourses}
+              disabled={!availableCourses.length}
+            />
+            <ArpButton
+              color="primary"
+              icon="add"
+              label="Add Selected"
+              onClick={addSelectedCourses}
+              disabled={!selectedAvailable.length}
+            />
+          </div>
         </CCardHeader>
         <CCardBody>
           <ArpDataTable
@@ -709,6 +740,13 @@ export default function CAYCoursesConfiguration() {
           <strong>CAY Offered Courses</strong>
           <div className="d-flex gap-2">
             <ArpButton
+              color="primary"
+              icon="save"
+              label={saving ? 'Saving...' : 'Save All Courses'}
+              onClick={onSaveAllCourses}
+              disabled={saving || !offeredCourses.length}
+            />
+            <ArpButton
               color="success"
               icon="save"
               label={saving ? 'Saving...' : 'Save CAY Courses'}
@@ -725,6 +763,9 @@ export default function CAYCoursesConfiguration() {
           </div>
         </CCardHeader>
         <CCardBody>
+          <div className="mb-2 text-muted">
+            Saved Records: {savedOfferedCourseIds.length} / Current Offered Rows: {offeredCourses.length}
+          </div>
           <ArpDataTable
             title="Current Academic Year Course Offerings"
             rows={offeredCourses}

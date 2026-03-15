@@ -71,6 +71,11 @@ export default function StudentPromotionConfiguration() {
     [source],
   )
 
+  const selectedSourceAcademicYear = useMemo(
+    () => academicYears.find((x) => String(x.id) === String(source.academicYearId)) || null,
+    [academicYears, source.academicYearId],
+  )
+
   const loadInstitutions = async () => {
     setLoadingMasters(true)
     try {
@@ -84,14 +89,24 @@ export default function StudentPromotionConfiguration() {
     }
   }
 
-  const loadMappedSemesters = async ({ institutionId, academicYearId, programmeId, regulationId, batchId }) => {
+  const loadMappedSemesters = async ({ institutionId, academicYearId, academicYearIds, programmeId, regulationId, batchId }) => {
     try {
       const res = await api.get('/api/setup/regulation-map', {
-        params: { institutionId, academicYearId, programmeId, regulationId, batchId },
+        params: {
+          institutionId,
+          ...(academicYearIds ? { academicYearIds } : { academicYearId }),
+          programmeId,
+          regulationId,
+          batchId,
+        },
       })
-      const maps = unwrapList(res).filter((m) => String(m?.status || '').toLowerCase() === 'map done')
+      const maps = unwrapList(res).filter((m) => {
+        const status = String(m?.status || '').toLowerCase()
+        return status === 'map done' || status === 'mapped' || status === 'partial'
+      })
       const sems = maps
-        .map((m) => Number(m?.semester))
+        .flatMap((m) => (Array.isArray(m?.mappedSemesters) && m.mappedSemesters.length ? m.mappedSemesters : [m?.semester]))
+        .map((m) => Number(m))
         .filter((n) => Number.isFinite(n))
         .sort((a, b) => a - b)
       setMappedSemesters([...new Set(sems)])
@@ -117,7 +132,10 @@ export default function StudentPromotionConfiguration() {
       try {
         const [d, ay, b] = await Promise.all([
           api.get('/api/setup/department', { params: { institutionId: source.institutionId } }),
-          api.get('/api/setup/academic-year', { headers: { 'x-institution-id': source.institutionId } }),
+          api.get('/api/setup/academic-year', {
+            headers: { 'x-institution-id': source.institutionId },
+            params: { view: 'annual' },
+          }),
           api.get('/api/setup/batch', { params: { institutionId: source.institutionId } }),
         ])
         setDepartments(unwrapList(d))
@@ -171,8 +189,17 @@ export default function StudentPromotionConfiguration() {
       setMappedSemesters([])
       return
     }
-    loadMappedSemesters(source)
-  }, [source.institutionId, source.programmeId, source.regulationId, source.academicYearId, source.batchId])
+    const academicYearIds = [
+      selectedSourceAcademicYear?.oddAcademicYearId,
+      selectedSourceAcademicYear?.evenAcademicYearId,
+    ]
+      .filter(Boolean)
+      .join(',')
+    loadMappedSemesters({
+      ...source,
+      academicYearIds: academicYearIds || undefined,
+    })
+  }, [source.institutionId, source.programmeId, source.regulationId, source.academicYearId, source.batchId, selectedSourceAcademicYear])
 
   const onPreview = async () => {
     if (!sourceReady) return showMessage('danger', 'Complete source scope before preview.')

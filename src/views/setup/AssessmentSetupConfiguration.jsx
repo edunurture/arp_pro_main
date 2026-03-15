@@ -17,6 +17,43 @@ const unwrapList = (res) => {
   return []
 }
 
+const buildAnnualAcademicYears = (items = []) => {
+  const grouped = new Map()
+
+  items.forEach((row) => {
+    const key = `${row?.institutionId || ''}::${row?.academicYear || ''}`
+    const current = grouped.get(key) || {
+      id: row?.id || '',
+      institutionId: row?.institutionId || '',
+      academicYear: row?.academicYear || '',
+      academicYearLabel: row?.academicYear || '',
+      semesters: row?.numberOfSemesters ?? '',
+      oddAcademicYearId: '',
+      evenAcademicYearId: '',
+      oddChosenSemesters: [],
+      evenChosenSemesters: [],
+    }
+
+    const category = String(row?.semesterCategory || '').toUpperCase()
+    if (category === 'ODD') {
+      current.oddAcademicYearId = row?.id || ''
+      current.oddChosenSemesters = Array.isArray(row?.chosenSemesters) ? row.chosenSemesters : []
+      current.id = current.id || row?.id || ''
+    }
+    if (category === 'EVEN') {
+      current.evenAcademicYearId = row?.id || ''
+      current.evenChosenSemesters = Array.isArray(row?.chosenSemesters) ? row.chosenSemesters : []
+      if (!current.oddAcademicYearId) current.id = row?.id || current.id
+    }
+
+    grouped.set(key, current)
+  })
+
+  return Array.from(grouped.values()).sort((left, right) =>
+    String(right?.academicYear || '').localeCompare(String(left?.academicYear || '')),
+  )
+}
+
 const normalizeCodeId = (v) => String(v || '').trim()
 
 export default function AssessmentSetupConfiguration() {
@@ -69,18 +106,29 @@ export default function AssessmentSetupConfiguration() {
   const loadAcademicYears = async (instId) => {
     if (!instId) return setAcademicYears([])
     try {
-      const res = await api.get('/api/setup/academic-year', {
-        headers: { 'x-institution-id': instId },
+      let list = []
+
+      const annualRes = await api.get('/api/setup/academic-year', {
+        params: { institutionId: instId, view: 'annual' },
       })
-      const list = unwrapList(res).map((x) => ({
+      list = unwrapList(annualRes)
+
+      if (!Array.isArray(list) || list.length === 0) {
+        const fallbackRes = await api.get('/api/setup/academic-year', {
+          params: { institutionId: instId },
+        })
+        list = buildAnnualAcademicYears(unwrapList(fallbackRes))
+      }
+
+      const normalized = list.map((x) => ({
         ...x,
-        academicYearLabel:
-          x?.academicYearLabel ||
-          `${x?.academicYear || ''}${x?.semesterCategory ? ` (${String(x.semesterCategory).toUpperCase()})` : ''}`,
+        academicYearLabel: x?.academicYearLabel || x?.academicYear || '',
       }))
-      setAcademicYears(list)
-    } catch {
+
+      setAcademicYears(normalized)
+    } catch (err) {
       setAcademicYears([])
+      showToast('danger', err?.response?.data?.error || 'Failed to load academic years')
     }
   }
 
@@ -307,33 +355,70 @@ export default function AssessmentSetupConfiguration() {
     [academicYears, scope.academicYearId],
   )
 
+  const semesterCategoryOptions = useMemo(() => {
+    if (!selectedAcademicYear) return []
+    const options = []
+    if (Array.isArray(selectedAcademicYear?.oddChosenSemesters) && selectedAcademicYear.oddChosenSemesters.length > 0) {
+      options.push('ODD')
+    }
+    if (Array.isArray(selectedAcademicYear?.evenChosenSemesters) && selectedAcademicYear.evenChosenSemesters.length > 0) {
+      options.push('EVEN')
+    }
+    if (options.length === 0) {
+      const totalSemesters = Number(selectedAcademicYear?.semesters)
+      if (Number.isFinite(totalSemesters) && totalSemesters > 0) {
+        options.push('ODD', 'EVEN')
+      }
+    }
+    return options
+  }, [selectedAcademicYear])
+
   const chosenSemesterOptions = useMemo(() => {
     if (!selectedAcademicYear) return []
-    const fromChosen = Array.isArray(selectedAcademicYear?.chosenSemesters)
-      ? selectedAcademicYear.chosenSemesters
-      : typeof selectedAcademicYear?.chosenSemesters === 'string'
-        ? selectedAcademicYear.chosenSemesters.split(',')
+    const oddSemesters = Array.isArray(selectedAcademicYear?.oddChosenSemesters) ? selectedAcademicYear.oddChosenSemesters : []
+    const evenSemesters = Array.isArray(selectedAcademicYear?.evenChosenSemesters) ? selectedAcademicYear.evenChosenSemesters : []
+    const fallbackSemesters = Number(selectedAcademicYear?.semesters)
+    const generatedSemesters =
+      Number.isFinite(fallbackSemesters) && fallbackSemesters > 0
+        ? Array.from({ length: fallbackSemesters }, (_, index) => index + 1)
         : []
+    const category = String(scope.semesterCategory || '').toUpperCase()
+    const fallbackByCategory =
+      category === 'ODD'
+        ? generatedSemesters.filter((semester) => semester % 2 === 1)
+        : category === 'EVEN'
+          ? generatedSemesters.filter((semester) => semester % 2 === 0)
+          : generatedSemesters
+    const sourceSemesters =
+      category === 'ODD'
+        ? oddSemesters
+        : category === 'EVEN'
+          ? evenSemesters
+          : [...oddSemesters, ...evenSemesters]
     return [...new Set(
-      fromChosen
+      [...sourceSemesters, ...fallbackByCategory]
         .map((v) => Number(String(v).trim()))
         .filter((n) => Number.isFinite(n) && n > 0),
     )].sort((a, b) => a - b)
-  }, [selectedAcademicYear])
+  }, [selectedAcademicYear, scope.semesterCategory])
 
   useEffect(() => {
-    const semesterCategory = String(selectedAcademicYear?.semesterCategory || '').toUpperCase()
     setScope((prev) => {
+      const nextCategory = semesterCategoryOptions.includes(prev.semesterCategory)
+        ? prev.semesterCategory
+        : semesterCategoryOptions[0] || ''
       const nextSemester = chosenSemesterOptions.some((x) => String(x) === String(prev.chosenSemester))
         ? prev.chosenSemester
-        : ''
+        : chosenSemesterOptions.length > 0
+          ? String(chosenSemesterOptions[0])
+          : ''
       return {
         ...prev,
-        semesterCategory,
+        semesterCategory: nextCategory,
         chosenSemester: nextSemester,
       }
     })
-  }, [selectedAcademicYear, chosenSemesterOptions])
+  }, [selectedAcademicYear, semesterCategoryOptions, chosenSemesterOptions])
 
   return (
     <CRow>
@@ -371,13 +456,19 @@ export default function AssessmentSetupConfiguration() {
 
                 <CCol md={2}><CFormLabel>Semester Category</CFormLabel></CCol>
                 <CCol md={4}>
-                  <CFormSelect value={scope.semesterCategory} disabled>
+                  <CFormSelect
+                    value={scope.semesterCategory}
+                    onChange={(e) => setScope((p) => ({ ...p, semesterCategory: e.target.value, chosenSemester: '' }))}
+                    disabled={!scope.academicYearId}
+                  >
                     <option value="">
-                      {scope.academicYearId ? 'No Semester Category configured' : 'Select Academic Year'}
+                      {scope.academicYearId ? 'Select Semester Category' : 'Select Academic Year'}
                     </option>
-                    {scope.semesterCategory ? (
-                      <option value={scope.semesterCategory}>{scope.semesterCategory}</option>
-                    ) : null}
+                    {semesterCategoryOptions.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
                   </CFormSelect>
                 </CCol>
 

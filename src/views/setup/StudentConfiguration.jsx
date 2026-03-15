@@ -24,6 +24,7 @@ const initialScope = {
   programmeId: '',
   regulationId: '',
   academicYearId: '',
+  semesterCategory: '',
   batchId: '',
   semester: '',
   className: '',
@@ -51,6 +52,61 @@ const downloadBlob = (blob, filename) => {
   a.click()
   a.remove()
   window.URL.revokeObjectURL(url)
+}
+
+const toLocalDateKey = (date = new Date()) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const resolveAcademicYearTerm = (row, preferredCategory = '') => {
+  if (!row) return { id: '', semesterCategory: '' }
+
+  const legacyCategory = String(row?.semesterCategory || '').toUpperCase().trim()
+  if (legacyCategory && row?.id && !row?.oddAcademicYearId && !row?.evenAcademicYearId) {
+    return { id: row.id, semesterCategory: legacyCategory }
+  }
+
+  const today = toLocalDateKey()
+  const terms = [
+    {
+      id: row?.oddAcademicYearId || '',
+      semesterCategory: 'ODD',
+      startDate: String(row?.oddSemesterBeginDate || '').trim(),
+      endDate: String(row?.oddSemesterEndDate || '').trim(),
+    },
+    {
+      id: row?.evenAcademicYearId || '',
+      semesterCategory: 'EVEN',
+      startDate: String(row?.evenSemesterBeginDate || '').trim(),
+      endDate: String(row?.evenSemesterEndDate || '').trim(),
+    },
+  ].filter((term) => term.id)
+
+  const normalizedPreferred = String(preferredCategory || '').toUpperCase().trim()
+  if (normalizedPreferred) {
+    const preferred = terms.find((term) => term.semesterCategory === normalizedPreferred)
+    if (preferred) return preferred
+  }
+
+  const activeTerm = terms.find(
+    (term) => (!term.startDate || term.startDate <= today) && (!term.endDate || term.endDate >= today),
+  )
+  if (activeTerm) return activeTerm
+
+  const upcomingTerm = [...terms]
+    .filter((term) => term.startDate && term.startDate > today)
+    .sort((left, right) => left.startDate.localeCompare(right.startDate))[0]
+  if (upcomingTerm) return upcomingTerm
+
+  const recentPastTerm = [...terms]
+    .filter((term) => term.endDate && term.endDate < today)
+    .sort((left, right) => right.endDate.localeCompare(left.endDate))[0]
+  if (recentPastTerm) return recentPastTerm
+
+  return terms[0] || { id: '', semesterCategory: '' }
 }
 
 export default function StudentConfiguration() {
@@ -87,41 +143,42 @@ export default function StudentConfiguration() {
       autohide: type === 'success',
       delay: 3500,
     })
-  const scopeReady = useMemo(
-    () =>
-      Boolean(
-        scope.institutionId &&
-          scope.departmentId &&
-          scope.programmeId &&
-          scope.regulationId &&
-          scope.academicYearId &&
-          scope.batchId &&
-          scope.semester &&
-          scope.className &&
-          scope.section,
-      ),
-    [scope],
-  )
-
-  const scopeParams = useMemo(
-    () => ({
-      institutionId: scope.institutionId,
-      departmentId: scope.departmentId,
-      programmeId: scope.programmeId,
-      regulationId: scope.regulationId,
-      academicYearId: scope.academicYearId,
-      batchId: scope.batchId,
-      semester: scope.semester,
-      className: scope.className,
-      section: scope.section,
-    }),
-    [scope],
-  )
-
   const selectedRow = useMemo(
     () => rows.find((r) => String(r.configId) === String(selectedId)) || null,
     [rows, selectedId],
   )
+
+  const selectedAcademicYear = useMemo(
+    () => academicYears.find((x) => String(x.id) === String(scope.academicYearId)) || null,
+    [academicYears, scope.academicYearId],
+  )
+
+  const resolvedAcademicYearTerm = useMemo(
+    () => resolveAcademicYearTerm(selectedAcademicYear, scope.semesterCategory),
+    [scope.semesterCategory, selectedAcademicYear],
+  )
+
+  const selectedBatch = useMemo(
+    () => batches.find((x) => String(x.id) === String(scope.batchId)) || null,
+    [batches, scope.batchId],
+  )
+
+  const selectedProgramme = useMemo(
+    () => programmes.find((x) => String(x.id) === String(scope.programmeId)) || null,
+    [programmes, scope.programmeId],
+  )
+
+  const availableSemesterCategories = useMemo(() => {
+    if (!selectedAcademicYear) return []
+    const categories = []
+    if (selectedAcademicYear?.oddAcademicYearId || String(selectedAcademicYear?.semesterCategory || '').toUpperCase() === 'ODD') {
+      categories.push('ODD')
+    }
+    if (selectedAcademicYear?.evenAcademicYearId || String(selectedAcademicYear?.semesterCategory || '').toUpperCase() === 'EVEN') {
+      categories.push('EVEN')
+    }
+    return categories
+  }, [selectedAcademicYear])
 
   const loadInstitutions = async () => {
     setLoadingMasters(true)
@@ -176,6 +233,7 @@ export default function StudentConfiguration() {
     try {
       const res = await api.get('/api/setup/academic-year', {
         headers: { 'x-institution-id': institutionId },
+        params: { view: 'annual' },
       })
       setAcademicYears(unwrapList(res))
     } catch {
@@ -214,9 +272,16 @@ export default function StudentConfiguration() {
       const res = await api.get('/api/setup/regulation-map', {
         params: { institutionId, academicYearId, programmeId, regulationId, batchId },
       })
-      const maps = unwrapList(res).filter((m) => String(m?.status || '').toLowerCase() === 'map done')
+      const maps = unwrapList(res).filter((m) => {
+        const status = String(m?.status || '').toLowerCase()
+        return status === 'map done' || status === 'mapped' || status === 'partial'
+      })
       const sems = maps
-        .map((m) => Number(m?.semester))
+        .flatMap((m) => {
+          if (Array.isArray(m?.mappedSemesters) && m.mappedSemesters.length) return m.mappedSemesters
+          return [m?.semester]
+        })
+        .map((m) => Number(m))
         .filter((n) => Number.isFinite(n))
         .sort((a, b) => a - b)
       setMappedSemesters([...new Set(sems)])
@@ -246,6 +311,7 @@ export default function StudentConfiguration() {
       programmeId: '',
       regulationId: '',
       academicYearId: '',
+      semesterCategory: '',
       batchId: '',
       semester: '',
       className: '',
@@ -296,8 +362,17 @@ export default function StudentConfiguration() {
   }, [scope.programmeId])
 
   useEffect(() => {
-    setScope((s) => ({ ...s, semester: '' }))
+    setScope((s) => ({ ...s, semesterCategory: '', semester: '' }))
   }, [scope.academicYearId])
+
+  useEffect(() => {
+    if (!selectedAcademicYear) return
+    if (scope.semesterCategory && availableSemesterCategories.includes(scope.semesterCategory)) return
+    const nextCategory = availableSemesterCategories.includes('ODD')
+      ? 'ODD'
+      : availableSemesterCategories[0] || ''
+    setScope((s) => (s.semesterCategory === nextCategory ? s : { ...s, semesterCategory: nextCategory }))
+  }, [availableSemesterCategories, scope.semesterCategory, selectedAcademicYear])
 
   useEffect(() => {
     if (
@@ -305,7 +380,8 @@ export default function StudentConfiguration() {
       !scope.programmeId ||
       !scope.regulationId ||
       !scope.academicYearId ||
-      !scope.batchId
+      !scope.batchId ||
+      !resolvedAcademicYearTerm.id
     ) {
       setMappedSemesters([])
       setScope((s) => ({ ...s, semester: '' }))
@@ -313,7 +389,7 @@ export default function StudentConfiguration() {
     }
     loadMappedSemesters({
       institutionId: scope.institutionId,
-      academicYearId: scope.academicYearId,
+      academicYearId: resolvedAcademicYearTerm.id,
       programmeId: scope.programmeId,
       regulationId: scope.regulationId,
       batchId: scope.batchId,
@@ -324,6 +400,7 @@ export default function StudentConfiguration() {
     scope.regulationId,
     scope.academicYearId,
     scope.batchId,
+    resolvedAcademicYearTerm.id,
   ])
 
   const eligibleClasses = useMemo(() => {
@@ -354,30 +431,53 @@ export default function StudentConfiguration() {
 
   const derivedStudyYear = useMemo(() => deriveStudyYearFromSemester(scope.semester), [scope.semester])
 
-  const selectedAcademicYear = useMemo(
-    () => academicYears.find((x) => String(x.id) === String(scope.academicYearId)) || null,
-    [academicYears, scope.academicYearId],
+  const scopeReady = useMemo(
+    () =>
+      Boolean(
+        scope.institutionId &&
+          scope.departmentId &&
+          scope.programmeId &&
+          scope.regulationId &&
+          scope.academicYearId &&
+          scope.semesterCategory &&
+          resolvedAcademicYearTerm.id &&
+          scope.batchId &&
+          scope.semester &&
+          scope.className &&
+          scope.section,
+      ),
+    [resolvedAcademicYearTerm.id, scope],
   )
 
-  const selectedBatch = useMemo(
-    () => batches.find((x) => String(x.id) === String(scope.batchId)) || null,
-    [batches, scope.batchId],
+  const scopeParams = useMemo(
+    () => ({
+      institutionId: scope.institutionId,
+      departmentId: scope.departmentId,
+      programmeId: scope.programmeId,
+      regulationId: scope.regulationId,
+      academicYearId: resolvedAcademicYearTerm.id,
+      semesterCategory: resolvedAcademicYearTerm.semesterCategory,
+      batchId: scope.batchId,
+      semester: scope.semester,
+      className: scope.className,
+      section: scope.section,
+    }),
+    [resolvedAcademicYearTerm.id, resolvedAcademicYearTerm.semesterCategory, scope],
   )
 
-  const selectedProgramme = useMemo(
-    () => programmes.find((x) => String(x.id) === String(scope.programmeId)) || null,
-    [programmes, scope.programmeId],
-  )
+  const canDeriveSemester = Boolean(selectedAcademicYear && resolvedAcademicYearTerm.semesterCategory && selectedBatch)
 
   const derivedSemesterMeta = useMemo(
-    () =>
-      deriveAdmissionSemester({
+    () => {
+      if (!canDeriveSemester) return { semester: '', error: '' }
+      return deriveAdmissionSemester({
         academicYear: selectedAcademicYear?.academicYear,
-        semesterCategory: selectedAcademicYear?.semesterCategory,
+        semesterCategory: resolvedAcademicYearTerm.semesterCategory,
         batchName: selectedBatch?.batchName,
         totalSemesters: selectedProgramme?.totalSemesters,
-      }),
-    [selectedAcademicYear, selectedBatch, selectedProgramme],
+      })
+    },
+    [canDeriveSemester, resolvedAcademicYearTerm.semesterCategory, selectedAcademicYear, selectedBatch, selectedProgramme],
   )
 
   const derivedSemesterNumber = Number(derivedSemesterMeta.semester)
@@ -709,12 +809,26 @@ export default function StudentConfiguration() {
 
                   <CCol md={2}><CFormLabel>Academic Year</CFormLabel></CCol>
                   <CCol md={4}>
-                    <CFormSelect value={scope.academicYearId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, academicYearId: e.target.value }))}>
+                    <CFormSelect value={scope.academicYearId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, academicYearId: e.target.value, semesterCategory: '', semester: '' }))}>
                       <option value="">Select Academic Year</option>
                       {academicYears.map((x) => (
                         <option key={x.id} value={x.id}>
-                          {x.academicYearLabel || `${x.academicYear}${x.semesterCategory ? ` (${x.semesterCategory})` : ''}`}
+                          {x.academicYearLabel || x.academicYear}
                         </option>
+                      ))}
+                    </CFormSelect>
+                  </CCol>
+
+                  <CCol md={2}><CFormLabel>Semester Category</CFormLabel></CCol>
+                  <CCol md={4}>
+                    <CFormSelect
+                      value={scope.semesterCategory}
+                      disabled={!scope.academicYearId || !availableSemesterCategories.length}
+                      onChange={(e) => setScope((s) => ({ ...s, semesterCategory: e.target.value, semester: '' }))}
+                    >
+                      <option value="">{scope.academicYearId ? 'Select Semester Category' : 'Select Academic Year first'}</option>
+                      {availableSemesterCategories.map((category) => (
+                        <option key={category} value={category}>{category}</option>
                       ))}
                     </CFormSelect>
                   </CCol>
@@ -755,7 +869,7 @@ export default function StudentConfiguration() {
                   {scope.academicYearId && scope.batchId && derivedSemesterMeta.semester ? (
                     <CCol xs={12}>
                       <CAlert color="info" className="mb-0">
-                        Student scope follows admission logic automatically: Academic Year {selectedAcademicYear?.academicYear} ({String(selectedAcademicYear?.semesterCategory || '').toUpperCase()}) + Admission Batch {selectedBatch?.batchName} = Semester {derivedSemesterMeta.semester}. Use Year {derivedStudyYear} class names such as {derivedStudyYear === 1 ? 'I' : derivedStudyYear === 2 ? 'II' : derivedStudyYear === 3 ? 'III' : `Year ${derivedStudyYear}`} {selectedProgramme?.programmeCode || selectedProgramme?.programmeName || 'Programme'}.
+                        Student scope follows admission logic automatically: Academic Year {selectedAcademicYear?.academicYear} ({String(scope.semesterCategory || resolvedAcademicYearTerm.semesterCategory || '').toUpperCase()}) + Admission Batch {selectedBatch?.batchName} = Semester {derivedSemesterMeta.semester}. Use Year {derivedStudyYear} class names such as {derivedStudyYear === 1 ? 'I' : derivedStudyYear === 2 ? 'II' : derivedStudyYear === 3 ? 'III' : `Year ${derivedStudyYear}`} {selectedProgramme?.programmeCode || selectedProgramme?.programmeName || 'Programme'}.
                       </CAlert>
                     </CCol>
                   ) : null}

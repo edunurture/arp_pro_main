@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import {
+  CAlert,
   CCard,
   CCardBody,
   CCardHeader,
@@ -22,13 +23,17 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
 const initialAyForm = {
   academicYear: '',
   academicPattern: '', // SEMESTER | TRIMESTER | ANNUAL
-  semesterCategory: '', // ODD | EVEN
-  semesterBeginDate: '',
-  semesterEndDate: '',
-  chosenSemesters: [], // number[]
   startDate: '',
   endDate: '',
   semesters: '', // numberOfSemesters
+  oddEnabled: true,
+  oddSemesterBeginDate: '',
+  oddSemesterEndDate: '',
+  oddChosenSemesters: [1, 3, 5, 7],
+  evenEnabled: true,
+  evenSemesterBeginDate: '',
+  evenSemesterEndDate: '',
+  evenChosenSemesters: [2, 4, 6, 8],
 }
 
 const initialCalForm = {
@@ -120,7 +125,7 @@ export default function AcademicYearConfiguration() {
 
   const loadAcademicYears = async (instId) => {
     const headers = instId ? { 'x-institution-id': instId } : undefined
-    const res = await api.get('/api/setup/academic-year', { headers })
+    const res = await api.get('/api/setup/academic-year', { headers, params: { view: 'annual' } })
     setAyRows(res?.data?.data ?? [])
   }
 
@@ -243,6 +248,7 @@ export default function AcademicYearConfiguration() {
         {
           sourceAcademicYearId,
           targetAcademicYearId,
+          annualMode: true,
           options: {
             regulationMaps: !!copyForm.regulationMaps,
             courseOfferings: !!copyForm.courseOfferings,
@@ -284,18 +290,41 @@ export default function AcademicYearConfiguration() {
     if (ayForm.academicYear?.trim() && !/^\d{4}\s*-\s*\d{4}$/.test(ayForm.academicYear.trim())) {
       errs.push('Academic Year must be in format: YYYY - YYYY')
     }
-    if (!ayForm.semesterCategory) errs.push('Semester Category (ODD/EVEN) is required')
-    if (!ayForm.semesterBeginDate) errs.push('Semester Begin Date is required')
-    if (!ayForm.semesterEndDate) errs.push('Semester End Date is required')
-    if (
-      ayForm.semesterBeginDate &&
-      ayForm.semesterEndDate &&
-      ayForm.semesterBeginDate > ayForm.semesterEndDate
-    )
-      errs.push('Semester Begin Date must be before Semester End Date')
+    if (!ayForm.startDate) errs.push('Academic Year Start Date is required')
+    if (!ayForm.endDate) errs.push('Academic Year End Date is required')
+    if (ayForm.startDate && ayForm.endDate && ayForm.startDate > ayForm.endDate) {
+      errs.push('Academic Year Start Date must be before End Date')
+    }
 
-    const chosen = Array.isArray(ayForm.chosenSemesters) ? ayForm.chosenSemesters : []
-    if (!chosen.length) errs.push('Choose Semesters is required')
+    if (!ayForm.oddEnabled && !ayForm.evenEnabled) errs.push('Enable at least one term configuration')
+    if (ayForm.oddEnabled) {
+      if (!ayForm.oddSemesterBeginDate) errs.push('ODD Semester Begin Date is required')
+      if (!ayForm.oddSemesterEndDate) errs.push('ODD Semester End Date is required')
+      if (
+        ayForm.oddSemesterBeginDate &&
+        ayForm.oddSemesterEndDate &&
+        ayForm.oddSemesterBeginDate > ayForm.oddSemesterEndDate
+      ) {
+        errs.push('ODD Semester Begin Date must be before End Date')
+      }
+      if (!Array.isArray(ayForm.oddChosenSemesters) || !ayForm.oddChosenSemesters.length) {
+        errs.push('Choose at least one ODD semester')
+      }
+    }
+    if (ayForm.evenEnabled) {
+      if (!ayForm.evenSemesterBeginDate) errs.push('EVEN Semester Begin Date is required')
+      if (!ayForm.evenSemesterEndDate) errs.push('EVEN Semester End Date is required')
+      if (
+        ayForm.evenSemesterBeginDate &&
+        ayForm.evenSemesterEndDate &&
+        ayForm.evenSemesterBeginDate > ayForm.evenSemesterEndDate
+      ) {
+        errs.push('EVEN Semester Begin Date must be before End Date')
+      }
+      if (!Array.isArray(ayForm.evenChosenSemesters) || !ayForm.evenChosenSemesters.length) {
+        errs.push('Choose at least one EVEN semester')
+      }
+    }
 
     return errs
   }
@@ -336,11 +365,10 @@ export default function AcademicYearConfiguration() {
         const duplicateAy = ayRows.find(
           (r) =>
             normalizeAcademicYear(r?.academicYear) === normalizedAcademicYear &&
-            String(r?.semesterCategory || '') === String(ayForm.semesterCategory || '') &&
             String(r?.id) !== String(editingId || ''),
         )
         if (duplicateAy) {
-          showAlert('danger', 'Academic Year already exists for selected Semester Category')
+          showAlert('danger', 'Academic Year already exists')
           setLoading(false)
           return
         }
@@ -348,14 +376,33 @@ export default function AcademicYearConfiguration() {
         const payload = {
           institutionId,
           academicYear: normalizedAcademicYear,
-          semesterCategory: ayForm.semesterCategory,
-          semesterBeginDate: ayForm.semesterBeginDate,
-          semesterEndDate: ayForm.semesterEndDate,
-          chosenSemesters: ayForm.chosenSemesters,
           academicPattern: ayForm.academicPattern,
           numberOfSemesters: ayForm.semesters ? Number(ayForm.semesters) : null,
-          startDate: ayForm.startDate || null,
-          endDate: ayForm.endDate || null,
+          startDate: ayForm.startDate,
+          endDate: ayForm.endDate,
+          annualMode: true,
+          termConfigurations: [
+            ...(ayForm.oddEnabled
+              ? [
+                  {
+                    semesterCategory: 'ODD',
+                    semesterBeginDate: ayForm.oddSemesterBeginDate,
+                    semesterEndDate: ayForm.oddSemesterEndDate,
+                    chosenSemesters: ayForm.oddChosenSemesters,
+                  },
+                ]
+              : []),
+            ...(ayForm.evenEnabled
+              ? [
+                  {
+                    semesterCategory: 'EVEN',
+                    semesterBeginDate: ayForm.evenSemesterBeginDate,
+                    semesterEndDate: ayForm.evenSemesterEndDate,
+                    chosenSemesters: ayForm.evenChosenSemesters,
+                  },
+                ]
+              : []),
+          ],
         }
 
         if (editingId) {
@@ -404,7 +451,7 @@ export default function AcademicYearConfiguration() {
       if (status === 409) {
         showAlert(
           'danger',
-          e2?.response?.data?.error || 'Academic Year already exists for selected Semester Category',
+          e2?.response?.data?.error || 'Academic Year already exists',
         )
       } else {
         showAlert('danger', e2?.response?.data?.error || 'Save failed')
@@ -433,18 +480,17 @@ export default function AcademicYearConfiguration() {
     setAyForm({
       academicYear: row.academicYear ?? '',
       academicPattern: row.academicPattern ?? '',
-      semesterCategory: row.semesterCategory ?? '',
-      semesterBeginDate: row.semesterBeginDate ? row.semesterBeginDate.slice(0, 10) : '',
-      semesterEndDate: row.semesterEndDate ? row.semesterEndDate.slice(0, 10) : '',
-      chosenSemesters: Array.isArray(row.chosenSemesters)
-        ? row.chosenSemesters
-        : String(row.chosenSemesters || '')
-            .split(',')
-            .map(Number)
-            .filter((n) => n),
       startDate: row.startDate ?? '',
       endDate: row.endDate ?? '',
       semesters: row.semesters ?? '',
+      oddEnabled: !!row.oddAcademicYearId,
+      oddSemesterBeginDate: row.oddSemesterBeginDate ?? '',
+      oddSemesterEndDate: row.oddSemesterEndDate ?? '',
+      oddChosenSemesters: Array.isArray(row.oddChosenSemesters) ? row.oddChosenSemesters : [],
+      evenEnabled: !!row.evenAcademicYearId,
+      evenSemesterBeginDate: row.evenSemesterBeginDate ?? '',
+      evenSemesterEndDate: row.evenSemesterEndDate ?? '',
+      evenChosenSemesters: Array.isArray(row.evenChosenSemesters) ? row.evenChosenSemesters : [],
     })
   }
   const onEditAy = () => {
@@ -456,7 +502,7 @@ export default function AcademicYearConfiguration() {
     if (!window.confirm('Are you sure you want to delete this Academic Year?')) return
     setLoading(true)
     try {
-      await api.delete(`/api/setup/academic-year/${selectedAyId}`)
+      await api.delete(`/api/setup/academic-year/${selectedAyId}`, { params: { mode: 'annual' } })
       showAlert('success', 'Academic Year deleted')
       setSelectedAyId(null)
       setSelectedId(null)
@@ -515,12 +561,14 @@ export default function AcademicYearConfiguration() {
   // ---------------------------
   // Helpers for Render
   // ---------------------------
-  const toggleSemester = (val) => {
+  const toggleSemester = (termKey, val) => {
     setAyForm((p) => {
-      const list = p.chosenSemesters.includes(val)
-        ? p.chosenSemesters.filter((x) => x !== val)
-        : [...p.chosenSemesters, val].sort((a, b) => a - b)
-      return { ...p, chosenSemesters: list }
+      const key = termKey === 'EVEN' ? 'evenChosenSemesters' : 'oddChosenSemesters'
+      const current = Array.isArray(p[key]) ? p[key] : []
+      const list = current.includes(val)
+        ? current.filter((x) => x !== val)
+        : [...current, val].sort((a, b) => a - b)
+      return { ...p, [key]: list }
     })
   }
 
@@ -567,9 +615,24 @@ export default function AcademicYearConfiguration() {
   const ayColumns = useMemo(
     () => [
       { key: 'academicYear', label: 'Academic Year', sortable: true },
-      { key: 'semesterCategory', label: 'Category', sortable: true },
-      { key: 'semesterBeginDate', label: 'Sem Begin', width: 120 },
-      { key: 'semesterEndDate', label: 'Sem End', width: 120 },
+      { key: 'startDate', label: 'Year Begin', width: 120 },
+      { key: 'endDate', label: 'Year End', width: 120 },
+      {
+        key: 'oddTerm',
+        label: 'Odd Term',
+        render: (row) =>
+          row?.oddAcademicYearId
+            ? `${row?.oddSemesterBeginDate || '-'} to ${row?.oddSemesterEndDate || '-'}`
+            : '-',
+      },
+      {
+        key: 'evenTerm',
+        label: 'Even Term',
+        render: (row) =>
+          row?.evenAcademicYearId
+            ? `${row?.evenSemesterBeginDate || '-'} to ${row?.evenSemesterEndDate || '-'}`
+            : '-',
+      },
     ],
     [],
   )
@@ -644,7 +707,7 @@ export default function AcademicYearConfiguration() {
                     <option value="">-- Select Source --</option>
                     {ayRows.map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.academicYearLabel || `${a.academicYear}${a.semesterCategory ? ` (${a.semesterCategory})` : ''}`}
+                        {a.academicYearLabel || a.academicYear}
                       </option>
                     ))}
                   </CFormSelect>
@@ -659,7 +722,7 @@ export default function AcademicYearConfiguration() {
                     <option value="">-- Select Target --</option>
                     {ayRows.map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.academicYearLabel || `${a.academicYear}${a.semesterCategory ? ` (${a.semesterCategory})` : ''}`}
+                        {a.academicYearLabel || a.academicYear}
                       </option>
                     ))}
                   </CFormSelect>
@@ -727,72 +790,129 @@ export default function AcademicYearConfiguration() {
                   </CRow>
                   <CRow className="g-3 mb-2">
                     <CCol md={3}>
-                      <CFormLabel>Semester Category *</CFormLabel>
+                      <CFormLabel>Academic Year Start Date *</CFormLabel>
                     </CCol>
-                    <CCol md={9}>
-                      <CFormSelect
-                        value={ayForm.semesterCategory}
-                        onChange={(e) => setAyForm({ ...ayForm, semesterCategory: e.target.value })}
+                    <CCol md={3}>
+                      <CFormInput
+                        type="date"
+                        value={ayForm.startDate}
+                        onChange={(e) => setAyForm({ ...ayForm, startDate: e.target.value })}
                         disabled={!isEdit}
-                      >
-                        <option value="">-- Select --</option>
-                        <option value="ODD">ODD</option>
-                        <option value="EVEN">EVEN</option>
-                      </CFormSelect>
+                      />
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormLabel>Academic Year End Date *</CFormLabel>
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormInput
+                        type="date"
+                        value={ayForm.endDate}
+                        onChange={(e) => setAyForm({ ...ayForm, endDate: e.target.value })}
+                        disabled={!isEdit}
+                      />
                     </CCol>
                   </CRow>
                   <CRow className="g-3 mb-2">
                     <CCol md={3}>
-                      <CFormLabel>Semester Begin Date *</CFormLabel>
+                      <CFormLabel>ODD Term</CFormLabel>
                     </CCol>
                     <CCol md={3}>
-                      <CFormInput
-                        type="date"
-                        value={ayForm.semesterBeginDate}
-                        onChange={(e) =>
-                          setAyForm({ ...ayForm, semesterBeginDate: e.target.value })
-                        }
+                      <CFormCheck
+                        label="Enable ODD Term"
+                        checked={ayForm.oddEnabled}
+                        onChange={(e) => setAyForm({ ...ayForm, oddEnabled: e.target.checked })}
                         disabled={!isEdit}
                       />
                     </CCol>
                     <CCol md={3}>
-                      <CFormLabel>Semester End Date *</CFormLabel>
+                      <CFormLabel>EVEN Term</CFormLabel>
                     </CCol>
                     <CCol md={3}>
-                      <CFormInput
-                        type="date"
-                        value={ayForm.semesterEndDate}
-                        onChange={(e) => setAyForm({ ...ayForm, semesterEndDate: e.target.value })}
+                      <CFormCheck
+                        label="Enable EVEN Term"
+                        checked={ayForm.evenEnabled}
+                        onChange={(e) => setAyForm({ ...ayForm, evenEnabled: e.target.checked })}
                         disabled={!isEdit}
                       />
                     </CCol>
                   </CRow>
-                  {ayForm.semesterCategory && (
+                  {ayForm.oddEnabled && (
                     <CRow className="g-3 mb-2">
                       <CCol md={3}>
-                        <CFormLabel>Choose Semesters *</CFormLabel>
+                        <CFormLabel>ODD Term Dates *</CFormLabel>
                       </CCol>
-                      <CCol md={9} className="d-flex gap-3">
-                        {(ayForm.semesterCategory === 'ODD' ? [1, 3, 5, 7] : [2, 4, 6, 8]).map(
-                          (sem) => (
-                            <CFormCheck
-                              key={sem}
-                              id={`sem-${sem}`}
-                              label={`Sem ${sem}`}
-                              checked={ayForm.chosenSemesters.includes(sem)}
-                              onChange={() => toggleSemester(sem)}
-                              disabled={!isEdit}
-                            />
-                          ),
-                        )}
+                      <CCol md={3}>
+                        <CFormInput
+                          type="date"
+                          value={ayForm.oddSemesterBeginDate}
+                          onChange={(e) => setAyForm({ ...ayForm, oddSemesterBeginDate: e.target.value })}
+                          disabled={!isEdit}
+                        />
                       </CCol>
-                      <CCol xs={12}>
-                        <small className="text-muted">
-                          These are term-level semester choices for the Academic Year window. Actual student semester is derived later from Admission Batch + Academic Year.
-                        </small>
+                      <CCol md={3}>
+                        <CFormInput
+                          type="date"
+                          value={ayForm.oddSemesterEndDate}
+                          onChange={(e) => setAyForm({ ...ayForm, oddSemesterEndDate: e.target.value })}
+                          disabled={!isEdit}
+                        />
+                      </CCol>
+                      <CCol md={3} className="d-flex gap-3 flex-wrap">
+                        {[1, 3, 5, 7].map((sem) => (
+                          <CFormCheck
+                            key={`odd-${sem}`}
+                            id={`odd-sem-${sem}`}
+                            label={`Sem ${sem}`}
+                            checked={ayForm.oddChosenSemesters.includes(sem)}
+                            onChange={() => toggleSemester('ODD', sem)}
+                            disabled={!isEdit}
+                          />
+                        ))}
                       </CCol>
                     </CRow>
                   )}
+                  {ayForm.evenEnabled && (
+                    <CRow className="g-3 mb-2">
+                      <CCol md={3}>
+                        <CFormLabel>EVEN Term Dates *</CFormLabel>
+                      </CCol>
+                      <CCol md={3}>
+                        <CFormInput
+                          type="date"
+                          value={ayForm.evenSemesterBeginDate}
+                          onChange={(e) => setAyForm({ ...ayForm, evenSemesterBeginDate: e.target.value })}
+                          disabled={!isEdit}
+                        />
+                      </CCol>
+                      <CCol md={3}>
+                        <CFormInput
+                          type="date"
+                          value={ayForm.evenSemesterEndDate}
+                          onChange={(e) => setAyForm({ ...ayForm, evenSemesterEndDate: e.target.value })}
+                          disabled={!isEdit}
+                        />
+                      </CCol>
+                      <CCol md={3} className="d-flex gap-3 flex-wrap">
+                        {[2, 4, 6, 8].map((sem) => (
+                          <CFormCheck
+                            key={`even-${sem}`}
+                            id={`even-sem-${sem}`}
+                            label={`Sem ${sem}`}
+                            checked={ayForm.evenChosenSemesters.includes(sem)}
+                            onChange={() => toggleSemester('EVEN', sem)}
+                            disabled={!isEdit}
+                          />
+                        ))}
+                      </CCol>
+                    </CRow>
+                  )}
+                  <CRow className="g-3 mb-2">
+                    <CCol xs={12}>
+                      <small className="text-muted">
+                        Define one June-May Academic Year here. Configure ODD and EVEN term windows inside the same year.
+                      </small>
+                    </CCol>
+                  </CRow>
                   {/* Optional Legacy Fields */}
                   <CRow className="g-3 mb-2">
                     <CCol md={3}>
@@ -830,7 +950,7 @@ export default function AcademicYearConfiguration() {
                         <option value="">-- Select --</option>
                         {ayRows.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.academicYearLabel || `${a.academicYear}${a.semesterCategory ? ` (${a.semesterCategory})` : ''}`}
+                            {a.academicYearLabel || a.academicYear}
                           </option>
                         ))}
                       </CFormSelect>

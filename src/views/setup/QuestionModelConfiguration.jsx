@@ -1,5 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { CCard, CCardBody, CCardHeader, CCol, CForm, CFormInput, CFormLabel, CFormSelect, CRow } from '@coreui/react-pro'
+import {
+  CAccordion,
+  CAccordionBody,
+  CAccordionHeader,
+  CAccordionItem,
+  CCard,
+  CCardBody,
+  CCardHeader,
+  CCol,
+  CForm,
+  CFormInput,
+  CFormLabel,
+  CFormSelect,
+  CRow,
+} from '@coreui/react-pro'
 
 import { ArpButton, ArpIconButton, useArpToast } from '../../components/common'
 import ArpDataTable from '../../components/common/ArpDataTable'
@@ -53,6 +67,7 @@ export default function QuestionModelConfiguration() {
   const [questionPaperId, setQuestionPaperId] = useState('')
   const [modelName, setModelName] = useState('')
   const [sections, setSections] = useState([])
+  const [expandedSectionIds, setExpandedSectionIds] = useState([])
 
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
@@ -71,11 +86,17 @@ export default function QuestionModelConfiguration() {
   const sectionTotal = (s) => numberOrZero(s.totalQuestions) * numberOrZero(s.markEach)
   const grandTotal = () => sections.reduce((sum, s) => sum + sectionTotal(s), 0)
 
-  const addSection = () => setSections((prev) => [...prev, createSection()])
+  const addSection = () => {
+    const nextSection = createSection()
+    setSections((prev) => [...prev, nextSection])
+    setExpandedSectionIds((prev) => Array.from(new Set([...prev, nextSection.id])))
+  }
   const updateSection = (id, key, value) => setSections((prev) => prev.map((s) => (s.id === id ? { ...s, [key]: value } : s)))
-  const toggleMinimize = (id) => setSections((prev) => prev.map((s) => (s.id === id ? { ...s, minimized: !s.minimized } : s)))
   const toggleFullscreen = (id) => setSections((prev) => prev.map((s) => (s.id === id ? { ...s, fullscreen: !s.fullscreen } : s)))
-  const closeSection = (id) => setSections((prev) => prev.filter((s) => s.id !== id))
+  const closeSection = (id) => {
+    setSections((prev) => prev.filter((s) => s.id !== id))
+    setExpandedSectionIds((prev) => prev.filter((sectionId) => sectionId !== id))
+  }
   const onQuestionTypeChange = (id, value) => {
     setSections((prev) =>
       prev.map((s) =>
@@ -95,6 +116,7 @@ export default function QuestionModelConfiguration() {
     setQuestionPaperId('')
     setModelName('')
     setSections([])
+    setExpandedSectionIds([])
   }
 
   const loadInstitutions = async () => {
@@ -192,6 +214,7 @@ export default function QuestionModelConfiguration() {
         )
       : []
     setSections(loadedSections)
+    setExpandedSectionIds(loadedSections.map((s) => s.id))
   }
 
   const onEdit = () => {
@@ -215,7 +238,9 @@ export default function QuestionModelConfiguration() {
           }),
         )
       : []
-    setSections(loadedSections.length ? loadedSections : [createSection()])
+    const nextSections = loadedSections.length ? loadedSections : [createSection()]
+    setSections(nextSections)
+    setExpandedSectionIds(nextSections.map((s) => s.id))
   }
 
   const onDelete = async () => {
@@ -391,117 +416,116 @@ export default function QuestionModelConfiguration() {
           </CCardBody>
         </CCard>
 
-        {sections.map((s, index) => (
-          <CCard key={s.id} className={`mb-3 ${s.fullscreen ? 'arp-section-fullscreen' : ''}`}>
-            <CCardHeader className="d-flex justify-content-between align-items-center">
-              <strong>{`Add Section ${index + 1}`}</strong>
+        {sections.length > 0 ? (
+          <CAccordion alwaysOpen activeItemKey={expandedSectionIds} onChange={(key) => setExpandedSectionIds(Array.isArray(key) ? key : key ? [key] : [])}>
+            {sections.map((s, index) => (
+              <CAccordionItem key={s.id} itemKey={s.id} className={`mb-3 ${s.fullscreen ? 'arp-section-fullscreen' : ''}`}>
+                <CAccordionHeader>
+                  <div className="d-flex justify-content-between align-items-center w-100 me-3">
+                    <strong>{`Section ${index + 1}`}</strong>
+                    <span className="text-body-secondary small">
+                      {[s.header, s.nomenclature, sectionTotal(s) ? `${sectionTotal(s)} Marks` : ''].filter(Boolean).join(' | ') || 'Click to configure this section'}
+                    </span>
+                  </div>
+                </CAccordionHeader>
+                <CAccordionBody>
+                  <div className="d-flex justify-content-end gap-2 mb-3">
+                    <ArpIconButton
+                      icon="view"
+                      color="primary"
+                      title={s.fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                      onClick={() => toggleFullscreen(s.id)}
+                      disabled={!isEdit}
+                    />
+                    <ArpIconButton icon="delete" color="danger" title="Close Section" onClick={() => closeSection(s.id)} disabled={!isEdit} />
+                  </div>
 
-              <div className="d-flex gap-2">
-                <ArpIconButton
-                  icon="view"
-                  color="primary"
-                  title={s.fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                  onClick={() => toggleFullscreen(s.id)}
-                  disabled={!isEdit}
-                />
-                <ArpIconButton
-                  icon="edit"
-                  color="info"
-                  title={s.minimized ? 'Expand' : 'Minimize'}
-                  onClick={() => toggleMinimize(s.id)}
-                  disabled={!isEdit}
-                />
-                <ArpIconButton icon="delete" color="danger" title="Close Section" onClick={() => closeSection(s.id)} disabled={!isEdit} />
-              </div>
-            </CCardHeader>
+                  <CRow className="g-3">
+                    <CCol md={3}>
+                      <CFormLabel>Section Header</CFormLabel>
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormInput value={s.header} onChange={(e) => updateSection(s.id, 'header', e.target.value)} disabled={!isEdit} />
+                    </CCol>
 
-            {!s.minimized && (
-              <CCardBody>
-                <CRow className="g-3">
-                  <CCol md={3}>
-                    <CFormLabel>Section Header</CFormLabel>
-                  </CCol>
-                  <CCol md={3}>
-                    <CFormInput value={s.header} onChange={(e) => updateSection(s.id, 'header', e.target.value)} disabled={!isEdit} />
-                  </CCol>
+                    <CCol md={3}>
+                      <CFormLabel>Nomenclature</CFormLabel>
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormInput value={s.nomenclature} onChange={(e) => updateSection(s.id, 'nomenclature', e.target.value)} disabled={!isEdit} />
+                    </CCol>
 
-                  <CCol md={3}>
-                    <CFormLabel>Nomenclature</CFormLabel>
-                  </CCol>
-                  <CCol md={3}>
-                    <CFormInput value={s.nomenclature} onChange={(e) => updateSection(s.id, 'nomenclature', e.target.value)} disabled={!isEdit} />
-                  </CCol>
+                    <CCol md={3}>
+                      <CFormLabel>Section Description</CFormLabel>
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormInput value={s.description} onChange={(e) => updateSection(s.id, 'description', e.target.value)} disabled={!isEdit} />
+                    </CCol>
 
-                  <CCol md={3}>
-                    <CFormLabel>Section Description</CFormLabel>
-                  </CCol>
-                  <CCol md={3}>
-                    <CFormInput value={s.description} onChange={(e) => updateSection(s.id, 'description', e.target.value)} disabled={!isEdit} />
-                  </CCol>
+                    <CCol md={3}>
+                      <CFormLabel>Question Type</CFormLabel>
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormSelect value={s.questionType} onChange={(e) => onQuestionTypeChange(s.id, e.target.value)} disabled={!isEdit}>
+                        <option value="">Select QP Type</option>
+                        <option value="Multiple Choice Questions (MCQ)">Multiple Choice Questions (MCQ)</option>
+                        <option value="Descriptive - Answer Any">Descriptive - Answer Any</option>
+                        <option value="Descriptive - Either (Or)">Descriptive - Either (Or)</option>
+                      </CFormSelect>
+                    </CCol>
 
-                  <CCol md={3}>
-                    <CFormLabel>Question Type</CFormLabel>
-                  </CCol>
-                  <CCol md={3}>
-                    <CFormSelect value={s.questionType} onChange={(e) => onQuestionTypeChange(s.id, e.target.value)} disabled={!isEdit}>
-                      <option value="">Select QP Type</option>
-                      <option value="Multiple Choice Questions (MCQ)">Multiple Choice Questions (MCQ)</option>
-                      <option value="Descriptive - Answer Any">Descriptive - Answer Any</option>
-                      <option value="Descriptive - Either (Or)">Descriptive - Either (Or)</option>
-                    </CFormSelect>
-                  </CCol>
+                    <CCol md={3}>
+                      <CFormLabel>Maximum Marks</CFormLabel>
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormInput type="number" min={0} value={s.maximumMarks} onChange={(e) => updateSection(s.id, 'maximumMarks', e.target.value)} disabled={!isEdit} />
+                    </CCol>
 
-                  <CCol md={3}>
-                    <CFormLabel>Maximum Marks</CFormLabel>
-                  </CCol>
-                  <CCol md={3}>
-                    <CFormInput type="number" min={0} value={s.maximumMarks} onChange={(e) => updateSection(s.id, 'maximumMarks', e.target.value)} disabled={!isEdit} />
-                  </CCol>
+                    <CCol md={3}>
+                      <CFormLabel>Pattern</CFormLabel>
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormSelect
+                        value={s.pattern}
+                        onChange={(e) => updateSection(s.id, 'pattern', e.target.value)}
+                        disabled={!isEdit || isPatternDisabledForType(s.questionType)}
+                      >
+                        <option value="">N/A</option>
+                        <option value="i">i</option>
+                        <option value="(i)">(i)</option>
+                        <option value="(a)">(a)</option>
+                        <option value="(A)">(A)</option>
+                        <option value="(I)">(I)</option>
+                        <option value="(1)">(1)</option>
+                      </CFormSelect>
+                    </CCol>
 
-                  <CCol md={3}>
-                    <CFormLabel>Pattern</CFormLabel>
-                  </CCol>
-                  <CCol md={3}>
-                    <CFormSelect
-                      value={s.pattern}
-                      onChange={(e) => updateSection(s.id, 'pattern', e.target.value)}
-                      disabled={!isEdit || isPatternDisabledForType(s.questionType)}
-                    >
-                      <option value="">N/A</option>
-                      <option value="i">i</option>
-                      <option value="(i)">(i)</option>
-                      <option value="(a)">(a)</option>
-                      <option value="(A)">(A)</option>
-                      <option value="(I)">(I)</option>
-                      <option value="(1)">(1)</option>
-                    </CFormSelect>
-                  </CCol>
+                    <CCol md={3}>
+                      <CFormLabel>Total Questions</CFormLabel>
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormInput type="number" min={0} value={s.totalQuestions} onChange={(e) => updateSection(s.id, 'totalQuestions', e.target.value)} disabled={!isEdit} />
+                    </CCol>
 
-                  <CCol md={3}>
-                    <CFormLabel>Total Questions</CFormLabel>
-                  </CCol>
-                  <CCol md={3}>
-                    <CFormInput type="number" min={0} value={s.totalQuestions} onChange={(e) => updateSection(s.id, 'totalQuestions', e.target.value)} disabled={!isEdit} />
-                  </CCol>
+                    <CCol md={3}>
+                      <CFormLabel>Mark of Each Question</CFormLabel>
+                    </CCol>
+                    <CCol md={3}>
+                      <CFormInput type="number" min={0} value={s.markEach} onChange={(e) => updateSection(s.id, 'markEach', e.target.value)} disabled={!isEdit} />
+                    </CCol>
 
-                  <CCol md={3}>
-                    <CFormLabel>Mark of Each Question</CFormLabel>
-                  </CCol>
-                  <CCol md={3}>
-                    <CFormInput type="number" min={0} value={s.markEach} onChange={(e) => updateSection(s.id, 'markEach', e.target.value)} disabled={!isEdit} />
-                  </CCol>
-
-                  <CCol md={3}>
-                    <CFormLabel>Section Total</CFormLabel>
-                  </CCol>
-                  <CCol md={3} className="d-flex align-items-center">
-                    <strong>{sectionTotal(s)}</strong>
-                  </CCol>
-                </CRow>
-              </CCardBody>
-            )}
-          </CCard>
-        ))}
+                    <CCol md={3}>
+                      <CFormLabel>Section Total</CFormLabel>
+                    </CCol>
+                    <CCol md={3} className="d-flex align-items-center">
+                      <strong>{sectionTotal(s)}</strong>
+                    </CCol>
+                  </CRow>
+                </CAccordionBody>
+              </CAccordionItem>
+            ))}
+          </CAccordion>
+        ) : null}
 
         <ArpDataTable
           title="QUESTION MODEL LIST"

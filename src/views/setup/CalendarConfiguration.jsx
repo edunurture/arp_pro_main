@@ -38,6 +38,12 @@ const downloadBlob = (blob, filename) => {
   window.URL.revokeObjectURL(url)
 }
 
+const getDownloadFilename = (headers, fallback) => {
+  const contentDisposition = headers?.['content-disposition'] || headers?.['Content-Disposition'] || ''
+  const match = contentDisposition.match(/filename="?([^"]+)"?/i)
+  return match?.[1] || fallback
+}
+
 export default function CalendarConfiguration() {
   const [isEdit, setIsEdit] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
@@ -110,7 +116,9 @@ export default function CalendarConfiguration() {
 
   const loadAcademicYears = async () => {
     try {
-      const res = await api.get('/api/setup/academic-year')
+      const res = await api.get('/api/setup/academic-year', {
+        params: { view: 'annual' },
+      })
       setAcademicYears(unwrapList(res))
     } catch {
       setAcademicYears([])
@@ -176,7 +184,13 @@ export default function CalendarConfiguration() {
         },
         responseType: 'blob',
       })
-      downloadBlob(res.data, 'Academic_Calendar_Template.xlsx')
+      const selectedAcademicYear =
+        academicYears.find((ay) => String(ay.id) === String(form.academicYearId))?.academicYearLabel ||
+        academicYears.find((ay) => String(ay.id) === String(form.academicYearId))?.academicYear ||
+        'Academic_Year'
+      const safeAcademicYear = String(selectedAcademicYear).replace(/[^\w-]+/g, '_')
+      const fallbackName = `Academic_Calendar_Template_${safeAcademicYear}_${form.semesterPattern}.xlsx`
+      downloadBlob(res.data, getDownloadFilename(res.headers, fallbackName))
     } catch (e) {
       showMessage('danger', e?.response?.data?.error || 'Failed to download template')
     }
@@ -265,11 +279,15 @@ export default function CalendarConfiguration() {
 
   const onEdit = () => {
     if (!selectedRow) return
+    const annualAcademicYearId =
+      academicYears.find((ay) => String(ay.academicYear || '') === String(selectedRow.academicYear || ''))?.id ||
+      selectedRow.academicYearId ||
+      ''
     setIsEdit(true)
     setSelectedFile(null)
     if (fileRef.current) fileRef.current.value = ''
     setForm({
-      academicYearId: selectedRow.academicYearId ?? '',
+      academicYearId: annualAcademicYearId,
       semesterPattern: selectedRow.semesterPattern ?? '',
     })
   }

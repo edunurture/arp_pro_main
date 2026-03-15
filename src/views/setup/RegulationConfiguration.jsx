@@ -540,6 +540,8 @@ export default function RegulationConfiguration() {
     () => [
       { key: 'regulationCode', label: 'Regulation Code', sortable: true, width: 160 },
       { key: 'regulationYear', label: 'Regulation Start Year', sortable: true, width: 190, align: 'center' },
+      { key: 'applicabilityLabel', label: 'Applicable Batch Years', sortable: true, width: 190, align: 'center' },
+      { key: 'lifecycleStatus', label: 'Lifecycle', sortable: true, width: 120, align: 'center' },
       {
         key: 'programme',
         label: 'Programme',
@@ -890,6 +892,18 @@ export default function RegulationConfiguration() {
                         </option>
                       ))}
                     </CFormSelect>
+                  </CCol>
+
+                  <CCol md={4}>
+                    <CFormLabel>Applicable Batches</CFormLabel>
+                    <CFormInput
+                      value={
+                        regForm.regulationYear
+                          ? `${regForm.regulationYear} onwards until next regulation`
+                          : ''
+                      }
+                      disabled
+                    />
                   </CCol>
 
                   <CCol md={4}>
