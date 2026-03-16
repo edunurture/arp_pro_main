@@ -115,7 +115,6 @@ const _nav = [
     items: [
       { component: CNavItem, name: 'Course Allotment', to: '/lms/course-allotment' },
       { component: CNavItem, name: 'Student Allotment', to: '/lms/student-allotment' },
-      { component: CNavItem, name: 'Upload Timetable', to: '/lms/upload-timetable' },
       { component: CNavItem, name: 'View Timetable', to: '/lms/view-timetable' },
       { component: CNavItem, name: 'View Calendar', to: '/lms/view-calendar' },
       { component: CNavItem, name: 'Course Contents', to: '/lms/course-contents' },

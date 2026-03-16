@@ -11,16 +11,8 @@ import {
   CFormLabel,
   CFormSelect,
   CRow,
-  CTable,
-  CTableBody,
-  CTableDataCell,
-  CTableHead,
-  CTableHeaderCell,
-  CTableRow,
-  CPagination,
-  CPaginationItem,
 } from '@coreui/react-pro'
-import { ArpButton } from '../../components/common'
+import { ArpButton, ArpDataTable, useArpToast } from '../../components/common'
 import { classMatchesSemester, deriveAdmissionSemester, deriveStudyYearFromSemester, lmsService } from '../../services/lmsService'
 
 const initialForm = {
@@ -29,6 +21,7 @@ const initialForm = {
   programmeId: '',
   regulationId: '',
   academicYearId: '',
+  semesterCategory: '',
   batchId: '',
   semester: '',
   programmeName: '',
@@ -41,16 +34,16 @@ const initialForm = {
 }
 
 const StudentAllotmentConfiguration = () => {
+  const toast = useArpToast()
   const [allotmentMode, setAllotmentMode] = useState('COURSE_WISE')
   const [form, setForm] = useState(initialForm)
   const [showDetails, setShowDetails] = useState(false)
   const [rows, setRows] = useState([])
-  const [search, setSearch] = useState('')
   const [selectAll, setSelectAll] = useState(false)
-  const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [detailsLocked, setDetailsLocked] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -88,15 +81,30 @@ const StudentAllotmentConfiguration = () => {
     [programmes, form.programmeId],
   )
 
+  const semesterCategoryOptions = useMemo(() => {
+    const out = []
+    if (selectedAcademicYear?.oddAcademicYearId) out.push('ODD')
+    if (selectedAcademicYear?.evenAcademicYearId) out.push('EVEN')
+    if (!out.length && selectedAcademicYear?.semesterCategory) {
+      out.push(String(selectedAcademicYear.semesterCategory).toUpperCase())
+    }
+    return out
+  }, [selectedAcademicYear])
+
+  const effectiveSemesterCategory = useMemo(
+    () => form.semesterCategory || String(selectedAcademicYear?.semesterCategory || '').toUpperCase().trim(),
+    [form.semesterCategory, selectedAcademicYear],
+  )
+
   const derivedSemesterMeta = useMemo(
     () =>
       deriveAdmissionSemester({
         academicYear: selectedAcademicYear?.academicYear,
-        semesterCategory: selectedAcademicYear?.semesterCategory,
+        semesterCategory: effectiveSemesterCategory,
         batchName: selectedBatch?.batchName,
         totalSemesters: selectedProgramme?.totalSemesters,
       }),
-    [selectedAcademicYear, selectedBatch, selectedProgramme],
+    [selectedAcademicYear, effectiveSemesterCategory, selectedBatch, selectedProgramme],
   )
 
   const eligibleClasses = useMemo(() => {
@@ -111,6 +119,36 @@ const StudentAllotmentConfiguration = () => {
     const values = Array.from(new Set(eligibleClasses.map((x) => String(x.classLabel || '').trim()).filter(Boolean)))
     return values.sort()
   }, [eligibleClasses])
+
+  useEffect(() => {
+    if (!form.academicYearId || !form.batchId) return
+    if (derivedSemesterMeta.error) {
+      toast.show({
+        color: 'warning',
+        title: 'Attention',
+        message: derivedSemesterMeta.error,
+        delay: 5000,
+      })
+      return
+    }
+    if (derivedSemesterMeta.semester) {
+      toast.show({
+        color: 'info',
+        title: 'Derived Semester',
+        message: `Academic Year ${selectedAcademicYear?.academicYear} (${effectiveSemesterCategory}) + Admission Batch ${selectedBatch?.batchName} = Semester ${derivedSemesterMeta.semester}. Choose Year ${deriveStudyYearFromSemester(derivedSemesterMeta.semester)} classes only.`,
+        delay: 4500,
+      })
+    }
+  }, [
+    toast,
+    form.academicYearId,
+    form.batchId,
+    derivedSemesterMeta.error,
+    derivedSemesterMeta.semester,
+    selectedAcademicYear,
+    selectedBatch,
+    effectiveSemesterCategory,
+  ])
 
   useEffect(() => {
     const nextSemester = derivedSemesterMeta.semester || ''
@@ -129,6 +167,7 @@ const StudentAllotmentConfiguration = () => {
       } else {
         setForm((p) => ({ ...p, courseName: '' }))
       }
+      setDetailsLocked(false)
       return
     }
 
@@ -140,6 +179,7 @@ const StudentAllotmentConfiguration = () => {
         programmeId: '',
         regulationId: '',
         academicYearId: '',
+        semesterCategory: '',
         batchId: '',
         semester: '',
         classId: '',
@@ -231,6 +271,23 @@ const StudentAllotmentConfiguration = () => {
       return
     }
 
+    if (key === 'academicYearId') {
+      const chosen = academicYears.find((x) => String(x.id) === String(value))
+      const nextCategory = chosen?.oddAcademicYearId ? 'ODD' : chosen?.evenAcademicYearId ? 'EVEN' : ''
+      setForm((p) => ({
+        ...p,
+        academicYearId: value,
+        semesterCategory: nextCategory,
+        semester: '',
+      }))
+      return
+    }
+
+    if (key === 'semesterCategory') {
+      setForm((p) => ({ ...p, semesterCategory: value, semester: '' }))
+      return
+    }
+
     if (key === 'classId') {
       const chosen = eligibleClasses.find((x) => String(x.id) === String(value))
       setForm((p) => ({ ...p, classId: value, className: chosen?.className || '', classLabel: chosen?.classLabel || '' }))
@@ -256,6 +313,7 @@ const StudentAllotmentConfiguration = () => {
         const data = await lmsService.listCourseOfferings({
           institutionId: form.institutionId,
           academicYearId: form.academicYearId,
+          semesterCategory: effectiveSemesterCategory,
           programmeId: form.programmeId,
           regulationId: form.regulationId,
           batchId: form.batchId,
@@ -288,6 +346,7 @@ const StudentAllotmentConfiguration = () => {
         programmeId: form.programmeId,
         regulationId: form.regulationId,
         academicYearId: form.academicYearId,
+        semesterCategory: effectiveSemesterCategory,
         batchId: form.batchId,
         semester: form.semester,
         className: form.className,
@@ -301,6 +360,7 @@ const StudentAllotmentConfiguration = () => {
         programmeId: form.programmeId,
         regulationId: form.regulationId,
         academicYearId: form.academicYearId,
+        semesterCategory: effectiveSemesterCategory,
         batchId: form.batchId,
         semester: form.semester,
       }
@@ -328,6 +388,7 @@ const StudentAllotmentConfiguration = () => {
 
       setRows(mapped)
       setShowDetails(true)
+      setDetailsLocked(allotmentMode === 'ALL_COURSES' && allotmentSet.size > 0)
       const allSelected = mapped.length > 0 && mapped.every((x) => x.selected)
       setSelectAll(allSelected)
       setForm((p) => ({
@@ -352,9 +413,8 @@ const StudentAllotmentConfiguration = () => {
     setForm(initialForm)
     setShowDetails(false)
     setRows([])
-    setSearch('')
     setSelectAll(false)
-    setPage(1)
+    setDetailsLocked(false)
     setDepartments([])
     setProgrammes([])
     setRegulations([])
@@ -394,6 +454,7 @@ const StudentAllotmentConfiguration = () => {
         programmeId: form.programmeId,
         regulationId: form.regulationId,
         academicYearId: form.academicYearId,
+        semesterCategory: effectiveSemesterCategory,
         batchId: form.batchId,
         semester: form.semester,
       }
@@ -423,6 +484,9 @@ const StudentAllotmentConfiguration = () => {
             : 'Student allotment done'
           : 'No students allotted',
       }))
+      if (allotmentMode === 'ALL_COURSES') {
+        setDetailsLocked(true)
+      }
     } catch (e) {
       setError(e?.response?.data?.error || 'Failed to save student allotment')
     } finally {
@@ -431,12 +495,14 @@ const StudentAllotmentConfiguration = () => {
   }
 
   const toggleSelectAll = () => {
+    if (detailsLocked) return
     const next = !selectAll
     setSelectAll(next)
     setRows((p) => p.map((r) => ({ ...r, selected: next })))
   }
 
   const toggleRow = (id) => {
+    if (detailsLocked) return
     setRows((p) => p.map((r) => (r.id === id ? { ...r, selected: !r.selected } : r)))
   }
 
@@ -444,15 +510,19 @@ const StudentAllotmentConfiguration = () => {
     setSelectAll(rows.length > 0 && rows.every((r) => r.selected))
   }, [rows])
 
-  const filtered = useMemo(() => {
-    const q = String(search).toLowerCase().trim()
-    if (!q) return rows
-    return rows.filter((r) => `${r.regNo} ${r.name}`.toLowerCase().includes(q))
-  }, [rows, search])
+  const selectedRowIds = useMemo(
+    () => rows.filter((r) => r.selected).map((r) => r.id),
+    [rows],
+  )
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, totalPages)
-  const pageRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const detailColumns = useMemo(
+    () => [
+      { key: 'batch', label: 'Batch', sortable: true, width: 140 },
+      { key: 'regNo', label: 'Register Number', sortable: true, width: 180 },
+      { key: 'name', label: 'Student Name', sortable: true, width: 240 },
+    ],
+    [],
+  )
 
   return (
     <CRow>
@@ -524,29 +594,22 @@ const StudentAllotmentConfiguration = () => {
                   </CFormSelect>
                 </CCol>
 
+                <CCol md={3}><CFormLabel>Semester Category</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.semesterCategory} onChange={onChange('semesterCategory')} disabled={!form.academicYearId}>
+                    <option value="">{form.academicYearId ? 'Select Semester Category' : 'Select Academic Year'}</option>
+                    {semesterCategoryOptions.map((x) => <option key={x} value={x}>{x}</option>)}
+                  </CFormSelect>
+                </CCol>
+
                 <CCol md={3}><CFormLabel>Derived Semester</CFormLabel></CCol>
                 <CCol md={3}>
                   <CFormInput
                     value={form.semester ? `Sem - ${form.semester}` : ''}
-                    placeholder="Select Academic Year and Admission Batch"
+                    placeholder="Select Academic Year, Semester Category and Admission Batch"
                     disabled
                   />
                 </CCol>
-                {derivedSemesterMeta.error ? (
-                  <CCol xs={12}>
-                    <CAlert color="warning" className="mb-0">
-                      {derivedSemesterMeta.error}
-                    </CAlert>
-                  </CCol>
-                ) : null}
-                {form.academicYearId && form.batchId && derivedSemesterMeta.semester ? (
-                  <CCol xs={12}>
-                    <CAlert color="info" className="mb-0">
-                      Student allotment follows admission logic automatically: Academic Year {selectedAcademicYear?.academicYear} ({String(selectedAcademicYear?.semesterCategory || '').toUpperCase()}) + Admission Batch {selectedBatch?.batchName} = Semester {derivedSemesterMeta.semester}. Choose Year {derivedStudyYear} classes only.
-                    </CAlert>
-                  </CCol>
-                ) : null}
-
                 <CCol md={3}><CFormLabel>Programme Name</CFormLabel></CCol>
                 <CCol md={3}><CFormInput value={form.programmeName || '-'} disabled /></CCol>
 
@@ -604,71 +667,62 @@ const StudentAllotmentConfiguration = () => {
           </CCardBody>
         </CCard>
 
-        {showDetails && (
-          <CCard>
-            <CCardHeader>
-              <strong>Student Allotment Details</strong>
-            </CCardHeader>
-            <CCardBody>
-              <div className="d-flex justify-content-between mb-2">
-                <CFormInput
-                  placeholder="Search by Register Number or Name"
-                  style={{ maxWidth: 320 }}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
+        {showDetails ? (
+          <ArpDataTable
+            title="Student Allotment Details"
+            rows={rows}
+            columns={detailColumns}
+            rowKey="id"
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            searchPlaceholder="Search by Register Number or Name"
+            selection={{
+              type: 'checkbox',
+              selected: selectedRowIds,
+              onChange: (selectedIds) => {
+                if (detailsLocked) return
+                const nextSet = new Set(selectedIds)
+                setRows((prev) => prev.map((row) => ({ ...row, selected: nextSet.has(row.id) })))
+              },
+              key: 'id',
+              headerLabel: 'Enrollment',
+              width: 110,
+              disabled: () => detailsLocked,
+            }}
+            headerActions={(
+              <>
                 <CFormCheck
                   label="Select All Students"
                   checked={selectAll}
                   onChange={toggleSelectAll}
+                  disabled={detailsLocked}
                 />
-              </div>
-
-              <CTable bordered hover size="sm">
-                <CTableHead>
-                  <CTableRow>
-                    <CTableHeaderCell>Batch</CTableHeaderCell>
-                    <CTableHeaderCell>Register Number</CTableHeaderCell>
-                    <CTableHeaderCell>Student Name</CTableHeaderCell>
-                    <CTableHeaderCell>Enrollment</CTableHeaderCell>
-                  </CTableRow>
-                </CTableHead>
-                <CTableBody>
-                  {pageRows.map((r) => (
-                    <CTableRow key={r.id}>
-                      <CTableDataCell>{r.batch}</CTableDataCell>
-                      <CTableDataCell>{r.regNo}</CTableDataCell>
-                      <CTableDataCell>{r.name}</CTableDataCell>
-                      <CTableDataCell>
-                        <CFormCheck checked={r.selected} onChange={() => toggleRow(r.id)} />
-                      </CTableDataCell>
-                    </CTableRow>
-                  ))}
-                </CTableBody>
-              </CTable>
-
-                <div className="d-flex justify-content-between align-items-center mt-2">
-                  <div className="d-flex gap-2">
+                <ArpButton
+                  label={saving ? 'Saving...' : allotmentMode === 'ALL_COURSES' ? 'Allot to All Courses' : 'Allotment'}
+                  icon="check"
+                  color="success"
+                  onClick={onAllotment}
+                  disabled={saving || detailsLocked}
+                />
+                {allotmentMode === 'ALL_COURSES' ? (
                   <ArpButton
-                    label={saving ? 'Saving...' : allotmentMode === 'ALL_COURSES' ? 'Allot to All Courses' : 'Allotment'}
-                    icon="check"
-                    color="success"
-                    onClick={onAllotment}
-                    disabled={saving}
+                    label="Edit"
+                    icon="edit"
+                    color="warning"
+                    onClick={() => {
+                      setDetailsLocked(false)
+                      setError('')
+                      setSuccess('Edit mode enabled. Update student selections and save again.')
+                    }}
+                    disabled={!detailsLocked}
                   />
-                  <ArpButton label="Reset" icon="reset" color="secondary" onClick={onReset} />
-                  <ArpButton label="Cancel" icon="cancel" color="danger" onClick={() => setShowDetails(false)} />
-                  </div>
-
-                <CPagination size="sm">
-                  <CPaginationItem disabled={safePage <= 1} onClick={() => setPage(1)}>Prev</CPaginationItem>
-                  <CPaginationItem active>{safePage}</CPaginationItem>
-                  <CPaginationItem disabled={safePage >= totalPages} onClick={() => setPage(totalPages)}>Next</CPaginationItem>
-                </CPagination>
-              </div>
-            </CCardBody>
-          </CCard>
-        )}
+                ) : null}
+                <ArpButton label="Reset" icon="reset" color="secondary" onClick={onReset} />
+                <ArpButton label="Cancel" icon="cancel" color="danger" onClick={() => setShowDetails(false)} />
+              </>
+            )}
+          />
+        ) : null}
       </CCol>
     </CRow>
   )

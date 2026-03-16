@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react'
 import {
-  CAlert,
   CBadge,
   CButton,
   CCard,
@@ -25,7 +24,7 @@ import {
   CTableHeaderCell,
   CTableRow,
 } from '@coreui/react-pro'
-import { ArpButton } from '../../components/common'
+import { ArpButton, useArpToast } from '../../components/common'
 import { lmsService, semesterOptionsFromAcademicYear } from '../../services/lmsService'
 
 const todayIso = () => {
@@ -42,6 +41,7 @@ const initialForm = {
   programmeId: '',
   regulationId: '',
   academicYearId: '',
+  semesterCategory: '',
   batchId: '',
   semester: '',
   facultyId: '',
@@ -201,13 +201,12 @@ const formatDate = (value) => {
 }
 
 const LectureScheduleConfiguration = () => {
+  const toast = useArpToast()
   const [mode, setMode] = useState('ADMIN')
   const [form, setForm] = useState(initialForm)
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [info, setInfo] = useState('')
 
   const [institutions, setInstitutions] = useState([])
   const [departments, setDepartments] = useState([])
@@ -235,22 +234,77 @@ const LectureScheduleConfiguration = () => {
     lectureReferences: '',
   })
 
+  const showToast = (type, message, title = 'Lecture Schedule', options = {}) => {
+    toast.show({
+      type,
+      title,
+      message,
+      autohide: type === 'success',
+      delay: 4500,
+      ...options,
+    })
+  }
+
+  const resetScheduleState = () => {
+    setRows([])
+  }
+
+  const selectedAcademicYear = useMemo(
+    () => academicYears.find((x) => String(x.id) === String(form.academicYearId)) || null,
+    [academicYears, form.academicYearId],
+  )
+
+  const semesterCategoryOptions = useMemo(() => {
+    const out = []
+    const oddChosen = Array.isArray(selectedAcademicYear?.oddChosenSemesters) ? selectedAcademicYear.oddChosenSemesters : []
+    const evenChosen = Array.isArray(selectedAcademicYear?.evenChosenSemesters) ? selectedAcademicYear.evenChosenSemesters : []
+    if (selectedAcademicYear?.oddAcademicYearId || oddChosen.length) out.push('ODD')
+    if (selectedAcademicYear?.evenAcademicYearId || evenChosen.length) out.push('EVEN')
+    if (!out.length && selectedAcademicYear?.semesterCategory) {
+      out.push(String(selectedAcademicYear.semesterCategory).toUpperCase().trim())
+    }
+    return out
+  }, [selectedAcademicYear])
+
+  const semesterOptions = useMemo(
+    () => semesterOptionsFromAcademicYear(selectedAcademicYear, form.semesterCategory),
+    [selectedAcademicYear, form.semesterCategory],
+  )
+
+  const resolvedAcademicYearId = useMemo(() => {
+    if (form.semesterCategory === 'EVEN') return selectedAcademicYear?.evenAcademicYearId || form.academicYearId
+    if (form.semesterCategory === 'ODD') return selectedAcademicYear?.oddAcademicYearId || form.academicYearId
+    return form.academicYearId
+  }, [form.academicYearId, form.semesterCategory, selectedAcademicYear])
+
   const adminScope = useMemo(
     () => ({
       institutionId: form.institutionId,
       departmentId: form.departmentId,
       programmeId: form.programmeId,
       regulationId: form.regulationId,
-      academicYearId: form.academicYearId,
+      academicYearId: resolvedAcademicYearId,
       batchId: form.batchId,
       semester: form.semester,
+      semesterCategory: form.semesterCategory,
     }),
-    [form],
+    [form, resolvedAcademicYearId],
   )
 
+  const filteredFacultyScopes = useMemo(() => {
+    if (!form.semesterCategory) return facultyScopes
+    return facultyScopes.filter((x) => {
+      const scopeYearId = String(x?.academicYearId || '').trim()
+      if (resolvedAcademicYearId && scopeYearId && scopeYearId === String(resolvedAcademicYearId)) return true
+      const sem = Number(x?.semester || 0)
+      if (!Number.isFinite(sem) || sem < 1) return false
+      return form.semesterCategory === 'EVEN' ? sem % 2 === 0 : sem % 2 === 1
+    })
+  }, [facultyScopes, form.semesterCategory, resolvedAcademicYearId])
+
   const selectedFacultyScope = useMemo(
-    () => facultyScopes.find((x) => String(x.id) === String(selectedFacultyScopeId)) || null,
-    [facultyScopes, selectedFacultyScopeId],
+    () => filteredFacultyScopes.find((x) => String(x.id) === String(selectedFacultyScopeId)) || null,
+    [filteredFacultyScopes, selectedFacultyScopeId],
   )
 
   const scope = useMemo(() => {
@@ -264,6 +318,7 @@ const LectureScheduleConfiguration = () => {
           academicYearId: selectedFacultyScope.academicYearId,
           batchId: selectedFacultyScope.batchId,
           semester: selectedFacultyScope.semester,
+          semesterCategory: Number(selectedFacultyScope.semester || 0) % 2 === 0 ? 'EVEN' : 'ODD',
         }
       : adminScope
   }, [mode, adminScope, selectedFacultyScope])
@@ -273,10 +328,10 @@ const LectureScheduleConfiguration = () => {
       try {
         setInstitutions(await lmsService.listInstitutions())
       } catch {
-        setError('Failed to load institutions')
+        showToast('danger', 'Failed to load institutions')
       }
     })()
-  }, [])
+  }, [toast])
 
   React.useEffect(() => {
     if (mode !== 'FACULTY_PREVIEW') return
@@ -289,21 +344,40 @@ const LectureScheduleConfiguration = () => {
     })()
   }, [mode, form.institutionId, form.academicYearId, form.facultyId])
 
-  const selectedAcademicYear = useMemo(
-    () => academicYears.find((x) => String(x.id) === String(form.academicYearId)) || null,
-    [academicYears, form.academicYearId],
-  )
-  const semesterOptions = useMemo(() => semesterOptionsFromAcademicYear(selectedAcademicYear), [selectedAcademicYear])
+  React.useEffect(() => {
+    setForm((p) => {
+      const autoCategory = semesterCategoryOptions.length === 1 ? semesterCategoryOptions[0] : ''
+      const nextCategory = semesterCategoryOptions.includes(p.semesterCategory)
+        ? p.semesterCategory
+        : autoCategory
+      const nextSemester = semesterOptions.some((x) => String(x.value) === String(p.semester))
+        ? p.semester
+        : ''
+      if (p.semesterCategory === nextCategory && String(p.semester || '') === String(nextSemester || '')) return p
+      return { ...p, semesterCategory: nextCategory, semester: nextSemester }
+    })
+  }, [semesterCategoryOptions, semesterOptions])
 
-  const loadCalendarFilterOptions = async (academicYearId) => {
-    if (!academicYearId) {
+  React.useEffect(() => {
+    if (!filteredFacultyScopes.some((x) => String(x.id) === String(selectedFacultyScopeId))) {
+      setSelectedFacultyScopeId(filteredFacultyScopes[0]?.id || '')
+    }
+  }, [filteredFacultyScopes, selectedFacultyScopeId])
+
+  const loadCalendarFilterOptions = async (academicYearIds) => {
+    const candidateAcademicYearIds = Array.from(
+      new Set((Array.isArray(academicYearIds) ? academicYearIds : [academicYearIds]).map((x) => String(x || '').trim()).filter(Boolean)),
+    )
+    if (!candidateAcademicYearIds.length) {
       setDayOptions(DEFAULT_DAY_OPTIONS)
       setDayOrderOptions(Array.from({ length: 7 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) })))
       return
     }
     try {
       const rows = await lmsService.listAcademicCalendarPatterns()
-      const filtered = (Array.isArray(rows) ? rows : []).filter((x) => String(x?.academicYearId || '') === String(academicYearId))
+      const filtered = (Array.isArray(rows) ? rows : []).filter((x) =>
+        candidateAcademicYearIds.includes(String(x?.academicYearId || '').trim()),
+      )
       const source = filtered.length ? filtered : rows
 
       const dayPattern = source.find((x) => normalizePattern(x?.calendarPattern).includes('DAY_PATTERN'))
@@ -362,18 +436,16 @@ const LectureScheduleConfiguration = () => {
     } catch {
       setFacultyScopes([])
       setSelectedFacultyScopeId('')
-      setError('Failed to resolve faculty active scope')
+      showToast('danger', 'Failed to resolve faculty active scope')
     }
   }
 
   const onChange = (key) => async (e) => {
     const value = e.target.value
-    setError('')
-    setInfo('')
 
     if (key === 'mode') {
       setMode(value)
-      setRows([])
+      resetScheduleState()
       setFacultyScopes([])
       setSelectedFacultyScopeId('')
       return
@@ -387,6 +459,7 @@ const LectureScheduleConfiguration = () => {
         programmeId: '',
         regulationId: '',
         academicYearId: '',
+        semesterCategory: '',
         batchId: '',
         semester: '',
         facultyId: '',
@@ -401,6 +474,7 @@ const LectureScheduleConfiguration = () => {
       setSelectedFacultyScopeId('')
       setDayOptions(DEFAULT_DAY_OPTIONS)
       setDayOrderOptions(Array.from({ length: 7 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) })))
+      resetScheduleState()
       if (!value) return
       try {
         const [d, ay, b] = await Promise.all([
@@ -412,73 +486,166 @@ const LectureScheduleConfiguration = () => {
         setAcademicYears(ay)
         setBatches(b)
       } catch {
-        setError('Failed to load institution scope')
+        showToast('danger', 'Failed to load institution scope')
       }
       return
     }
 
     if (key === 'departmentId') {
-      setForm((p) => ({ ...p, departmentId: value, programmeId: '', regulationId: '', facultyId: '' }))
+      setForm((p) => ({
+        ...p,
+        departmentId: value,
+        programmeId: '',
+        regulationId: '',
+        batchId: '',
+        semesterCategory: '',
+        semester: '',
+        facultyId: '',
+      }))
       setProgrammes([])
       setRegulations([])
       setFaculties([])
+      setFacultyScopes([])
+      setSelectedFacultyScopeId('')
+      resetScheduleState()
       if (!value || !form.institutionId) return
       try {
         const p = await lmsService.listProgrammes(form.institutionId, value)
         setProgrammes(p)
       } catch {
-        setError('Failed to load programmes')
+        showToast('danger', 'Failed to load programmes')
       }
 
-      if (!form.academicYearId) return
+      if (!resolvedAcademicYearId) return
 
       try {
         const f = await lmsService.listFaculties({
           institutionId: form.institutionId,
           departmentId: value,
-          academicYearId: form.academicYearId,
+          academicYearId: resolvedAcademicYearId,
         })
         setFaculties(f)
       } catch {
-        setError('Failed to load faculties')
+        showToast('danger', 'Failed to load faculties')
       }
       return
     }
 
     if (key === 'programmeId') {
-      setForm((p) => ({ ...p, programmeId: value, regulationId: '' }))
+      setForm((p) => ({
+        ...p,
+        programmeId: value,
+        regulationId: '',
+        batchId: '',
+        semesterCategory: '',
+        semester: '',
+        facultyId: '',
+      }))
       setRegulations([])
+      setFaculties([])
+      setFacultyScopes([])
+      setSelectedFacultyScopeId('')
+      resetScheduleState()
       if (!value || !form.institutionId) return
       try {
         setRegulations(await lmsService.listRegulations(form.institutionId, value))
       } catch {
-        setError('Failed to load regulations')
+        showToast('danger', 'Failed to load regulations')
       }
       return
     }
 
     if (key === 'academicYearId') {
-      setForm((p) => ({ ...p, academicYearId: value, semester: '', facultyId: '' }))
+      const chosen = academicYears.find((x) => String(x.id) === String(value)) || null
+      const categoryChoices = []
+      if (chosen?.oddAcademicYearId || (Array.isArray(chosen?.oddChosenSemesters) && chosen.oddChosenSemesters.length)) categoryChoices.push('ODD')
+      if (chosen?.evenAcademicYearId || (Array.isArray(chosen?.evenChosenSemesters) && chosen.evenChosenSemesters.length)) categoryChoices.push('EVEN')
+      const nextCategory = categoryChoices.length === 1 ? categoryChoices[0] : ''
+      setForm((p) => ({
+        ...p,
+        academicYearId: value,
+        semesterCategory: nextCategory,
+        batchId: '',
+        semester: '',
+        facultyId: '',
+      }))
+      setFaculties([])
       setFacultyScopes([])
       setSelectedFacultyScopeId('')
-      await loadCalendarFilterOptions(value)
+      resetScheduleState()
+      await loadCalendarFilterOptions([value, chosen?.oddAcademicYearId, chosen?.evenAcademicYearId])
       if (!form.institutionId) return
       try {
         setFaculties(
           await lmsService.listFaculties({
             institutionId: form.institutionId,
             departmentId: mode === 'FACULTY_PREVIEW' ? '' : form.departmentId,
-            academicYearId: value,
+            academicYearId:
+              nextCategory === 'EVEN'
+                ? chosen?.evenAcademicYearId || value
+                : nextCategory === 'ODD'
+                  ? chosen?.oddAcademicYearId || value
+                  : value,
           }),
         )
       } catch {
-        setError('Failed to load faculties')
+        showToast('danger', 'Failed to load faculties')
       }
+      return
+    }
+
+    if (key === 'semesterCategory') {
+      setForm((p) => ({ ...p, semesterCategory: value, semester: '', facultyId: '' }))
+      setFaculties([])
+      setFacultyScopes([])
+      setSelectedFacultyScopeId('')
+      resetScheduleState()
+      await loadCalendarFilterOptions([
+        value === 'EVEN' ? selectedAcademicYear?.evenAcademicYearId : selectedAcademicYear?.oddAcademicYearId,
+        form.academicYearId,
+      ])
+      if (!form.institutionId) return
+      try {
+        setFaculties(
+          await lmsService.listFaculties({
+            institutionId: form.institutionId,
+            departmentId: mode === 'FACULTY_PREVIEW' ? '' : form.departmentId,
+            academicYearId:
+              value === 'EVEN'
+                ? selectedAcademicYear?.evenAcademicYearId || form.academicYearId
+                : value === 'ODD'
+                  ? selectedAcademicYear?.oddAcademicYearId || form.academicYearId
+                  : form.academicYearId,
+          }),
+        )
+      } catch {
+        showToast('danger', 'Failed to load faculties')
+      }
+      if (mode === 'FACULTY_PREVIEW' && form.facultyId) {
+        await loadFacultyPreviewScopes({
+          institutionId: form.institutionId,
+          academicYearId: form.academicYearId,
+          facultyId: form.facultyId,
+        })
+      }
+      return
+    }
+
+    if (key === 'semester') {
+      setForm((p) => ({ ...p, semester: value, facultyId: p.facultyId }))
+      resetScheduleState()
+      return
+    }
+
+    if (key === 'batchId' || key === 'regulationId') {
+      setForm((p) => ({ ...p, [key]: value }))
+      resetScheduleState()
       return
     }
 
     if (key === 'facultyId') {
       setForm((p) => ({ ...p, facultyId: value }))
+      resetScheduleState()
       if (mode === 'FACULTY_PREVIEW') {
         await loadFacultyPreviewScopes({
           institutionId: form.institutionId,
@@ -494,45 +661,43 @@ const LectureScheduleConfiguration = () => {
 
   const onSearch = async (e) => {
     e?.preventDefault?.()
-    setError('')
-    setInfo('')
     if (mode === 'ADMIN') {
-      if (!form.institutionId || !form.departmentId || !form.programmeId || !form.regulationId || !form.academicYearId || !form.batchId || !form.semester) {
-        setError('Select full academic scope before searching')
+      if (!form.institutionId || !form.departmentId || !form.programmeId || !form.regulationId || !form.academicYearId || !form.semesterCategory || !form.batchId || !form.semester) {
+        showToast('danger', 'Select full academic scope before searching')
         return
       }
     } else {
-      if (!form.institutionId || !form.academicYearId) {
-        setError('Select Institution and Academic Year')
+      if (!form.institutionId || !form.academicYearId || !form.semesterCategory) {
+        showToast('danger', 'Select Institution, Academic Year and Semester Category')
         return
       }
       if (!selectedFacultyScopeId) {
-        setError('No active timetable scope found for selected faculty')
+        showToast('danger', 'No active timetable scope found for selected faculty')
         return
       }
     }
     if (!form.facultyId) {
-      setError('Select faculty')
+      showToast('danger', 'Select faculty')
       return
     }
     if (form.view === 'date' && !form.date) {
-      setError('Choose date for date-wise view')
+      showToast('danger', 'Choose date for date-wise view')
       return
     }
     if (form.view === 'dateRange' && (!form.fromDate || !form.toDate)) {
-      setError('Choose from and to dates for date range view')
+      showToast('danger', 'Choose from and to dates for date range view')
       return
     }
     if (form.view === 'dateRange' && form.fromDate > form.toDate) {
-      setError('From date must be less than or equal to To date')
+      showToast('danger', 'From date must be less than or equal to To date')
       return
     }
     if (form.view === 'day' && !form.dayOfWeek) {
-      setError('Choose day for day-wise view')
+      showToast('danger', 'Choose day for day-wise view')
       return
     }
     if (form.view === 'dayOrder' && !form.dayOrder) {
-      setError('Choose day order for day-order-wise view')
+      showToast('danger', 'Choose day order for day-order-wise view')
       return
     }
 
@@ -549,10 +714,10 @@ const LectureScheduleConfiguration = () => {
       setLoading(true)
       const data = await lmsService.getFacultyLectureSchedule(scope, filters)
       setRows(Array.isArray(data) ? data : [])
-      if (!Array.isArray(data) || !data.length) setInfo('No lecture schedule found for selected filter')
+      if (!Array.isArray(data) || !data.length) showToast('info', 'No lecture schedule found for selected filter')
     } catch (err) {
       setRows([])
-      setError(err?.response?.data?.error || 'Failed to load lecture schedule')
+      showToast('danger', err?.response?.data?.error || 'Failed to load lecture schedule')
     } finally {
       setLoading(false)
     }
@@ -560,12 +725,10 @@ const LectureScheduleConfiguration = () => {
 
   const openSessionModal = async (row, mode = 'edit') => {
     if (!row?.id || !row?.sessionDate) {
-      setError('Session date is required to view/edit details')
+      showToast('danger', 'Session date is required to view/edit details')
       return
     }
     try {
-      setError('')
-      setInfo('')
       const session = await lmsService.getLectureSession(row.id, scope, {
         facultyId: form.facultyId,
         date: row.sessionDate,
@@ -580,7 +743,7 @@ const LectureScheduleConfiguration = () => {
       })
       setShowModal(true)
     } catch (err) {
-      setError(err?.response?.data?.error || 'Failed to load lecture session')
+      showToast('danger', err?.response?.data?.error || 'Failed to load lecture session')
     }
   }
 
@@ -588,8 +751,6 @@ const LectureScheduleConfiguration = () => {
     if (!selected?.id) return
     try {
       setSaving(true)
-      setError('')
-      setInfo('')
       await lmsService.upsertLectureSession(selected.id, scope, {
         facultyId: form.facultyId,
         date: selected.sessionDate || form.date || todayIso(),
@@ -600,9 +761,9 @@ const LectureScheduleConfiguration = () => {
       })
       setShowModal(false)
       await onSearch()
-      setInfo('Lecture session updated successfully')
+      showToast('success', 'Lecture session updated successfully')
     } catch (err) {
-      setError(err?.response?.data?.error || 'Failed to update lecture session')
+      showToast('danger', err?.response?.data?.error || 'Failed to update lecture session')
     } finally {
       setSaving(false)
     }
@@ -611,34 +772,31 @@ const LectureScheduleConfiguration = () => {
   const onAttendancePlaceholder = async (row) => {
     if (!row?.id) return
     try {
-      setError('')
       const res = await lmsService.triggerLectureAttendancePlaceholder(row.id, scope, {
         facultyId: form.facultyId,
         date: row.sessionDate || form.date || todayIso(),
       })
-      setInfo(res?.data?.message || 'Attendance module not active yet.')
+      showToast('info', res?.data?.message || 'Attendance module not active yet.')
     } catch (err) {
-      setError(err?.response?.data?.error || 'Failed to open attendance placeholder')
+      showToast('danger', err?.response?.data?.error || 'Failed to open attendance placeholder')
     }
   }
 
   const onDeleteSession = async (row) => {
     if (!row?.id || !row?.sessionDate) {
-      setError('Session date is required to delete')
+      showToast('danger', 'Session date is required to delete')
       return
     }
     if (!window.confirm('Delete saved lecture details for this session?')) return
     try {
-      setError('')
-      setInfo('')
       await lmsService.deleteLectureSession(row.id, scope, {
         facultyId: form.facultyId,
         date: row.sessionDate,
       })
       await onSearch()
-      setInfo('Lecture session deleted successfully')
+      showToast('success', 'Lecture session deleted successfully')
     } catch (err) {
-      setError(err?.response?.data?.error || 'Failed to delete lecture session')
+      showToast('danger', err?.response?.data?.error || 'Failed to delete lecture session')
     }
   }
 
@@ -864,9 +1022,6 @@ const LectureScheduleConfiguration = () => {
           </CCardHeader>
         </CCard>
 
-        {error ? <CAlert color="danger">{error}</CAlert> : null}
-        {info ? <CAlert color="info">{info}</CAlert> : null}
-
         <CCard className="mb-3">
           <CCardHeader>
             <strong>Filters</strong>
@@ -925,21 +1080,33 @@ const LectureScheduleConfiguration = () => {
                   </CFormSelect>
                 </CCol>
 
+                <CCol md={3}><CFormLabel>Semester Category</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect
+                    value={form.semesterCategory}
+                    onChange={onChange('semesterCategory')}
+                    disabled={!form.academicYearId || semesterCategoryOptions.length === 1}
+                  >
+                    <option value="">Select</option>
+                    {semesterCategoryOptions.map((x) => <option key={x} value={x}>{x}</option>)}
+                  </CFormSelect>
+                </CCol>
+
                 {mode === 'ADMIN' ? (
                   <>
+                    <CCol md={3}><CFormLabel>Semester</CFormLabel></CCol>
+                    <CCol md={3}>
+                      <CFormSelect value={form.semester} onChange={onChange('semester')} disabled={!form.semesterCategory}>
+                        <option value="">{form.semesterCategory ? 'Select' : 'Select Semester Category'}</option>
+                        {semesterOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+                      </CFormSelect>
+                    </CCol>
+
                     <CCol md={3}><CFormLabel>Batch</CFormLabel></CCol>
                     <CCol md={3}>
                       <CFormSelect value={form.batchId} onChange={onChange('batchId')}>
                         <option value="">Select</option>
                         {batches.map((x) => <option key={x.id} value={x.id}>{x.batchName}</option>)}
-                      </CFormSelect>
-                    </CCol>
-
-                    <CCol md={3}><CFormLabel>Semester</CFormLabel></CCol>
-                    <CCol md={3}>
-                      <CFormSelect value={form.semester} onChange={onChange('semester')}>
-                        <option value="">Select</option>
-                        {semesterOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
                       </CFormSelect>
                     </CCol>
                   </>
@@ -962,7 +1129,7 @@ const LectureScheduleConfiguration = () => {
                         onChange={(e) => setSelectedFacultyScopeId(e.target.value)}
                       >
                         <option value="">Select</option>
-                        {facultyScopes.map((x) => (
+                        {filteredFacultyScopes.map((x) => (
                           <option key={x.id} value={x.id}>
                             {x.label}
                           </option>

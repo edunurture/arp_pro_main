@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react'
 import {
-  CAlert,
   CBadge,
   CButton,
   CCard,
@@ -20,7 +19,7 @@ import {
   CTableHeaderCell,
   CTableRow,
 } from '@coreui/react-pro'
-import { ArpButton } from '../../components/common'
+import { ArpButton, useArpToast } from '../../components/common'
 import { lmsService, semesterOptionsFromAcademicYear } from '../../services/lmsService'
 
 const STATUS_OPTIONS = ['P', 'A', 'OD', 'L', 'LA']
@@ -39,6 +38,7 @@ const initialForm = {
   programmeId: '',
   regulationId: '',
   academicYearId: '',
+  semesterCategory: '',
   batchId: '',
   semester: '',
   facultyId: '',
@@ -46,6 +46,7 @@ const initialForm = {
 }
 
 const AttendanceConfiguration = () => {
+  const toast = useArpToast()
   const [form, setForm] = useState(initialForm)
   const [institutions, setInstitutions] = useState([])
   const [departments, setDepartments] = useState([])
@@ -69,8 +70,18 @@ const AttendanceConfiguration = () => {
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [loadingRoster, setLoadingRoster] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [info, setInfo] = useState('')
+
+  const showToast = (type, message, title = 'Attendance', options = {}) => {
+    if (!message) return
+    toast.show({
+      type,
+      title,
+      message,
+      autohide: type === 'success',
+      delay: 4500,
+      ...options,
+    })
+  }
 
   const scope = useMemo(
     () => ({
@@ -78,9 +89,10 @@ const AttendanceConfiguration = () => {
       departmentId: form.departmentId,
       programmeId: form.programmeId,
       regulationId: form.regulationId,
-      academicYearId: form.academicYearId,
+      academicYearId: '',
       batchId: form.batchId,
       semester: form.semester,
+      semesterCategory: form.semesterCategory,
     }),
     [form],
   )
@@ -89,7 +101,40 @@ const AttendanceConfiguration = () => {
     () => academicYears.find((x) => String(x.id) === String(form.academicYearId)) || null,
     [academicYears, form.academicYearId],
   )
-  const semesterOptions = useMemo(() => semesterOptionsFromAcademicYear(selectedAcademicYear), [selectedAcademicYear])
+  const semesterCategoryOptions = useMemo(() => {
+    const out = []
+    const oddChosen = Array.isArray(selectedAcademicYear?.oddChosenSemesters) ? selectedAcademicYear.oddChosenSemesters : []
+    const evenChosen = Array.isArray(selectedAcademicYear?.evenChosenSemesters) ? selectedAcademicYear.evenChosenSemesters : []
+    if (selectedAcademicYear?.oddAcademicYearId || oddChosen.length) out.push('ODD')
+    if (selectedAcademicYear?.evenAcademicYearId || evenChosen.length) out.push('EVEN')
+    if (!out.length && selectedAcademicYear?.semesterCategory) {
+      out.push(String(selectedAcademicYear.semesterCategory).toUpperCase().trim())
+    }
+    return out
+  }, [selectedAcademicYear])
+  const semesterOptions = useMemo(
+    () => semesterOptionsFromAcademicYear(selectedAcademicYear, form.semesterCategory),
+    [selectedAcademicYear, form.semesterCategory],
+  )
+  const resolvedAcademicYearId = useMemo(() => {
+    if (form.semesterCategory === 'EVEN') return selectedAcademicYear?.evenAcademicYearId || form.academicYearId
+    if (form.semesterCategory === 'ODD') return selectedAcademicYear?.oddAcademicYearId || form.academicYearId
+    return form.academicYearId
+  }, [form.academicYearId, form.semesterCategory, selectedAcademicYear])
+  const resolvedScope = useMemo(
+    () => ({
+      ...scope,
+      academicYearId: resolvedAcademicYearId,
+    }),
+    [resolvedAcademicYearId, scope],
+  )
+  const annualScope = useMemo(
+    () => ({
+      ...scope,
+      academicYearId: form.academicYearId,
+    }),
+    [form.academicYearId, scope],
+  )
 
   const rosterSummary = useMemo(() => {
     const total = roster.length
@@ -107,15 +152,41 @@ const AttendanceConfiguration = () => {
       try {
         setInstitutions(await lmsService.listInstitutions())
       } catch {
-        setError('Failed to load institutions')
+        showToast('danger', 'Failed to load institutions')
       }
     })()
-  }, [])
+  }, [toast])
+
+  React.useEffect(() => {
+    setForm((p) => {
+      const autoCategory = semesterCategoryOptions.length === 1 ? semesterCategoryOptions[0] : ''
+      const nextCategory = semesterCategoryOptions.includes(p.semesterCategory) ? p.semesterCategory : autoCategory
+      const nextSemester = semesterOptions.some((x) => String(x.value) === String(p.semester)) ? p.semester : ''
+      if (p.semesterCategory === nextCategory && String(p.semester || '') === String(nextSemester || '')) return p
+      return { ...p, semesterCategory: nextCategory, semester: nextSemester }
+    })
+  }, [semesterCategoryOptions, semesterOptions])
+
+  const runAttendanceScopedRequest = async (requestFn) => {
+    try {
+      return await requestFn(resolvedScope)
+    } catch (primaryError) {
+      const canRetryWithAnnual =
+        annualScope.academicYearId &&
+        String(annualScope.academicYearId) !== String(resolvedScope.academicYearId)
+
+      if (!canRetryWithAnnual) throw primaryError
+
+      try {
+        return await requestFn(annualScope)
+      } catch {
+        throw primaryError
+      }
+    }
+  }
 
   const onChange = (key) => async (e) => {
     const value = e.target.value
-    setError('')
-    setInfo('')
 
     if (key === 'institutionId') {
       setForm((p) => ({
@@ -125,6 +196,7 @@ const AttendanceConfiguration = () => {
         programmeId: '',
         regulationId: '',
         academicYearId: '',
+        semesterCategory: '',
         batchId: '',
         semester: '',
         facultyId: '',
@@ -150,13 +222,22 @@ const AttendanceConfiguration = () => {
         setAcademicYears(ay)
         setBatches(b)
       } catch {
-        setError('Failed to load institution scope')
+        showToast('danger', 'Failed to load institution scope')
       }
       return
     }
 
     if (key === 'departmentId') {
-      setForm((p) => ({ ...p, departmentId: value, programmeId: '', regulationId: '', facultyId: '' }))
+      setForm((p) => ({
+        ...p,
+        departmentId: value,
+        programmeId: '',
+        regulationId: '',
+        batchId: '',
+        semesterCategory: '',
+        semester: '',
+        facultyId: '',
+      }))
       setProgrammes([])
       setRegulations([])
       setFaculties([])
@@ -168,14 +249,23 @@ const AttendanceConfiguration = () => {
       try {
         setProgrammes(await lmsService.listProgrammes(form.institutionId, value))
       } catch {
-        setError('Failed to load programmes')
+        showToast('danger', 'Failed to load programmes')
       }
       return
     }
 
     if (key === 'programmeId') {
-      setForm((p) => ({ ...p, programmeId: value, regulationId: '' }))
+      setForm((p) => ({
+        ...p,
+        programmeId: value,
+        regulationId: '',
+        batchId: '',
+        semesterCategory: '',
+        semester: '',
+        facultyId: '',
+      }))
       setRegulations([])
+      setFaculties([])
       setSessions([])
       setSelectedSession(null)
       setRoster([])
@@ -184,13 +274,30 @@ const AttendanceConfiguration = () => {
       try {
         setRegulations(await lmsService.listRegulations(form.institutionId, value))
       } catch {
-        setError('Failed to load regulations')
+        showToast('danger', 'Failed to load regulations')
       }
       return
     }
 
     if (key === 'academicYearId') {
-      setForm((p) => ({ ...p, academicYearId: value, semester: '', facultyId: '' }))
+      const chosen = academicYears.find((x) => String(x.id) === String(value)) || null
+      const categoryChoices = []
+      if (chosen?.oddAcademicYearId || (Array.isArray(chosen?.oddChosenSemesters) && chosen.oddChosenSemesters.length)) categoryChoices.push('ODD')
+      if (chosen?.evenAcademicYearId || (Array.isArray(chosen?.evenChosenSemesters) && chosen.evenChosenSemesters.length)) categoryChoices.push('EVEN')
+      const nextCategory = categoryChoices.length === 1 ? categoryChoices[0] : ''
+      const nextAcademicYearId =
+        nextCategory === 'EVEN'
+          ? chosen?.evenAcademicYearId || value
+          : nextCategory === 'ODD'
+            ? chosen?.oddAcademicYearId || value
+            : value
+      setForm((p) => ({
+        ...p,
+        academicYearId: value,
+        semesterCategory: nextCategory,
+        semester: '',
+        facultyId: '',
+      }))
       setFaculties([])
       setSessions([])
       setSelectedSession(null)
@@ -202,12 +309,49 @@ const AttendanceConfiguration = () => {
           await lmsService.listFaculties({
             institutionId: form.institutionId,
             departmentId: form.departmentId,
-            academicYearId: value,
+            academicYearId: nextAcademicYearId,
           }),
         )
       } catch {
-        setError('Failed to load faculties')
+        showToast('danger', 'Failed to load faculties')
       }
+      return
+    }
+
+    if (key === 'semesterCategory') {
+      const nextAcademicYearId =
+        value === 'EVEN'
+          ? selectedAcademicYear?.evenAcademicYearId || form.academicYearId
+          : value === 'ODD'
+            ? selectedAcademicYear?.oddAcademicYearId || form.academicYearId
+            : form.academicYearId
+      setForm((p) => ({ ...p, semesterCategory: value, semester: '', facultyId: '' }))
+      setFaculties([])
+      setSessions([])
+      setSelectedSession(null)
+      setRoster([])
+      setReportRows([])
+      if (!form.institutionId || !form.departmentId || !form.academicYearId || !value) return
+      try {
+        setFaculties(
+          await lmsService.listFaculties({
+            institutionId: form.institutionId,
+            departmentId: form.departmentId,
+            academicYearId: nextAcademicYearId,
+          }),
+        )
+      } catch {
+        showToast('danger', 'Failed to load faculties')
+      }
+      return
+    }
+
+    if (['regulationId', 'batchId', 'semester', 'facultyId', 'date'].includes(key)) {
+      setForm((p) => ({ ...p, [key]: value }))
+      setSessions([])
+      setSelectedSession(null)
+      setRoster([])
+      setReportRows([])
       return
     }
 
@@ -216,19 +360,19 @@ const AttendanceConfiguration = () => {
 
   const validateScope = () => {
     if (!form.institutionId || !form.departmentId || !form.programmeId || !form.regulationId) {
-      setError('Select Institution, Department, Programme and Regulation')
+      showToast('danger', 'Select Institution, Department, Programme and Regulation')
       return false
     }
-    if (!form.academicYearId || !form.batchId || !form.semester) {
-      setError('Select Academic Year, Batch and Semester')
+    if (!form.academicYearId || !form.semesterCategory || !form.batchId || !form.semester) {
+      showToast('danger', 'Select Academic Year, Semester Category, Batch and Semester')
       return false
     }
     if (!form.facultyId) {
-      setError('Select faculty')
+      showToast('danger', 'Select faculty')
       return false
     }
     if (!form.date) {
-      setError('Select attendance date')
+      showToast('danger', 'Select attendance date')
       return false
     }
     return true
@@ -236,8 +380,6 @@ const AttendanceConfiguration = () => {
 
   const onSearchSessions = async (e) => {
     e?.preventDefault?.()
-    setError('')
-    setInfo('')
     if (!validateScope()) return
 
     try {
@@ -245,16 +387,16 @@ const AttendanceConfiguration = () => {
       setSelectedSession(null)
       setRoster([])
       setReportRows([])
-      const rows = await lmsService.getFacultyLectureSchedule(scope, {
+      const rows = await lmsService.getFacultyLectureSchedule(resolvedScope, {
         facultyId: form.facultyId,
         view: 'date',
         date: form.date,
       })
       setSessions(Array.isArray(rows) ? rows : [])
-      if (!rows?.length) setInfo('No lecture sessions found for selected date')
+      if (!rows?.length) showToast('warning', 'No lecture sessions found for selected date')
     } catch (err) {
       setSessions([])
-      setError(err?.response?.data?.error || 'Failed to load lecture sessions')
+      showToast('danger', err?.response?.data?.error || 'Failed to load lecture sessions')
     } finally {
       setLoadingSessions(false)
     }
@@ -263,13 +405,15 @@ const AttendanceConfiguration = () => {
   const loadCourseReport = async (session) => {
     if (!session?.courseOfferingId) return
     try {
-      const report = await lmsService.getAttendanceCourseReport(scope, {
-        courseOfferingId: session.courseOfferingId,
-        classId: session.classId,
-        facultyId: form.facultyId,
-        date: session.sessionDate || form.date,
-        threshold: 75,
-      })
+      const report = await runAttendanceScopedRequest((activeScope) =>
+        lmsService.getAttendanceCourseReport(activeScope, {
+          courseOfferingId: session.courseOfferingId,
+          classId: session.classId,
+          facultyId: form.facultyId,
+          date: session.sessionDate || form.date,
+          threshold: 75,
+        }),
+      )
       const meta = report?.meta || {}
       setReportRows(Array.isArray(report?.rows) ? report.rows : [])
       setReportMeta({
@@ -286,25 +430,26 @@ const AttendanceConfiguration = () => {
         shortageCount: 0,
         threshold: 75,
       })
+      showToast('danger', 'Failed to load attendance report')
     }
   }
 
   const onSelectSession = async (session) => {
-    setError('')
-    setInfo('')
     setSelectedSession(session)
     setRoster([])
     try {
       setLoadingRoster(true)
-      const data = await lmsService.getLectureAttendanceRoster(session.id, scope, {
-        facultyId: form.facultyId,
-        date: session.sessionDate || form.date,
-      })
+      const data = await runAttendanceScopedRequest((activeScope) =>
+        lmsService.getLectureAttendanceRoster(session.id, activeScope, {
+          facultyId: form.facultyId,
+          date: session.sessionDate || form.date,
+        }),
+      )
       setRoster(Array.isArray(data?.students) ? data.students : [])
       await loadCourseReport(session)
     } catch (err) {
       setRoster([])
-      setError(err?.response?.data?.error || 'Failed to load attendance roster')
+      showToast('danger', err?.response?.data?.error || 'Failed to load attendance roster')
     } finally {
       setLoadingRoster(false)
     }
@@ -321,31 +466,31 @@ const AttendanceConfiguration = () => {
   }
 
   const onSave = async () => {
-    setError('')
-    setInfo('')
     if (!selectedSession?.id) {
-      setError('Select a lecture session first')
+      showToast('danger', 'Select a lecture session first')
       return
     }
     if (!roster.length) {
-      setError('No students found to mark attendance')
+      showToast('danger', 'No students found to mark attendance')
       return
     }
     try {
       setSaving(true)
-      await lmsService.saveLectureAttendance(selectedSession.id, scope, {
-        facultyId: form.facultyId,
-        date: selectedSession.sessionDate || form.date,
-        entries: roster.map((x) => ({
-          studentId: x.studentId,
-          attendanceCode: x.attendanceCode,
-          remarks: x.remarks || '',
-        })),
-      })
-      setInfo('Attendance saved successfully')
+      await runAttendanceScopedRequest((activeScope) =>
+        lmsService.saveLectureAttendance(selectedSession.id, activeScope, {
+          facultyId: form.facultyId,
+          date: selectedSession.sessionDate || form.date,
+          entries: roster.map((x) => ({
+            studentId: x.studentId,
+            attendanceCode: x.attendanceCode,
+            remarks: x.remarks || '',
+          })),
+        }),
+      )
+      showToast('success', 'Attendance saved successfully')
       await Promise.all([onSelectSession(selectedSession), onSearchSessions()])
     } catch (err) {
-      setError(err?.response?.data?.error || 'Failed to save attendance')
+      showToast('danger', err?.response?.data?.error || 'Failed to save attendance')
     } finally {
       setSaving(false)
     }
@@ -359,9 +504,6 @@ const AttendanceConfiguration = () => {
             <strong>Attendance</strong>
           </CCardHeader>
         </CCard>
-
-        {error ? <CAlert color="danger">{error}</CAlert> : null}
-        {info ? <CAlert color="success">{info}</CAlert> : null}
 
         <CCard className="mb-3">
           <CCardHeader><strong>Lecture Scope</strong></CCardHeader>
@@ -408,6 +550,18 @@ const AttendanceConfiguration = () => {
                   </CFormSelect>
                 </CCol>
 
+                <CCol md={3}><CFormLabel>Semester Category</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect
+                    value={form.semesterCategory}
+                    onChange={onChange('semesterCategory')}
+                    disabled={!form.academicYearId || semesterCategoryOptions.length === 1}
+                  >
+                    <option value="">{form.academicYearId ? 'Select Semester Category' : 'Select Academic Year'}</option>
+                    {semesterCategoryOptions.map((x) => <option key={x} value={x}>{x}</option>)}
+                  </CFormSelect>
+                </CCol>
+
                 <CCol md={3}><CFormLabel>Batch</CFormLabel></CCol>
                 <CCol md={3}>
                   <CFormSelect value={form.batchId} onChange={onChange('batchId')}>
@@ -418,8 +572,8 @@ const AttendanceConfiguration = () => {
 
                 <CCol md={3}><CFormLabel>Semester</CFormLabel></CCol>
                 <CCol md={3}>
-                  <CFormSelect value={form.semester} onChange={onChange('semester')}>
-                    <option value="">Select</option>
+                  <CFormSelect value={form.semester} onChange={onChange('semester')} disabled={!form.semesterCategory}>
+                    <option value="">{form.semesterCategory ? 'Select' : 'Select Semester Category'}</option>
                     {semesterOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
                   </CFormSelect>
                 </CCol>
@@ -475,7 +629,7 @@ const AttendanceConfiguration = () => {
                       </CBadge>
                     </CTableDataCell>
                     <CTableDataCell>
-                      <CButton size="sm" color="primary" onClick={() => onSelectSession(x)}>Mark Attendance</CButton>
+                      <CButton size="sm" color="primary" className="text-white" onClick={() => onSelectSession(x)}>Mark Attendance</CButton>
                     </CTableDataCell>
                   </CTableRow>
                 )) : (
@@ -501,7 +655,7 @@ const AttendanceConfiguration = () => {
               </div>
               <div className="d-flex align-items-center gap-2">
                 {loadingRoster ? <CSpinner size="sm" /> : null}
-                <CButton size="sm" color="success" onClick={onSave} disabled={saving || loadingRoster}>
+                <CButton size="sm" color="success" className="text-white" onClick={onSave} disabled={saving || loadingRoster}>
                   {saving ? <CSpinner size="sm" /> : 'Save Attendance'}
                 </CButton>
               </div>
@@ -536,6 +690,7 @@ const AttendanceConfiguration = () => {
                             size="sm"
                             color={st.attendanceCode === code ? 'primary' : 'light'}
                             variant={st.attendanceCode === code ? undefined : 'outline'}
+                            className={st.attendanceCode === code ? 'text-white' : ''}
                             onClick={() => setRowStatus(st.studentId, code)}
                           >
                             {code}

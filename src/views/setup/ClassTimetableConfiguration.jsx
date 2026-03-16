@@ -18,7 +18,7 @@ import {
 } from '@coreui/react-pro'
 import CIcon from '@coreui/icons-react'
 import { cilCheckCircle, cilXCircle } from '@coreui/icons'
-import { ArpButton } from '../../components/common'
+import { ArpButton, useArpToast } from '../../components/common'
 import api from '../../services/apiClient'
 
 const initialScope = {
@@ -27,6 +27,7 @@ const initialScope = {
   programmeId: '',
   regulationId: '',
   academicYearId: '',
+  semesterCategory: '',
   batchId: '',
   semester: '',
 }
@@ -47,6 +48,86 @@ const unwrapList = (res) => {
   if (Array.isArray(res?.data?.data)) return res.data.data
   if (Array.isArray(res?.data)) return res.data
   return []
+}
+
+const normalizeSemesterList = (value) => {
+  const source = Array.isArray(value) ? value : String(value ?? '').match(/\d+/g) || []
+  return Array.from(
+    new Set(
+      source
+        .map((x) => Number(x))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  ).sort((a, b) => a - b)
+}
+
+const buildAnnualAcademicYears = (items = []) => {
+  const grouped = new Map()
+
+  items.forEach((row) => {
+    const key = `${row?.institutionId || ''}::${row?.academicYear || ''}`
+    const current = grouped.get(key) || {
+      id: row?.id || '',
+      institutionId: row?.institutionId || '',
+      academicYear: row?.academicYear || '',
+      academicYearLabel: row?.academicYear || '',
+      oddAcademicYearId: '',
+      evenAcademicYearId: '',
+      oddChosenSemesters: [],
+      evenChosenSemesters: [],
+    }
+
+    const category = String(row?.semesterCategory || '').toUpperCase().trim()
+    if (category === 'ODD') {
+      current.oddAcademicYearId = row?.id || ''
+      current.oddChosenSemesters = normalizeSemesterList(row?.chosenSemesters)
+      current.id = current.id || row?.id || ''
+    }
+    if (category === 'EVEN') {
+      current.evenAcademicYearId = row?.id || ''
+      current.evenChosenSemesters = normalizeSemesterList(row?.chosenSemesters)
+      if (!current.oddAcademicYearId) current.id = row?.id || current.id
+    }
+
+    grouped.set(key, current)
+  })
+
+  return Array.from(grouped.values()).sort((left, right) =>
+    String(right?.academicYear || '').localeCompare(String(left?.academicYear || '')),
+  )
+}
+
+const dedupeAnnualAcademicYears = (items = []) => {
+  const grouped = new Map()
+
+  items.forEach((row) => {
+    const key = `${row?.institutionId || ''}::${row?.academicYearLabel || row?.academicYear || ''}`
+    const current = grouped.get(key) || {
+      ...row,
+      oddChosenSemesters: normalizeSemesterList(row?.oddChosenSemesters),
+      evenChosenSemesters: normalizeSemesterList(row?.evenChosenSemesters),
+    }
+
+    if (!current.id && row?.id) current.id = row.id
+    if (!current.oddAcademicYearId && row?.oddAcademicYearId) current.oddAcademicYearId = row.oddAcademicYearId
+    if (!current.evenAcademicYearId && row?.evenAcademicYearId) current.evenAcademicYearId = row.evenAcademicYearId
+    current.oddChosenSemesters = normalizeSemesterList([
+      ...(Array.isArray(current.oddChosenSemesters) ? current.oddChosenSemesters : []),
+      ...(Array.isArray(row?.oddChosenSemesters) ? row.oddChosenSemesters : []),
+    ])
+    current.evenChosenSemesters = normalizeSemesterList([
+      ...(Array.isArray(current.evenChosenSemesters) ? current.evenChosenSemesters : []),
+      ...(Array.isArray(row?.evenChosenSemesters) ? row.evenChosenSemesters : []),
+    ])
+
+    grouped.set(key, current)
+  })
+
+  return Array.from(grouped.values()).sort((left, right) =>
+    String(right?.academicYearLabel || right?.academicYear || '').localeCompare(
+      String(left?.academicYearLabel || left?.academicYear || ''),
+    ),
+  )
 }
 
 const normalizePattern = (value) =>
@@ -72,10 +153,13 @@ const isBreakSlot = (slot) =>
   Boolean(slot?.isInterval) ||
   /break/i.test(String(slot?.nomenclature || '')) ||
   /break/i.test(String(slot?.shiftName || ''))
+const TIMETABLE_MODES = {
+  MANUAL: 'MANUAL',
+  AUTOMATIC: 'AUTOMATIC',
+}
 
 export default function ClassTimetableConfiguration() {
   const [scope, setScope] = useState(initialScope)
-  const [message, setMessage] = useState(null)
   const [loadingScope, setLoadingScope] = useState(false)
   const [loadingClass, setLoadingClass] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -109,8 +193,25 @@ export default function ClassTimetableConfiguration() {
 
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorModel, setEditorModel] = useState(createEntry())
+  const [timetableMode, setTimetableMode] = useState(TIMETABLE_MODES.MANUAL)
+  const toast = useArpToast()
 
-  const showMessage = (type, text) => setMessage({ type, text })
+  const showToast = (type, message) => {
+    if (!message) return
+    toast.show({
+      color: type,
+      title:
+        type === 'success'
+          ? 'Success'
+          : type === 'warning'
+            ? 'Attention'
+            : type === 'info'
+              ? 'Info'
+              : 'Error',
+      message,
+      delay: type === 'danger' ? 7000 : 4500,
+    })
+  }
 
   const scopeReady = useMemo(
     () =>
@@ -120,25 +221,65 @@ export default function ClassTimetableConfiguration() {
           scope.programmeId &&
           scope.regulationId &&
           scope.academicYearId &&
+          scope.semesterCategory &&
           scope.batchId &&
           scope.semester,
       ),
     [scope],
   )
 
-  const scopeParams = useMemo(() => ({ ...scope }), [scope])
+  const scopeParams = useMemo(
+    () => ({
+      ...scope,
+      academicYearId: scope.academicYearId,
+    }),
+    [scope],
+  )
 
   const selectedAcademicYear = useMemo(
     () => academicYears.find((x) => String(x.id) === String(scope.academicYearId)) || null,
     [academicYears, scope.academicYearId],
   )
 
-  const semesterOptions = useMemo(() => {
-    const category = String(selectedAcademicYear?.semesterCategory || '').toUpperCase().trim()
-    if (category === 'ODD') return mappedSemesters.filter((n) => Number(n) % 2 === 1)
-    if (category === 'EVEN') return mappedSemesters.filter((n) => Number(n) % 2 === 0)
-    return mappedSemesters
+  const resolvedAcademicYearId = useMemo(() => {
+    if (scope.semesterCategory === 'EVEN') {
+      return selectedAcademicYear?.evenAcademicYearId || scope.academicYearId
+    }
+    if (scope.semesterCategory === 'ODD') {
+      return selectedAcademicYear?.oddAcademicYearId || scope.academicYearId
+    }
+    return scope.academicYearId
+  }, [scope.academicYearId, scope.semesterCategory, selectedAcademicYear])
+
+  const semesterCategoryOptions = useMemo(() => {
+    const out = []
+    if (Array.isArray(selectedAcademicYear?.oddChosenSemesters) && selectedAcademicYear.oddChosenSemesters.length) {
+      out.push('ODD')
+    }
+    if (Array.isArray(selectedAcademicYear?.evenChosenSemesters) && selectedAcademicYear.evenChosenSemesters.length) {
+      out.push('EVEN')
+    }
+    if (!out.length) {
+      if (mappedSemesters.some((n) => Number(n) % 2 === 1)) out.push('ODD')
+      if (mappedSemesters.some((n) => Number(n) % 2 === 0)) out.push('EVEN')
+    }
+    return out
   }, [mappedSemesters, selectedAcademicYear])
+
+  const semesterOptions = useMemo(() => {
+    const category = String(scope.semesterCategory || '').toUpperCase().trim()
+    if (category === 'ODD') {
+      const mappedOdd = mappedSemesters.filter((n) => Number(n) % 2 === 1)
+      if (mappedOdd.length) return mappedOdd
+      return Array.isArray(selectedAcademicYear?.oddChosenSemesters) ? selectedAcademicYear.oddChosenSemesters : []
+    }
+    if (category === 'EVEN') {
+      const mappedEven = mappedSemesters.filter((n) => Number(n) % 2 === 0)
+      if (mappedEven.length) return mappedEven
+      return Array.isArray(selectedAcademicYear?.evenChosenSemesters) ? selectedAcademicYear.evenChosenSemesters : []
+    }
+    return []
+  }, [mappedSemesters, scope.semesterCategory, selectedAcademicYear])
 
   const selectedTimetable = useMemo(
     () => slotMasters.find((x) => String(x.id) === String(selectedTimetableId)) || null,
@@ -155,6 +296,18 @@ export default function ClassTimetableConfiguration() {
     entries.forEach((e) => map.set(buildCellKey(Number(e.dayOfWeek), String(e.timetableSlotId)), e))
     return map
   }, [entries])
+
+  const conflictMap = useMemo(() => {
+    const map = new Map()
+    conflicts.forEach((conflict, index) => {
+      const key = buildCellKey(Number(conflict?.dayOfWeek || 0), String(conflict?.timetableSlotId || ''))
+      if (key === '0|') return
+      const list = map.get(key) || []
+      list.push({ ...conflict, _index: index })
+      map.set(key, list)
+    })
+    return map
+  }, [conflicts])
 
   const selectedClass = useMemo(
     () => classes.find((x) => String(x.classId) === String(selectedClassId)) || null,
@@ -191,6 +344,45 @@ export default function ClassTimetableConfiguration() {
       byOffering.set(String(off.id), Array.from((byCourse.get(courseId) || new Map()).values()))
     })
     return byOffering
+  }, [courseAllotments, courseOfferings])
+
+  const autoAllocationPlans = useMemo(() => {
+    const byCourse = new Map()
+    courseAllotments.forEach((row) => {
+      const courseId = String(row?.courseId || '')
+      const facultyId = String(row?.facultyId || '')
+      const hoursAllocated = Number(row?.hoursAllocated || 0)
+      if (!courseId || !facultyId || !Number.isFinite(hoursAllocated) || hoursAllocated <= 0) return
+      if (!byCourse.has(courseId)) byCourse.set(courseId, [])
+      byCourse.get(courseId).push({
+        courseId,
+        facultyId,
+        facultyCode: row?.facultyCode || '',
+        facultyName: row?.facultyName || '',
+        hoursAllocated,
+      })
+    })
+
+    return courseOfferings
+      .map((off, index) => {
+        const courseId = String(off?.courseId || '')
+        const plans = byCourse.get(courseId) || []
+        const totalHours = plans.reduce((sum, plan) => sum + Number(plan.hoursAllocated || 0), 0)
+        const primaryPlan = plans[0] || null
+        return {
+          id: `AUTO_${off?.id || index + 1}`,
+          courseOfferingId: off?.id || '',
+          courseId,
+          courseCode: off?.course?.courseCode || '',
+          courseTitle: off?.course?.courseTitle || '',
+          periodType: String(off?.course?.courseType || off?.course?.courseCategory || 'THEORY').toUpperCase(),
+          hoursRemaining: totalHours,
+          facultyId: primaryPlan?.facultyId || '',
+          facultyCode: primaryPlan?.facultyCode || '',
+          facultyName: primaryPlan?.facultyName || '',
+        }
+      })
+      .filter((item) => item.courseOfferingId && item.facultyId && Number(item.hoursRemaining || 0) > 0)
   }, [courseAllotments, courseOfferings])
 
   const editorFacultyOptions = useMemo(() => {
@@ -273,7 +465,11 @@ export default function ClassTimetableConfiguration() {
         api.get('/api/setup/academic-calendar-pattern'),
       ])
 
-      setSlotMasters(unwrapList(ttRes))
+      const timetableRows = unwrapList(ttRes)
+      setSlotMasters(timetableRows)
+      setSelectedTimetableId((prev) =>
+        timetableRows.some((x) => String(x.id) === String(prev)) ? prev : timetableRows[0]?.id || '',
+      )
       setClasses(unwrapList(classRes))
       setCourseOfferings(unwrapList(offerRes))
       setCourseAllotments(unwrapList(allotRes))
@@ -281,15 +477,21 @@ export default function ClassTimetableConfiguration() {
       setRoomClasses(unwrapList(roomRes))
 
       const patterns = unwrapList(patternRes).filter(
-        (x) => String(x?.academicYearId || '') === String(scope.academicYearId),
+        (x) => String(x?.academicYearId || '') === String(resolvedAcademicYearId),
       )
       const dayConfig = deriveDayConfig(patterns)
       setDayMode(dayConfig.mode)
       setDayOptions(dayConfig.options)
 
-      showMessage('success', 'Scope loaded successfully')
+      if (!timetableRows.length) {
+        showToast(
+          'warning',
+          ttRes?.data?.message || 'No Slot Master Timetable found for selected scope. Complete Timetable Setup first.',
+        )
+      }
+      showToast('success', 'Scope loaded successfully')
     } catch (e) {
-      showMessage('danger', e?.response?.data?.error || 'Failed to load scope')
+      showToast('danger', e?.response?.data?.error || 'Failed to load scope')
       resetScopeData()
     } finally {
       setLoadingScope(false)
@@ -328,7 +530,7 @@ export default function ClassTimetableConfiguration() {
       setEntries([])
       setVersionNo(0)
       setIsPublished(false)
-      showMessage('danger', e?.response?.data?.error || 'Failed to load class timetable')
+      showToast('danger', e?.response?.data?.error || 'Failed to load class timetable')
     } finally {
       setLoadingClass(false)
     }
@@ -356,10 +558,10 @@ export default function ClassTimetableConfiguration() {
     try {
       const res = await api.post(`/api/setup/class-timetable/${selectedClassId}/validate`, buildPayload())
       setConflicts(res?.data?.data?.conflicts || [])
-      showMessage((res?.data?.data?.conflictCount || 0) > 0 ? 'warning' : 'success', 'Validation completed')
+      showToast((res?.data?.data?.conflictCount || 0) > 0 ? 'warning' : 'success', 'Validation completed')
     } catch (e) {
       setConflicts(e?.response?.data?.details?.conflicts || [])
-      showMessage('danger', e?.response?.data?.error || 'Validation failed')
+      showToast('danger', e?.response?.data?.error || 'Validation failed')
     } finally {
       setValidating(false)
     }
@@ -373,12 +575,12 @@ export default function ClassTimetableConfiguration() {
       setVersionNo(Number(res?.data?.data?.versionNo || 0))
       setIsPublished(!!res?.data?.data?.isPublished)
       setConflicts([])
-      showMessage('success', res?.data?.message || 'Saved successfully')
+      showToast('success', res?.data?.message || 'Saved successfully')
       await loadScopeData()
       await loadClassTimetable(selectedClassId)
     } catch (e) {
       setConflicts(e?.response?.data?.details?.conflicts || [])
-      showMessage('danger', e?.response?.data?.error || 'Failed to save timetable')
+      showToast('danger', e?.response?.data?.error || 'Failed to save timetable')
     } finally {
       setSaving(false)
     }
@@ -391,10 +593,10 @@ export default function ClassTimetableConfiguration() {
       const endpoint = isPublished ? 'unpublish' : 'publish'
       await api.post(`/api/setup/class-timetable/${selectedClassId}/${endpoint}`, scopeParams)
       setIsPublished((prev) => !prev)
-      showMessage('success', isPublished ? 'Unpublished' : 'Published')
+      showToast('success', isPublished ? 'Unpublished' : 'Published')
       await loadScopeData()
     } catch (e) {
-      showMessage('danger', e?.response?.data?.error || 'Failed to update publish status')
+      showToast('danger', e?.response?.data?.error || 'Failed to update publish status')
     } finally {
       setPublishing(false)
     }
@@ -426,6 +628,107 @@ export default function ClassTimetableConfiguration() {
     setEditorOpen(false)
   }
 
+  const onAutoGenerateDraft = () => {
+    if (!selectedTimetableId || !slotColumns.length) {
+      showToast('danger', 'Load Scope and choose Slot Master Timetable before auto generating')
+      return
+    }
+    if (!selectedClassId) {
+      showToast('danger', 'Select a class before auto generating timetable')
+      return
+    }
+
+    const nonBreakSlots = slotColumns.filter((slot) => !isBreakSlot(slot))
+    if (!nonBreakSlots.length || !dayOptions.length) {
+      showToast('danger', 'No schedulable slots found in selected timetable')
+      return
+    }
+
+    const plans = autoAllocationPlans
+      .map((plan) => ({ ...plan }))
+      .filter((plan) => Number(plan.hoursRemaining || 0) > 0)
+
+    if (!plans.length) {
+      showToast('warning', 'No course allotment hours found to generate automatic timetable draft')
+      return
+    }
+
+    const generated = []
+    const perDayCourseSet = new Map()
+    const perDayLastCourse = new Map()
+    const totalTarget = dayOptions.length * nonBreakSlots.length
+
+    const sortPlans = () => {
+      plans.sort((left, right) => {
+        const diff = Number(right.hoursRemaining || 0) - Number(left.hoursRemaining || 0)
+        if (diff !== 0) return diff
+        return String(left.courseCode || left.courseTitle || '').localeCompare(String(right.courseCode || right.courseTitle || ''))
+      })
+    }
+
+    sortPlans()
+
+    for (const day of dayOptions) {
+      const dayKey = Number(day.value)
+      perDayCourseSet.set(dayKey, new Set())
+      perDayLastCourse.set(dayKey, '')
+
+      for (const slot of nonBreakSlots) {
+        if (!plans.some((plan) => Number(plan.hoursRemaining || 0) > 0)) break
+
+        sortPlans()
+        const usedToday = perDayCourseSet.get(dayKey) || new Set()
+        const lastCourseId = perDayLastCourse.get(dayKey) || ''
+
+        let chosen =
+          plans.find(
+            (plan) =>
+              Number(plan.hoursRemaining || 0) > 0 &&
+              String(plan.courseId) !== String(lastCourseId) &&
+              !usedToday.has(String(plan.courseId)),
+          ) ||
+          plans.find(
+            (plan) => Number(plan.hoursRemaining || 0) > 0 && String(plan.courseId) !== String(lastCourseId),
+          ) ||
+          plans.find((plan) => Number(plan.hoursRemaining || 0) > 0) ||
+          null
+
+        if (!chosen) continue
+
+        generated.push(
+          createEntry({
+            dayOfWeek: dayKey,
+            timetableSlotId: String(slot.id),
+            periodType: ['THEORY', 'LAB', 'ELECTIVE', 'ACTIVITY'].includes(chosen.periodType)
+              ? chosen.periodType
+              : 'THEORY',
+            courseOfferingId: chosen.courseOfferingId,
+            facultyId: chosen.facultyId,
+            roomClassId: '',
+            title: chosen.courseTitle || chosen.courseCode || '',
+            notes: 'Auto-generated draft',
+          }),
+        )
+
+        chosen.hoursRemaining = Number(chosen.hoursRemaining || 0) - 1
+        usedToday.add(String(chosen.courseId))
+        perDayLastCourse.set(dayKey, String(chosen.courseId))
+      }
+    }
+
+    if (!generated.length) {
+      showToast('warning', 'Unable to generate timetable draft from current course allocation data')
+      return
+    }
+
+    setEntries(generated)
+    setConflicts([])
+    showToast(
+      'success',
+      `Automatic draft generated for ${generated.length} slot(s) out of ${totalTarget}. Review, validate, and save before publish.`,
+    )
+  }
+
   const getCellHoverText = (slotEntry) => {
     if (!slotEntry) return 'Not Scheduled'
     const offering = offeringById.get(String(slotEntry.courseOfferingId || ''))
@@ -433,6 +736,24 @@ export default function ClassTimetableConfiguration() {
     const faculty = facultyById.get(String(slotEntry.facultyId || ''))
     const facultyName = faculty?.facultyName || '-'
     return `Course: ${courseName} | Faculty: ${facultyName}`
+  }
+
+  const getConflictLabel = (dayValue, slotId) => {
+    const list = conflictMap.get(buildCellKey(Number(dayValue), String(slotId))) || []
+    if (!list.length) return ''
+    if (list.some((item) => String(item.type || '').toUpperCase().includes('FACULTY'))) return 'Faculty Conflict'
+    if (list.some((item) => String(item.type || '').toUpperCase().includes('ROOM'))) return 'Room Conflict'
+    return 'Conflict'
+  }
+
+  const getDayLabel = (dayValue) => {
+    const found = dayOptions.find((item) => Number(item.value) === Number(dayValue))
+    return found?.label || String(dayValue || '-')
+  }
+
+  const getSlotLabel = (slotId) => {
+    const found = slotColumns.find((item) => String(item.id) === String(slotId))
+    return found?.nomenclature || found?.shiftName || `Slot ${String(slotId || '-')}`
   }
 
   useEffect(() => {
@@ -452,6 +773,7 @@ export default function ClassTimetableConfiguration() {
       programmeId: '',
       regulationId: '',
       academicYearId: '',
+      semesterCategory: '',
       batchId: '',
       semester: '',
     }))
@@ -467,17 +789,31 @@ export default function ClassTimetableConfiguration() {
     ;(async () => {
       const [d, y, b] = await Promise.all([
         api.get('/api/setup/department', { params: { institutionId: scope.institutionId } }),
-        api.get('/api/setup/academic-year', { headers: { 'x-institution-id': scope.institutionId } }),
+        api.get('/api/setup/academic-year', {
+          headers: { 'x-institution-id': scope.institutionId },
+          params: { institutionId: scope.institutionId, view: 'annual' },
+        }),
         api.get('/api/setup/batch', { params: { institutionId: scope.institutionId } }),
       ])
       setDepartments(unwrapList(d))
-      setAcademicYears(unwrapList(y))
+      const annualRows = unwrapList(y)
+      setAcademicYears(
+        annualRows.length
+          ? dedupeAnnualAcademicYears(annualRows)
+          : buildAnnualAcademicYears(
+              unwrapList(
+                await api.get('/api/setup/academic-year', {
+                  headers: { 'x-institution-id': scope.institutionId },
+                }),
+              ),
+            ),
+      )
       setBatches(unwrapList(b))
     })().catch(() => {})
   }, [scope.institutionId])
 
   useEffect(() => {
-    setScope((s) => ({ ...s, programmeId: '', regulationId: '', semester: '' }))
+    setScope((s) => ({ ...s, programmeId: '', regulationId: '', semesterCategory: '', semester: '' }))
     setProgrammes([])
     setRegulations([])
     setMappedSemesters([])
@@ -500,7 +836,7 @@ export default function ClassTimetableConfiguration() {
   }, [scope.institutionId, scope.departmentId])
 
   useEffect(() => {
-    setScope((s) => ({ ...s, regulationId: '', semester: '' }))
+    setScope((s) => ({ ...s, regulationId: '', semesterCategory: '', semester: '' }))
     setRegulations([])
     setMappedSemesters([])
     resetScopeData()
@@ -515,7 +851,7 @@ export default function ClassTimetableConfiguration() {
   }, [scope.institutionId, scope.programmeId])
 
   useEffect(() => {
-    setScope((s) => ({ ...s, semester: '' }))
+    setScope((s) => ({ ...s, semesterCategory: '', semester: '' }))
     setMappedSemesters([])
     resetScopeData()
     if (
@@ -536,7 +872,7 @@ export default function ClassTimetableConfiguration() {
           departmentId: scope.departmentId,
           programmeId: scope.programmeId,
           regulationId: scope.regulationId,
-          academicYearId: scope.academicYearId,
+          academicYearIds: [selectedAcademicYear?.oddAcademicYearId, selectedAcademicYear?.evenAcademicYearId].filter(Boolean).join(','),
           batchId: scope.batchId,
         },
       })
@@ -552,7 +888,14 @@ export default function ClassTimetableConfiguration() {
     scope.regulationId,
     scope.academicYearId,
     scope.batchId,
+    selectedAcademicYear,
   ])
+
+  useEffect(() => {
+    if (!semesterCategoryOptions.includes(scope.semesterCategory)) {
+      setScope((s) => ({ ...s, semesterCategory: '', semester: '' }))
+    }
+  }, [scope.semesterCategory, semesterCategoryOptions])
 
   useEffect(() => {
     if (scope.semester && !semesterOptions.includes(Number(scope.semester))) {
@@ -568,30 +911,59 @@ export default function ClassTimetableConfiguration() {
             <strong>CLASS-WISE TIMETABLE</strong>
             <div className="d-flex gap-2">
               <ArpButton label={loadingScope ? 'Loading...' : 'Load Scope'} icon="search" color="info" onClick={loadScopeData} disabled={!scopeReady || loadingScope} />
-              <ArpButton label={validating ? 'Validating...' : 'Validate'} icon="view" color="warning" onClick={onValidate} disabled={!selectedClassId || !selectedTimetableId || validating} />
-              <ArpButton label={saving ? 'Saving...' : 'Save'} icon="save" color="success" onClick={onSave} disabled={!selectedClassId || !selectedTimetableId || saving} />
-              <ArpButton
-                label={publishing ? 'Updating...' : isPublished ? 'Unpublish' : 'Publish'}
-                icon="send"
-                color={isPublished ? 'secondary' : 'primary'}
-                onClick={onPublishToggle}
-                disabled={!selectedClassId || publishing}
-              />
+              {timetableMode === TIMETABLE_MODES.MANUAL ? (
+                <>
+                  <ArpButton label={validating ? 'Validating...' : 'Validate'} icon="view" color="warning" onClick={onValidate} disabled={!selectedClassId || !selectedTimetableId || validating} />
+                  <ArpButton label={saving ? 'Saving...' : 'Save'} icon="save" color="success" onClick={onSave} disabled={!selectedClassId || !selectedTimetableId || saving} />
+                  <ArpButton
+                    label={publishing ? 'Updating...' : isPublished ? 'Unpublish' : 'Publish'}
+                    icon="send"
+                    color={isPublished ? 'secondary' : 'primary'}
+                    onClick={onPublishToggle}
+                    disabled={!selectedClassId || publishing}
+                  />
+                </>
+              ) : (
+                <>
+                  <ArpButton
+                    label="Auto Generate Draft"
+                    icon="add"
+                    color="primary"
+                    onClick={onAutoGenerateDraft}
+                    disabled={!selectedClassId || !selectedTimetableId}
+                  />
+                  <ArpButton label={validating ? 'Validating...' : 'Validate'} icon="view" color="warning" onClick={onValidate} disabled={!selectedClassId || !selectedTimetableId || validating} />
+                  <ArpButton label={saving ? 'Saving...' : 'Save'} icon="save" color="success" onClick={onSave} disabled={!selectedClassId || !selectedTimetableId || saving} />
+                  <ArpButton
+                    label={publishing ? 'Updating...' : isPublished ? 'Unpublish' : 'Publish'}
+                    icon="send"
+                    color={isPublished ? 'secondary' : 'primary'}
+                    onClick={onPublishToggle}
+                    disabled={!selectedClassId || publishing}
+                  />
+                </>
+              )}
             </div>
           </CCardHeader>
           <CCardBody>
-            {message ? <CAlert color={message.type}>{message.text}</CAlert> : null}
             <CRow className="g-3">
               <CCol md={3}><CFormLabel>Institution</CFormLabel><CFormSelect value={scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, institutionId: e.target.value }))}><option value="">Select Institution</option>{institutions.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</CFormSelect></CCol>
               <CCol md={3}><CFormLabel>Department</CFormLabel><CFormSelect value={scope.departmentId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, departmentId: e.target.value }))}><option value="">Select Department</option>{departments.map((x) => <option key={x.id} value={x.id}>{x.departmentName}</option>)}</CFormSelect></CCol>
               <CCol md={3}><CFormLabel>Programme</CFormLabel><CFormSelect value={scope.programmeId} disabled={!scope.departmentId} onChange={(e) => setScope((s) => ({ ...s, programmeId: e.target.value }))}><option value="">Select Programme</option>{programmes.map((x) => <option key={x.id} value={x.id}>{x.programmeCode} - {x.programmeName}</option>)}</CFormSelect></CCol>
               <CCol md={3}><CFormLabel>Regulation</CFormLabel><CFormSelect value={scope.regulationId} disabled={!scope.programmeId} onChange={(e) => setScope((s) => ({ ...s, regulationId: e.target.value }))}><option value="">Select Regulation</option>{regulations.map((x) => <option key={x.id} value={x.id}>{x.regulationCode}</option>)}</CFormSelect></CCol>
-              <CCol md={3}><CFormLabel>Academic Year</CFormLabel><CFormSelect value={scope.academicYearId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, academicYearId: e.target.value }))}><option value="">Select Academic Year</option>{academicYears.map((x) => <option key={x.id} value={x.id}>{x.academicYearLabel || x.academicYear}</option>)}</CFormSelect></CCol>
-              <CCol md={3}><CFormLabel>Batch</CFormLabel><CFormSelect value={scope.batchId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, batchId: e.target.value }))}><option value="">Select Batch</option>{batches.map((x) => <option key={x.id} value={x.id}>{x.batchName}</option>)}</CFormSelect></CCol>
+              <CCol md={3}><CFormLabel>Academic Year</CFormLabel><CFormSelect value={scope.academicYearId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, academicYearId: e.target.value, semesterCategory: '', semester: '' }))}><option value="">Select Academic Year</option>{academicYears.map((x) => <option key={x.id} value={x.id}>{x.academicYearLabel || x.academicYear}</option>)}</CFormSelect></CCol>
+              <CCol md={3}><CFormLabel>Admission Batch</CFormLabel><CFormSelect value={scope.batchId} disabled={!scope.institutionId} onChange={(e) => setScope((s) => ({ ...s, batchId: e.target.value }))}><option value="">Select Admission Batch</option>{batches.map((x) => <option key={x.id} value={x.id}>{x.batchName}</option>)}</CFormSelect></CCol>
               <CCol md={3}>
-                <CFormLabel>Semester</CFormLabel>
-                <CFormSelect value={scope.semester} disabled={!scope.batchId || !scope.regulationId || !scope.academicYearId} onChange={(e) => setScope((s) => ({ ...s, semester: e.target.value }))}>
-                  <option value="">Select Semester</option>
+                <CFormLabel>Semester Category</CFormLabel>
+                <CFormSelect value={scope.semesterCategory} disabled={!scope.academicYearId} onChange={(e) => setScope((s) => ({ ...s, semesterCategory: e.target.value, semester: '' }))}>
+                  <option value="">{scope.academicYearId ? 'Select Semester Category' : 'Select Academic Year'}</option>
+                  {semesterCategoryOptions.map((x) => <option key={x} value={x}>{x}</option>)}
+                </CFormSelect>
+              </CCol>
+              <CCol md={3}>
+                <CFormLabel>Choose Semester</CFormLabel>
+                <CFormSelect value={scope.semester} disabled={!scope.batchId || !scope.regulationId || !scope.academicYearId || !scope.semesterCategory} onChange={(e) => setScope((s) => ({ ...s, semester: e.target.value }))}>
+                  <option value="">{scope.semesterCategory ? 'Select Semester' : 'Select Semester Category'}</option>
                   {semesterOptions.map((sem) => <option key={sem} value={String(sem)}>{sem}</option>)}
                 </CFormSelect>
               </CCol>
@@ -601,6 +973,18 @@ export default function ClassTimetableConfiguration() {
                   <option value="">Select Timetable</option>
                   {slotMasters.map((x) => <option key={x.id} value={x.id}>{x.timetableName}</option>)}
                 </CFormSelect>
+              </CCol>
+              <CCol md={3}>
+                <CFormLabel>Timetable Mode</CFormLabel>
+                <CFormSelect value={timetableMode} onChange={(e) => setTimetableMode(e.target.value)}>
+                  <option value={TIMETABLE_MODES.MANUAL}>Manual Timetable</option>
+                  <option value={TIMETABLE_MODES.AUTOMATIC}>Automatic Timetable</option>
+                </CFormSelect>
+              </CCol>
+              <CCol md={9} className="d-flex align-items-end">
+                <small className="text-muted">
+                  Manual Timetable remains the default. Automatic Timetable is an optional institutional mode and should generate draft entries only before review and publish.
+                </small>
               </CCol>
             </CRow>
           </CCardBody>
@@ -635,11 +1019,24 @@ export default function ClassTimetableConfiguration() {
           <CCardHeader className="d-flex justify-content-between align-items-center">
             <strong>{selectedClass ? `${selectedClass.className} ${selectedClass.classLabel || ''}` : 'Timetable Matrix'}</strong>
             <div className="d-flex gap-3">
+              <span>Mode: {timetableMode === TIMETABLE_MODES.AUTOMATIC ? 'Automatic' : 'Manual'}</span>
               <span>Version: {versionNo}</span>
               <span>Status: {isPublished ? 'Published' : 'Draft'}</span>
             </div>
           </CCardHeader>
           <CCardBody>
+            {timetableMode === TIMETABLE_MODES.AUTOMATIC ? (
+              <CAlert color="info" className="mb-3">
+                <strong>Automatic Timetable</strong>
+                <div className="mt-2">
+                  This optional mode is intended for institutions willing to use automatic draft generation. The existing manual timetable flow remains unchanged and is still the default mode.
+                </div>
+                <div className="mt-2">
+                  Recommended flow: choose scope, load slot master, choose class, use <strong>Auto Generate Draft</strong>, review the generated entries, then validate and publish after confirmation.
+                </div>
+              </CAlert>
+            ) : null}
+
             {!selectedClassId ? (
               <div className="text-medium-emphasis">Select a class to schedule.</div>
             ) : !selectedTimetableId || !slotColumns.length ? (
@@ -697,24 +1094,34 @@ export default function ClassTimetableConfiguration() {
 
                           const slotEntry = entryMap.get(buildCellKey(Number(day.value), String(slot.id)))
                           const scheduled = !!slotEntry
+                          const cellConflicts = conflictMap.get(buildCellKey(Number(day.value), String(slot.id))) || []
+                          const hasConflict = cellConflicts.length > 0
                           const titleText = slotEntry?.title || (slotEntry?.periodType === 'BREAK' ? 'Break' : 'Scheduled')
 
                           return (
                             <td
                               key={slot.id}
                               style={{
-                                backgroundColor: scheduled ? '#eaf2fb' : '#ffffff',
-                                borderColor: scheduled ? '#b9d0ea' : undefined,
+                                backgroundColor: hasConflict ? '#fdeaea' : scheduled ? '#eaf2fb' : '#ffffff',
+                                borderColor: hasConflict ? '#e08b8b' : scheduled ? '#b9d0ea' : undefined,
+                                boxShadow: hasConflict ? 'inset 0 0 0 2px #dc3545' : undefined,
                               }}
                             >
                               <button
                                 type="button"
                                 className="btn btn-link p-0 text-decoration-none"
                                 onClick={() => openEditor(day.value, slot.id)}
-                                title={getCellHoverText(slotEntry)}
+                                title={
+                                  hasConflict
+                                    ? `${getConflictLabel(day.value, slot.id)} | ${cellConflicts.map((item) => item.message || item.type || 'Conflict').join(' ; ')}`
+                                    : getCellHoverText(slotEntry)
+                                }
                               >
                                 <div className="d-flex flex-column align-items-center">
-                                  <CIcon icon={scheduled ? cilCheckCircle : cilXCircle} size="xl" className={scheduled ? 'text-success' : 'text-medium-emphasis'} />
+                                  <CIcon icon={scheduled ? cilCheckCircle : cilXCircle} size="xl" className={hasConflict ? 'text-danger' : scheduled ? 'text-success' : 'text-medium-emphasis'} />
+                                  {hasConflict ? (
+                                    <small className="mt-1 fw-semibold text-danger">{getConflictLabel(day.value, slot.id)}</small>
+                                  ) : null}
                                   <small className="mt-1 fw-semibold">{scheduled ? titleText : 'Not Scheduled'}</small>
                                 </div>
                               </button>
@@ -734,7 +1141,14 @@ export default function ClassTimetableConfiguration() {
           <CAlert color="warning" className="mt-3">
             <strong>Conflicts ({conflicts.length})</strong>
             <ul className="mb-0">
-              {conflicts.map((c, i) => <li key={i}>[{c.type}] {c.message || 'Conflict'}</li>)}
+              {conflicts.map((c, i) => (
+                <li key={i}>
+                  [{c.type}] {c.message || 'Conflict'}
+                  {c?.dayOfWeek || c?.timetableSlotId
+                    ? ` - Day ${getDayLabel(c.dayOfWeek)} / ${getSlotLabel(c.timetableSlotId)}`
+                    : ''}
+                </li>
+              ))}
             </ul>
           </CAlert>
         ) : null}

@@ -16,7 +16,7 @@ import {
   CTableHeaderCell,
   CTableRow,
 } from '@coreui/react-pro'
-import { ArpButton, ArpDataTable, ArpIconButton } from '../../components/common'
+import { ArpButton, ArpDataTable, ArpIconButton, useArpToast } from '../../components/common'
 import { lmsService, semesterOptionsFromAcademicYear } from '../../services/lmsService'
 
 const emptyScope = {
@@ -25,6 +25,7 @@ const emptyScope = {
   programmeId: '',
   regulationId: '',
   academicYearId: '',
+  semesterCategory: '',
   batchId: '',
   semester: '',
   facultyId: '',
@@ -33,6 +34,10 @@ const emptyScope = {
 
 const defaultForwardTarget = 'HOD'
 const forwardTargets = ['HOD', 'DIRECTOR', 'DEAN', 'PRINCIPAL']
+const entryModes = {
+  upload: 'UPLOAD',
+  direct: 'DIRECT',
+}
 const sectionKeys = {
   prerequisites: 'prerequisites',
   courseObjectives: 'courseObjectives',
@@ -71,6 +76,30 @@ const toPlanSeed = (units = []) =>
     topics: [{ topicIndex: 1, topic: u.chapterHeading || `Unit ${u.unitNumber} Topic`, hours: Number(u.totalHours) }],
   }))
 
+const mergePlanUnitsWithContentUnits = (planUnits = [], contentUnits = []) => {
+  const contentByUnit = new Map(contentUnits.map((unit) => [String(unit?.unitNumber), unit]))
+  const merged = (Array.isArray(planUnits) ? planUnits : []).map((unit) => {
+    const contentUnit = contentByUnit.get(String(unit?.unitNumber))
+    return {
+      ...unit,
+      totalHours: Number(unit?.totalHours ?? contentUnit?.totalHours ?? 0),
+      chapterHeading: unit?.chapterHeading || contentUnit?.chapterHeading || '',
+    }
+  })
+
+  const existingUnitNumbers = new Set(merged.map((unit) => String(unit?.unitNumber)))
+  const missingUnits = (Array.isArray(contentUnits) ? contentUnits : [])
+    .filter((unit) => !existingUnitNumbers.has(String(unit?.unitNumber)))
+    .map((unit) => ({
+      unitNumber: Number(unit.unitNumber),
+      totalHours: Number(unit.totalHours),
+      chapterHeading: unit.chapterHeading || '',
+      topics: [{ topicIndex: 1, topic: unit.chapterHeading || `Unit ${unit.unitNumber} Topic`, hours: Number(unit.totalHours) }],
+    }))
+
+  return [...merged, ...missingUnits].sort((left, right) => Number(left?.unitNumber || 0) - Number(right?.unitNumber || 0))
+}
+
 const downloadBlob = (data, filename, contentType) => {
   const blob = new Blob([data], { type: contentType || 'application/octet-stream' })
   const url = window.URL.createObjectURL(blob)
@@ -89,14 +118,46 @@ const fileNameFromHeader = (header, fallback) => {
   return (match && match[1]) || fallback
 }
 
+const entryModeLabel = (value) => (value === 'TEMPLATE_UPLOAD' ? 'Template Upload' : 'Direct Entry')
+const contentStatusLabel = (row) => row?.status || 'NOT_STARTED'
+const mergeAllotmentsWithContents = (allotments = [], contents = []) => {
+  const contentByOfferingFaculty = new Map(
+    (Array.isArray(contents) ? contents : []).map((row) => [`${row.courseOfferingId}::${row.facultyId}`, row]),
+  )
+
+  return (Array.isArray(allotments) ? allotments : []).map((allotment) => {
+    const matched = contentByOfferingFaculty.get(`${allotment.courseOfferingId}::${allotment.facultyId}`)
+    return {
+      rowKey: matched?.id || `${allotment.courseOfferingId}::${allotment.facultyId}`,
+      id: matched?.id || '',
+      courseOfferingId: allotment.courseOfferingId,
+      facultyId: allotment.facultyId,
+      courseCode: matched?.courseCode || allotment.courseCode || '',
+      courseName: matched?.courseName || allotment.courseName || '',
+      facultyCode: matched?.facultyCode || allotment.facultyCode || '',
+      facultyName: matched?.facultyName || allotment.facultyName || '',
+      entryMode: matched?.entryMode || '',
+      status: matched?.status || 'NOT_STARTED',
+      unitCount: matched?.unitCount || 0,
+      totalLectureHours: matched?.totalLectureHours || 0,
+      uploadedFileName: matched?.uploadedFileName || '',
+      updatedAt: matched?.updatedAt || allotment?.updatedAt || '',
+      canOpen: Boolean(matched?.id),
+    }
+  })
+}
+
 const CourseContentsConfiguration = () => {
+  const toast = useArpToast()
   const [scope, setScope] = useState(emptyScope)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [startingDirect, setStartingDirect] = useState(false)
+  const [entryMode, setEntryMode] = useState(entryModes.upload)
+  const [selectedRowKey, setSelectedRowKey] = useState('')
   const [selectedId, setSelectedId] = useState('')
   const [contentsRows, setContentsRows] = useState([])
+  const [allotmentRows, setAllotmentRows] = useState([])
   const [selectedDetail, setSelectedDetail] = useState(null)
   const [contentUnits, setContentUnits] = useState([])
   const [planUnits, setPlanUnits] = useState([])
@@ -139,29 +200,60 @@ const CourseContentsConfiguration = () => {
   const [faculties, setFaculties] = useState([])
   const [courseOfferings, setCourseOfferings] = useState([])
 
+  const showToast = (color, message, title = 'Course Contents', options = {}) => {
+    toast.show({
+      color,
+      title,
+      message,
+      ...options,
+    })
+  }
+
   useEffect(() => {
     ;(async () => {
       try {
         setInstitutions(await lmsService.listInstitutions())
       } catch {
-        setError('Failed to load institutions')
+        showToast('danger', 'Failed to load institutions')
       }
     })()
-  }, [])
+  }, [toast])
 
   const selectedAcademicYear = useMemo(
     () => academicYears.find((x) => String(x.id) === String(scope.academicYearId)) || null,
     [academicYears, scope.academicYearId],
   )
+  const semesterCategoryOptions = useMemo(() => {
+    if (!selectedAcademicYear) return []
+
+    const options = []
+    if (Array.isArray(selectedAcademicYear?.oddChosenSemesters) && selectedAcademicYear.oddChosenSemesters.length > 0) {
+      options.push('ODD')
+    }
+    if (Array.isArray(selectedAcademicYear?.evenChosenSemesters) && selectedAcademicYear.evenChosenSemesters.length > 0) {
+      options.push('EVEN')
+    }
+    if (options.length === 0) {
+      const totalSemesters = Number(selectedAcademicYear?.semesters)
+      if (Number.isFinite(totalSemesters) && totalSemesters > 0) {
+        options.push('ODD', 'EVEN')
+      }
+    }
+    return options
+  }, [selectedAcademicYear])
+  const resolvedAcademicYearId = useMemo(() => {
+    const category = String(scope.semesterCategory || '').toUpperCase().trim()
+    if (category === 'EVEN') return selectedAcademicYear?.evenAcademicYearId || scope.academicYearId
+    if (category === 'ODD') return selectedAcademicYear?.oddAcademicYearId || scope.academicYearId
+    return scope.academicYearId
+  }, [scope.academicYearId, scope.semesterCategory, selectedAcademicYear])
   const semesterOptions = useMemo(
-    () => semesterOptionsFromAcademicYear(selectedAcademicYear),
-    [selectedAcademicYear],
+    () => semesterOptionsFromAcademicYear(selectedAcademicYear, scope.semesterCategory),
+    [selectedAcademicYear, scope.semesterCategory],
   )
 
   const onScope = (key) => async (e) => {
     const value = e.target.value
-    setError('')
-    setSuccess('')
     setScope((p) => ({ ...p, [key]: value }))
 
     if (key === 'institutionId') {
@@ -179,13 +271,23 @@ const CourseContentsConfiguration = () => {
         setDepartments(d)
         setAcademicYears(ay)
       } catch {
-        setError('Failed to load institution scope')
+        showToast('danger', 'Failed to load institution scope')
       }
       return
     }
 
     if (key === 'departmentId') {
-      setScope((p) => ({ ...p, departmentId: value, programmeId: '', regulationId: '', batchId: '', semester: '', courseOfferingId: '', facultyId: '' }))
+      setScope((p) => ({
+        ...p,
+        departmentId: value,
+        programmeId: '',
+        regulationId: '',
+        batchId: '',
+        semesterCategory: '',
+        semester: '',
+        courseOfferingId: '',
+        facultyId: '',
+      }))
       setProgrammes([])
       setRegulations([])
       setBatches([])
@@ -194,31 +296,60 @@ const CourseContentsConfiguration = () => {
       try {
         setProgrammes(await lmsService.listProgrammes(scope.institutionId, value))
       } catch {
-        setError('Failed to load programmes')
+        showToast('danger', 'Failed to load programmes')
       }
       return
     }
 
     if (key === 'programmeId' || key === 'academicYearId') {
-      const institutionId = key === 'programmeId' ? scope.institutionId : scope.institutionId
+      const institutionId = scope.institutionId
       const programmeId = key === 'programmeId' ? value : scope.programmeId
       const academicYearId = key === 'academicYearId' ? value : scope.academicYearId
-      setScope((p) => ({ ...p, [key]: value, regulationId: '', batchId: '', semester: '', courseOfferingId: '' }))
+      const selectedYear =
+        (key === 'academicYearId'
+          ? academicYears.find((x) => String(x.id) === String(value))
+          : selectedAcademicYear) || null
+      const academicYearIds = [selectedYear?.oddAcademicYearId, selectedYear?.evenAcademicYearId].filter(Boolean)
+      setScope((p) => ({
+        ...p,
+        [key]: value,
+        regulationId: '',
+        batchId: '',
+        semesterCategory: '',
+        semester: '',
+        courseOfferingId: '',
+      }))
       setRegulations([])
       setBatches([])
       setCourseOfferings([])
       if (!institutionId || !programmeId || !academicYearId) return
       try {
-        const mapped = await lmsService.listRegulationMaps({ institutionId, programmeId, academicYearId })
+        const mapped = await lmsService.listRegulationMaps({
+          institutionId,
+          programmeId,
+          ...(academicYearIds.length ? { academicYearIds } : { academicYearId }),
+        })
         setRegulations(Array.from(new Map(mapped.map((m) => [m.regulationId, { id: m.regulationId, label: m.regulationCode || '-' }])).values()))
         setBatches(Array.from(new Map(mapped.map((m) => [m.batchId, { id: m.batchId, label: m.batch || '-' }])).values()))
       } catch {
-        setError('Failed to load regulations/batches')
+        showToast('danger', 'Failed to load regulations/batches')
       }
       return
     }
 
-    if (key === 'academicYearId' || key === 'facultyId') return
+    if (key === 'facultyId') {
+      setScope((p) => ({ ...p, facultyId: value, courseOfferingId: '' }))
+      setCourseOfferings([])
+      return
+    }
+
+    if (key === 'academicYearId') return
+
+    if (key === 'semesterCategory') {
+      setScope((p) => ({ ...p, semesterCategory: value, semester: '', courseOfferingId: '' }))
+      setCourseOfferings([])
+      return
+    }
 
     if (key === 'semester' || key === 'batchId' || key === 'regulationId') {
       setScope((p) => ({ ...p, [key]: value, courseOfferingId: '' }))
@@ -236,37 +367,95 @@ const CourseContentsConfiguration = () => {
         setFaculties(await lmsService.listFaculties({ institutionId: scope.institutionId, departmentId: scope.departmentId, academicYearId: scope.academicYearId }))
       } catch {
         setFaculties([])
+        showToast('danger', 'Failed to load faculties')
       }
     })()
-  }, [scope.institutionId, scope.departmentId, scope.academicYearId])
+  }, [scope.institutionId, scope.departmentId, scope.academicYearId, toast])
+
+  useEffect(() => {
+    setScope((p) => {
+      const nextCategory = semesterCategoryOptions.includes(p.semesterCategory)
+        ? p.semesterCategory
+        : semesterCategoryOptions[0] || ''
+      const allowedSemesters = semesterOptions.map((x) => String(x.value))
+      const nextSemester = allowedSemesters.includes(String(p.semester || '')) ? p.semester : ''
+      if (p.semesterCategory === nextCategory && String(p.semester || '') === String(nextSemester || '')) return p
+      return { ...p, semesterCategory: nextCategory, semester: nextSemester, courseOfferingId: '' }
+    })
+  }, [semesterCategoryOptions, semesterOptions])
 
   useEffect(() => {
     ;(async () => {
-      if (!scope.institutionId || !scope.programmeId || !scope.academicYearId || !scope.regulationId || !scope.semester) return
-      try {
-        setCourseOfferings(await lmsService.listCourseOfferings(scope))
-      } catch {
+      if (!scope.institutionId || !scope.programmeId || !scope.academicYearId || !scope.regulationId || !scope.semesterCategory || !scope.semester) {
+        setAllotmentRows([])
         setCourseOfferings([])
+        return
+      }
+      try {
+        const details = await lmsService.listCourseAllotmentDetails({
+          ...scope,
+          academicYearId: resolvedAcademicYearId,
+        })
+        setAllotmentRows(details)
+        const filtered = scope.facultyId
+          ? details.filter((x) => String(x.facultyId || '') === String(scope.facultyId))
+          : details
+        const offerings = Array.from(
+          new Map(
+            filtered.map((x) => [
+              String(x.courseOfferingId),
+              {
+                id: x.courseOfferingId,
+                course: {
+                  courseCode: x.courseCode || '',
+                  courseTitle: x.courseName || '',
+                },
+              },
+            ]),
+          ).values(),
+        )
+        setCourseOfferings(offerings)
+      } catch {
+        setAllotmentRows([])
+        setCourseOfferings([])
+        showToast('danger', 'Failed to load course offerings')
       }
     })()
-  }, [scope.institutionId, scope.programmeId, scope.academicYearId, scope.regulationId, scope.batchId, scope.semester])
+  }, [scope.institutionId, scope.programmeId, scope.academicYearId, scope.regulationId, scope.batchId, scope.semesterCategory, scope.semester, scope.facultyId, resolvedAcademicYearId, toast])
 
   const loadRows = async () => {
     try {
       setLoading(true)
-      setError('')
-      const rows = await lmsService.listCourseContents({
-        ...scope,
-        courseOfferingId: normalizedCourseOfferingIdForSearch,
+      const [existingRows, dashboardStatus] = await Promise.all([
+        lmsService.listCourseContents({
+          ...scope,
+          academicYearId: resolvedAcademicYearId,
+          courseOfferingId: normalizedCourseOfferingIdForSearch,
+        }),
+        lmsService.getCourseContentsDashboardStatus({
+          ...scope,
+          academicYearId: resolvedAcademicYearId,
+          courseOfferingId: normalizedCourseOfferingIdForSearch,
+          role: scope.facultyId ? 'FACULTY' : 'HOD',
+          facultyId: scope.facultyId,
+        }),
+      ])
+      const filteredAllotments = allotmentRows.filter((row) => {
+        const facultyMatch = !scope.facultyId || String(row.facultyId || '') === String(scope.facultyId)
+        const courseMatch =
+          !normalizedCourseOfferingIdForSearch || String(row.courseOfferingId || '') === String(normalizedCourseOfferingIdForSearch)
+        return facultyMatch && courseMatch
       })
+      const rows = mergeAllotmentsWithContents(filteredAllotments, existingRows)
       setContentsRows(rows)
+      setDashboardRows(dashboardStatus)
+      setSelectedRowKey('')
       setSelectedId('')
       setSelectedDetail(null)
       setContentUnits([])
       setPlanUnits([])
-      setDashboardRows(await lmsService.getCourseContentsDashboardStatus({ role: scope.facultyId ? 'FACULTY' : 'HOD', facultyId: scope.facultyId }))
     } catch (e) {
-      setError(e?.response?.data?.error || 'Failed to load course contents')
+      showToast('danger', e?.response?.data?.error || 'Failed to load course contents')
     } finally {
       setLoading(false)
     }
@@ -274,7 +463,7 @@ const CourseContentsConfiguration = () => {
 
   const onDownloadTemplate = async () => {
     if (!scope.courseOfferingId || scope.courseOfferingId === 'ALL') {
-      setError('Select the offered course before downloading template')
+      showToast('warning', 'Select the offered course before downloading template')
       return
     }
     try {
@@ -282,20 +471,19 @@ const CourseContentsConfiguration = () => {
       const filename = fileNameFromHeader(res?.headers?.['content-disposition'], 'Course_Contents_Template.xlsx')
       downloadBlob(res.data, filename, res?.headers?.['content-type'])
     } catch {
-      setError('Failed to download template')
+      showToast('danger', 'Failed to download template')
     }
   }
 
   const onUpload = async () => {
     if (!scope.courseOfferingId || scope.courseOfferingId === 'ALL' || !scope.facultyId || !file) {
-      setError('Select faculty, course offering and file')
+      showToast('warning', 'Select faculty, course offering and file')
       return
     }
     try {
       setUploading(true)
-      setError('')
       await lmsService.importCourseContents({ courseOfferingId: scope.courseOfferingId, facultyId: scope.facultyId, file })
-      setSuccess('Course contents uploaded')
+      showToast('success', 'Course contents uploaded')
       setFile(null)
       await loadRows()
     } catch (e) {
@@ -304,31 +492,58 @@ const CourseContentsConfiguration = () => {
       const data = e?.response?.data
       if (data instanceof Blob && (ct.includes('spreadsheetml') || ct.includes('application/vnd.ms-excel') || cd.toLowerCase().includes('attachment'))) {
         downloadBlob(data, fileNameFromHeader(cd, 'Course_Contents_Import_Errors.xlsx'), ct)
-        setError('Upload failed. Error report downloaded.')
+        showToast('danger', 'Upload failed. Error report downloaded.', 'Course Contents', { autohide: false })
       } else if (data instanceof Blob) {
         try {
           const txt = await data.text()
           const parsed = txt ? JSON.parse(txt) : null
-          setError(parsed?.error || parsed?.message || 'Upload failed')
+          showToast('danger', parsed?.error || parsed?.message || 'Upload failed')
         } catch {
-          setError('Upload failed')
+          showToast('danger', 'Upload failed')
         }
       } else {
-        setError(e?.response?.data?.error || 'Upload failed')
+        showToast('danger', e?.response?.data?.error || 'Upload failed')
       }
     } finally {
       setUploading(false)
     }
   }
 
+  const onStartDirectEntry = async () => {
+    if (!scope.courseOfferingId || scope.courseOfferingId === 'ALL' || !scope.facultyId) {
+      showToast('warning', 'Select faculty and course offering')
+      return
+    }
+    try {
+      setStartingDirect(true)
+      const detailSeed = await lmsService.createDirectCourseContent({
+        courseOfferingId: scope.courseOfferingId,
+        facultyId: scope.facultyId,
+      })
+      await loadRows()
+      await openDetail(detailSeed.id)
+      setActiveSection(sectionKeys.unitContent)
+      setEditingSections((p) => ({ ...p, [sectionKeys.unitContent]: true }))
+      showToast('success', 'Direct entry is ready')
+    } catch (e) {
+      showToast('danger', e?.response?.data?.error || 'Failed to start direct entry')
+    } finally {
+      setStartingDirect(false)
+    }
+  }
+
   const openDetail = async (id) => {
     try {
-      setError('')
       const detail = await lmsService.getCourseContentById(id)
+      const matchedRow = contentsRows.find((row) => String(row.id) === String(id))
+      setSelectedRowKey(matchedRow?.rowKey || id)
       setSelectedId(id)
       setSelectedDetail(detail)
-      setContentUnits(detail?.units || [])
-      const units = detail?.plan?.units?.length ? detail.plan.units : toPlanSeed(detail?.units || [])
+      const contentDetailUnits = detail?.units || []
+      setContentUnits(contentDetailUnits)
+      const units = detail?.plan?.units?.length
+        ? mergePlanUnitsWithContentUnits(detail.plan.units, contentDetailUnits)
+        : toPlanSeed(contentDetailUnits)
       setPlanUnits(units)
       setSelectedPlanUnit(units?.length ? String(units[0].unitNumber) : '')
       setSelectedPlanTopicRow(-1)
@@ -356,7 +571,7 @@ const CourseContentsConfiguration = () => {
         [sectionKeys.onlineReferences]: -1,
       })
     } catch (e) {
-      setError(e?.response?.data?.error || 'Failed to load details')
+      showToast('danger', e?.response?.data?.error || 'Failed to load details')
     }
   }
 
@@ -367,6 +582,18 @@ const CourseContentsConfiguration = () => {
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId])
+
+  useEffect(() => {
+    if (!scope.institutionId || !scope.programmeId || !scope.academicYearId || !scope.regulationId || !scope.semesterCategory || !scope.semester) return
+    if (!allotmentRows.length && !scope.facultyId && !normalizedCourseOfferingIdForSearch) {
+      setContentsRows([])
+      return
+    }
+    ;(async () => {
+      await loadRows()
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allotmentRows, scope.facultyId, normalizedCourseOfferingIdForSearch, scope.semester])
 
   useEffect(() => {
     if (!planUnits.length) {
@@ -383,13 +610,12 @@ const CourseContentsConfiguration = () => {
   const savePlan = async () => {
     if (!selectedDetail?.id || !scope.facultyId) return
     try {
-      setError('')
       await lmsService.saveCoursePlan(selectedDetail.id, { facultyId: scope.facultyId, units: planUnits })
-      setSuccess('Course plan saved')
+      showToast('success', 'Course plan saved')
       await openDetail(selectedDetail.id)
       await loadRows()
     } catch (e) {
-      setError(e?.response?.data?.error || 'Failed to save course plan')
+      showToast('danger', e?.response?.data?.error || 'Failed to save course plan')
     }
   }
 
@@ -411,11 +637,11 @@ const CourseContentsConfiguration = () => {
     if (!selectedDetail?.id) return
     try {
       await lmsService.updateCourseContent(selectedDetail.id, buildContentPayload())
-      setSuccess('Course content updated')
+      showToast('success', 'Course content updated')
       await openDetail(selectedDetail.id)
       await loadRows()
     } catch (e) {
-      setError(e?.response?.data?.error || 'Failed to update course content')
+      showToast('danger', e?.response?.data?.error || 'Failed to update course content')
     }
   }
 
@@ -423,11 +649,11 @@ const CourseContentsConfiguration = () => {
     if (!selectedDetail?.id || !scope.facultyId) return
     try {
       await lmsService.submitCoursePlan(selectedDetail.id, scope.facultyId)
-      setSuccess('Course plan submitted')
+      showToast('success', 'Course plan submitted')
       await openDetail(selectedDetail.id)
       await loadRows()
     } catch (e) {
-      setError(e?.response?.data?.error || 'Submit failed')
+      showToast('danger', e?.response?.data?.error || 'Submit failed')
     }
   }
 
@@ -435,11 +661,11 @@ const CourseContentsConfiguration = () => {
     if (!selectedDetail?.id || !scope.facultyId) return
     try {
       await lmsService.forwardCoursePlan(selectedDetail.id, scope.facultyId, forwardTarget)
-      setSuccess(`Course plan forwarded to ${forwardTarget}`)
+      showToast('success', `Course plan forwarded to ${forwardTarget}`)
       await openDetail(selectedDetail.id)
       await loadRows()
     } catch (e) {
-      setError(e?.response?.data?.error || 'Forward failed')
+      showToast('danger', e?.response?.data?.error || 'Forward failed')
     }
   }
 
@@ -447,10 +673,10 @@ const CourseContentsConfiguration = () => {
     if (!selectedId) return
     try {
       await lmsService.deleteCourseContent(selectedId)
-      setSuccess('Course content deleted')
+      showToast('success', 'Course content deleted')
       await loadRows()
     } catch (e) {
-      setError(e?.response?.data?.error || 'Delete failed')
+      showToast('danger', e?.response?.data?.error || 'Delete failed')
     }
   }
 
@@ -461,7 +687,7 @@ const CourseContentsConfiguration = () => {
       const fallback = `Course_Content.${format}`
       downloadBlob(res.data, fileNameFromHeader(res?.headers?.['content-disposition'], fallback), res?.headers?.['content-type'])
     } catch {
-      setError(`Failed to export ${format.toUpperCase()}`)
+      showToast('danger', `Failed to export ${format.toUpperCase()}`)
     }
   }
 
@@ -568,14 +794,13 @@ const CourseContentsConfiguration = () => {
   const saveDraft = async () => {
     if (!selectedDetail?.id || !scope.facultyId) return
     try {
-      setError('')
       await lmsService.updateCourseContent(selectedDetail.id, buildContentPayload())
       await lmsService.saveCoursePlan(selectedDetail.id, { facultyId: scope.facultyId, units: planUnits })
-      setSuccess('Course content and plan saved as draft')
+      showToast('success', 'Course content and plan saved as draft')
       await openDetail(selectedDetail.id)
       await loadRows()
     } catch (e) {
-      setError(e?.response?.data?.error || 'Failed to save draft')
+      showToast('danger', e?.response?.data?.error || 'Failed to save draft')
     }
   }
 
@@ -598,8 +823,6 @@ const CourseContentsConfiguration = () => {
             </div>
           </CCardHeader>
           <CCardBody>
-            {error ? <CAlert color="danger">{error}</CAlert> : null}
-            {success ? <CAlert color="success">{success}</CAlert> : null}
             <CRow className="g-3">
               {/* Row 1 */}
               <CCol md={3}><CFormLabel>Institution</CFormLabel></CCol>
@@ -612,7 +835,7 @@ const CourseContentsConfiguration = () => {
               <CCol md={3}><CFormLabel>Academic Year</CFormLabel></CCol>
               <CCol md={3}>
                 <CFormSelect value={scope.academicYearId} onChange={onScope('academicYearId')}>
-                  <option value="">Academic Year + Semester Category</option>
+                  <option value="">Select Academic Year</option>
                   {academicYears.map((x) => <option key={x.id} value={x.id}>{x.academicYearLabel || x.academicYear}</option>)}
                 </CFormSelect>
               </CCol>
@@ -628,7 +851,7 @@ const CourseContentsConfiguration = () => {
               <CCol md={3}><CFormLabel>Programme</CFormLabel></CCol>
               <CCol md={3}>
                 <CFormSelect value={scope.programmeId} onChange={onScope('programmeId')}>
-                  <option value="">Select Programme Code + Programme Name</option>
+                  <option value="">Select Programme</option>
                   {programmes.map((x) => <option key={x.id} value={x.id}>{x.programmeCode} - {x.programmeName}</option>)}
                 </CFormSelect>
               </CCol>
@@ -650,13 +873,26 @@ const CourseContentsConfiguration = () => {
               </CCol>
 
               {/* Row 4 */}
+              <CCol md={3}><CFormLabel>Semester Category</CFormLabel></CCol>
+              <CCol md={3}>
+                <CFormSelect
+                  value={scope.semesterCategory}
+                  onChange={onScope('semesterCategory')}
+                  disabled={!scope.academicYearId || semesterCategoryOptions.length === 1}
+                >
+                  <option value="">Select Semester Category</option>
+                  {semesterCategoryOptions.map((x) => <option key={x} value={x}>{x}</option>)}
+                </CFormSelect>
+              </CCol>
               <CCol md={3}><CFormLabel>Choose Semester</CFormLabel></CCol>
               <CCol md={3}>
-                <CFormSelect value={scope.semester} onChange={onScope('semester')}>
+                <CFormSelect value={scope.semester} onChange={onScope('semester')} disabled={!scope.semesterCategory}>
                   <option value="">Select Semester</option>
                   {semesterOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
                 </CFormSelect>
               </CCol>
+
+              {/* Row 5 */}
               <CCol md={3}><CFormLabel>Choose Faculty</CFormLabel></CCol>
               <CCol md={3}>
                 <CFormSelect value={scope.facultyId} onChange={onScope('facultyId')}>
@@ -665,17 +901,23 @@ const CourseContentsConfiguration = () => {
                 </CFormSelect>
               </CCol>
 
-              {/* Row 5 */}
+              {/* Row 6 */}
               <CCol md={3}><CFormLabel>Course Offering</CFormLabel></CCol>
               <CCol md={3}>
                 <CFormSelect value={scope.courseOfferingId} onChange={onScope('courseOfferingId')}>
-                  <option value="">Select Course Code along with Course Name</option>
+                  <option value="">Select Course Offering</option>
                   <option value="ALL">All Courses</option>
                   {courseOfferings.map((x) => <option key={x.id} value={x.id}>{x.course?.courseCode} - {x.course?.courseTitle}</option>)}
                 </CFormSelect>
               </CCol>
-              <CCol md={6}>
-                <div className="d-flex gap-2 align-items-center flex-nowrap">
+              <CCol md={3}>
+                <CFormSelect value={entryMode} onChange={(e) => setEntryMode(e.target.value)}>
+                  <option value={entryModes.upload}>Upload via Template</option>
+                  <option value={entryModes.direct}>Enter Directly</option>
+                </CFormSelect>
+              </CCol>
+              <CCol md={9}>
+                <div className="d-flex gap-2 align-items-center flex-wrap">
                   <ArpButton
                     label={loading ? 'Searching...' : 'Search'}
                     icon="search"
@@ -684,15 +926,30 @@ const CourseContentsConfiguration = () => {
                     disabled={loading}
                     style={{ whiteSpace: 'nowrap', minWidth: 110 }}
                   />
-                  <CFormInput type="file" accept=".xlsx,.xlsm" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-                  <ArpButton
-                    label={uploading ? 'Uploading...' : 'Upload'}
-                    icon="upload"
-                    color="success"
-                    onClick={onUpload}
-                    disabled={uploading}
-                    style={{ whiteSpace: 'nowrap', minWidth: 110 }}
-                  />
+                  {entryMode === entryModes.upload ? (
+                    <>
+                      <div style={{ flex: '1 1 320px', minWidth: 280 }}>
+                        <CFormInput type="file" accept=".xlsx,.xlsm" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+                      </div>
+                      <ArpButton
+                        label={uploading ? 'Uploading...' : 'Upload'}
+                        icon="upload"
+                        color="success"
+                        onClick={onUpload}
+                        disabled={uploading}
+                        style={{ whiteSpace: 'nowrap', minWidth: 110 }}
+                      />
+                    </>
+                  ) : (
+                    <ArpButton
+                      label={startingDirect ? 'Opening...' : 'Enter Directly'}
+                      icon="add"
+                      color="success"
+                      onClick={onStartDirectEntry}
+                      disabled={startingDirect}
+                      style={{ whiteSpace: 'nowrap', minWidth: 130 }}
+                    />
+                  )}
                 </div>
               </CCol>
             </CRow>
@@ -701,22 +958,27 @@ const CourseContentsConfiguration = () => {
 
         <ArpDataTable
           className="mb-3"
-          title="Uploaded Course Contents"
+          title="Course Contents"
           rows={contentsRows}
-          rowKey="id"
+          rowKey="rowKey"
           columns={[
             { key: 'course', label: 'Course', sortable: true, render: (r) => `${r.courseCode || '-'} - ${r.courseName || '-'}` },
             { key: 'faculty', label: 'Faculty', sortable: true, render: (r) => `${r.facultyCode || '-'} - ${r.facultyName || '-'}` },
-            { key: 'status', label: 'Status', sortable: true },
+            { key: 'entryMode', label: 'Entry Mode', sortable: true, render: (r) => (r.entryMode ? entryModeLabel(r.entryMode) : '-') },
+            { key: 'status', label: 'Status', sortable: true, render: (r) => contentStatusLabel(r) },
             { key: 'unitCount', label: 'Units', sortable: true, sortType: 'number' },
             { key: 'totalLectureHours', label: 'Total Hours', sortable: true, sortType: 'number' },
           ]}
           selection={{
             type: 'radio',
-            selected: selectedId,
-            key: 'id',
+            selected: selectedRowKey,
+            key: 'rowKey',
             name: 'cc',
-            onChange: (value) => setSelectedId(value),
+            onChange: (value) => {
+              const selectedRow = contentsRows.find((row) => String(row.rowKey) === String(value))
+              setSelectedRowKey(value)
+              setSelectedId(selectedRow?.id || '')
+            },
             headerLabel: 'Select',
           }}
           headerActions={
@@ -830,7 +1092,7 @@ const CourseContentsConfiguration = () => {
                     <ArpButton
                       key={x.key}
                       label={x.label}
-                      color={activeSection === x.key ? 'primary' : 'light'}
+                      color={activeSection === x.key ? 'primary' : 'secondary'}
                       onClick={() => setActiveSection(x.key)}
                     />
                   ))}
@@ -979,11 +1241,7 @@ const CourseContentsConfiguration = () => {
                         ))}
                       </CFormSelect>
                     </CCol>
-                    <CCol md={8} className="d-flex align-items-end justify-content-end gap-2">
-                      <ArpIconButton icon="add" color="success" title="Add Unit" onClick={onSectionAdd} />
-                      <ArpIconButton icon="edit" color="warning" title="Edit Unit" onClick={onSectionEdit} />
-                      <ArpIconButton icon="delete" color="danger" title="Delete Unit" onClick={onSectionDelete} disabled={!selectedPlanUnit} />
-                    </CCol>
+                    <CCol md={8} />
 
                     {selectedPlanUnitEntry ? (
                       <>
@@ -1074,9 +1332,9 @@ const CourseContentsConfiguration = () => {
                             <CTableHead>
                               <CTableRow>
                                 <CTableHeaderCell style={{ width: 80 }}>Select</CTableHeaderCell>
-                                <CTableHeaderCell>Topic Index</CTableHeaderCell>
+                                <CTableHeaderCell style={{ width: 140 }}>Topic Index</CTableHeaderCell>
                                 <CTableHeaderCell>Topic</CTableHeaderCell>
-                                <CTableHeaderCell>Hours</CTableHeaderCell>
+                                <CTableHeaderCell style={{ width: 120 }}>Hours</CTableHeaderCell>
                               </CTableRow>
                             </CTableHead>
                             <CTableBody>
@@ -1287,6 +1545,7 @@ const CourseContentsConfiguration = () => {
           columns={[
             { key: 'course', label: 'Course', sortable: true, render: (r) => `${r.courseCode || '-'} - ${r.courseName || '-'}` },
             { key: 'faculty', label: 'Faculty', sortable: true, render: (r) => `${r.facultyCode || '-'} - ${r.facultyName || '-'}` },
+            { key: 'entryMode', label: 'Entry Mode', sortable: true, render: (r) => entryModeLabel(r.entryMode) },
             { key: 'contentStatus', label: 'Content Status', sortable: true },
             { key: 'planStatus', label: 'Plan Status', sortable: true },
             { key: 'forwardedTo', label: 'Forwarded To', sortable: true, render: (r) => r.forwardedTo || '-' },

@@ -14,6 +14,54 @@ const toObject = (payload) => {
   return null
 }
 
+const normalizeSemesterList = (value) => {
+  const source = Array.isArray(value) ? value : String(value ?? '').match(/\d+/g) || []
+  return Array.from(
+    new Set(
+      source
+        .map((x) => Number(x))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  ).sort((a, b) => a - b)
+}
+
+const buildAnnualAcademicYears = (items = []) => {
+  const grouped = new Map()
+
+  items.forEach((row) => {
+    const key = `${row?.institutionId || ''}::${row?.academicYear || ''}`
+    const current = grouped.get(key) || {
+      id: row?.id || '',
+      institutionId: row?.institutionId || '',
+      academicYear: row?.academicYear || '',
+      academicYearLabel: row?.academicYear || '',
+      semesters: row?.numberOfSemesters ?? row?.semesters ?? '',
+      oddAcademicYearId: '',
+      evenAcademicYearId: '',
+      oddChosenSemesters: [],
+      evenChosenSemesters: [],
+    }
+
+    const category = String(row?.semesterCategory || '').toUpperCase().trim()
+    if (category === 'ODD') {
+      current.oddAcademicYearId = row?.id || ''
+      current.oddChosenSemesters = normalizeSemesterList(row?.chosenSemesters)
+      current.id = current.id || row?.id || ''
+    }
+    if (category === 'EVEN') {
+      current.evenAcademicYearId = row?.id || ''
+      current.evenChosenSemesters = normalizeSemesterList(row?.chosenSemesters)
+      if (!current.oddAcademicYearId) current.id = row?.id || current.id
+    }
+
+    grouped.set(key, current)
+  })
+
+  return Array.from(grouped.values()).sort((left, right) =>
+    String(right?.academicYear || '').localeCompare(String(left?.academicYear || '')),
+  )
+}
+
 export const lmsService = {
   listInstitutions: async () => toArray((await api.get('/api/setup/institution')).data),
 
@@ -31,15 +79,36 @@ export const lmsService = {
     toArray((await api.get('/api/setup/regulation', { params: { institutionId, programmeId } })).data),
 
   listRegulationMaps: async (scope) =>
-    toArray((await api.get('/api/setup/regulation-map', { params: scope })).data),
+    toArray((
+      await api.get('/api/setup/regulation-map', {
+        params: {
+          ...scope,
+          academicYearIds: Array.isArray(scope?.academicYearIds) ? scope.academicYearIds.join(',') : scope?.academicYearIds,
+        },
+      })
+    ).data),
 
-  listAcademicYears: async (institutionId) =>
-    toArray((await api.get('/api/setup/academic-year', { headers: { 'x-institution-id': institutionId } })).data).map((x) => ({
+  listAcademicYears: async (institutionId) => {
+    let rows = toArray((
+      await api.get('/api/setup/academic-year', {
+        headers: { 'x-institution-id': institutionId },
+        params: { institutionId, view: 'annual' },
+      })
+    ).data)
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      rows = buildAnnualAcademicYears(
+        toArray((await api.get('/api/setup/academic-year', { headers: { 'x-institution-id': institutionId } })).data),
+      )
+    }
+
+    return rows.map((x) => ({
       ...x,
-      academicYearLabel:
-        x?.academicYearLabel ||
-        `${x?.academicYear || ''}${x?.semesterCategory ? ` (${String(x.semesterCategory).toUpperCase()})` : ''}`,
-    })),
+      academicYearLabel: x?.academicYearLabel || x?.academicYear || '',
+      oddChosenSemesters: normalizeSemesterList(x?.oddChosenSemesters),
+      evenChosenSemesters: normalizeSemesterList(x?.evenChosenSemesters),
+    }))
+  },
 
   listBatches: async (institutionId) =>
     toArray((await api.get('/api/setup/batch', { params: { institutionId } })).data),
@@ -131,6 +200,7 @@ export const lmsService = {
   listFaculties: async ({ institutionId, departmentId, academicYearId }) =>
     toArray((await api.get('/api/setup/faculty', { params: { institutionId, departmentId, academicYearId } })).data).map((x) => ({
       ...x,
+      departmentId: x?.departmentId || x?.department?.id || '',
       firstName: x?.firstName || x?.facultyName || '',
       facultyName: x?.facultyName || x?.firstName || '',
       departmentName: x?.department?.departmentName || '',
@@ -341,6 +411,9 @@ export const lmsService = {
   listCourseContents: async (scope = {}) =>
     toArray((await api.get('/api/setup/course-contents', { params: scope })).data),
 
+  createDirectCourseContent: async ({ courseOfferingId, facultyId }) =>
+    toObject(await api.post('/api/setup/course-contents/direct', { courseOfferingId, facultyId })),
+
   importCourseContents: async ({ courseOfferingId, facultyId, file }) => {
     const fd = new FormData()
     fd.append('courseOfferingId', courseOfferingId)
@@ -453,19 +526,22 @@ export const resolveMediaUrl = (filePath) => {
   return raw
 }
 
-export const semesterOptionsFromAcademicYear = (academicYear) => {
-  const chosen = academicYear?.chosenSemesters
+export const semesterOptionsFromAcademicYear = (academicYear, semesterCategory = '') => {
   const maxSem = Number(academicYear?.numberOfSemesters ?? academicYear?.semesters ?? 8)
   const safeMax = Number.isFinite(maxSem) && maxSem > 0 ? maxSem : 8
-  const category = String(academicYear?.semesterCategory || '').toUpperCase().trim()
+  const category = String(semesterCategory || academicYear?.semesterCategory || '').toUpperCase().trim()
 
-  const fromArray = Array.isArray(chosen) ? chosen : []
-  const fromString = String(chosen ?? '')
-    .match(/\d+/g)
-    ?.map((x) => Number(x)) || []
+  const oddChosen = normalizeSemesterList(academicYear?.oddChosenSemesters)
+  const evenChosen = normalizeSemesterList(academicYear?.evenChosenSemesters)
+  const chosen =
+    category === 'ODD'
+      ? oddChosen
+      : category === 'EVEN'
+        ? evenChosen
+        : Array.from(new Set([...oddChosen, ...evenChosen])).sort((a, b) => a - b)
 
-  const list = (Array.isArray(chosen) ? fromArray : fromString).map((x) => Number(x))
-  const unique = Array.from(new Set(list.filter((x) => Number.isFinite(x) && x > 0))).sort((a, b) => a - b)
+  const fallbackChosen = normalizeSemesterList(academicYear?.chosenSemesters)
+  const unique = chosen.length ? chosen : fallbackChosen
   if (unique.length) return unique.map((x) => ({ value: String(x), label: `Sem - ${x}` }))
 
   const all = Array.from({ length: safeMax }, (_, i) => i + 1)

@@ -354,13 +354,17 @@ export default function CAYCoursesConfiguration() {
     loadRegulations(scope.institutionId, scope.programmeId)
   }, [scope.programmeId])
 
-  const loadScopeCourses = async () => {
+  const loadScopeCourses = async ({ silent = false } = {}) => {
     if (!scopeReady) {
-      showMessage('danger', 'Please complete Institution, Department, Programme, Regulation, Academic Year, Pattern, and Semester.')
+      if (!silent) {
+        showMessage('danger', 'Please complete Institution, Department, Programme, Regulation, Academic Year, Pattern, and Semester.')
+      }
       return
     }
     if (!selectedAcademicYearTermId) {
-      showMessage('danger', 'Selected Academic Year term is not configured for the chosen pattern.')
+      if (!silent) {
+        showMessage('danger', 'Selected Academic Year term is not configured for the chosen pattern.')
+      }
       return
     }
     if (!(await validateSelectedSemester())) {
@@ -369,6 +373,7 @@ export default function CAYCoursesConfiguration() {
     }
     setLoadingCourses(true)
     try {
+      const requestKey = Date.now()
       const res = await api.get('/api/setup/course', {
         params: {
           institutionId: scope.institutionId,
@@ -377,6 +382,7 @@ export default function CAYCoursesConfiguration() {
           regulationId: scope.regulationId,
           semesterPattern: scope.semesterPattern,
           semester: scope.semester,
+          _ts: requestKey,
         },
       })
       const rows = unwrapList(res).map(toCourseRow)
@@ -390,6 +396,7 @@ export default function CAYCoursesConfiguration() {
             regulationId: scope.regulationId,
             ...(scope.batchId ? { batchId: scope.batchId } : {}),
             semester: scope.semester,
+            _ts: requestKey,
           },
         })
         offered = unwrapList(offeredRes)
@@ -412,13 +419,45 @@ export default function CAYCoursesConfiguration() {
       setSavedOfferedCourseIds(Array.from(offeredIds))
       setSelectedAvailable([])
       setSelectedOffered([])
-      showMessage('success', `Loaded ${rows.length} master course(s). ${offered.length} already mapped as CAY offerings.`)
+      if (!silent) {
+        showMessage('success', `Loaded ${rows.length} master course(s). ${offered.length} already mapped as CAY offerings.`)
+      }
     } catch (e) {
-      showMessage('danger', e?.response?.data?.error || e?.response?.data?.message || 'Failed to load courses for selected scope')
+      if (!silent) {
+        showMessage('danger', e?.response?.data?.error || e?.response?.data?.message || 'Failed to load courses for selected scope')
+      }
     } finally {
       setLoadingCourses(false)
     }
   }
+
+  useEffect(() => {
+    if (!scopeReady) return undefined
+
+    const refreshScopeCourses = () => {
+      if (document.visibilityState && document.visibilityState !== 'visible') return
+      loadScopeCourses({ silent: true })
+    }
+
+    window.addEventListener('focus', refreshScopeCourses)
+    document.addEventListener('visibilitychange', refreshScopeCourses)
+
+    return () => {
+      window.removeEventListener('focus', refreshScopeCourses)
+      document.removeEventListener('visibilitychange', refreshScopeCourses)
+    }
+  }, [
+    scopeReady,
+    scope.institutionId,
+    scope.departmentId,
+    scope.programmeId,
+    scope.regulationId,
+    scope.academicYearId,
+    scope.batchId,
+    scope.semesterPattern,
+    scope.semester,
+    selectedAcademicYearTermId,
+  ])
 
   const addSelectedCourses = () => {
     if (!selectedAvailable.length) return

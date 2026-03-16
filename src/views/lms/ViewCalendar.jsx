@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
-  CAlert,
   CCard,
   CCardBody,
   CCardHeader,
@@ -17,7 +16,7 @@ import {
   CTableHeaderCell,
   CTableRow,
 } from '@coreui/react-pro'
-import { ArpButton } from '../../components/common'
+import { ArpButton, useArpToast } from '../../components/common'
 import api from '../../services/apiClient'
 import { lmsService } from '../../services/lmsService'
 
@@ -27,7 +26,14 @@ const unwrapList = (res) => {
   return []
 }
 
+const normalizeSemesterCategory = (value) => String(value || '').toUpperCase().trim()
+const holidayCellStyle = {
+  backgroundColor: 'var(--cui-secondary)',
+  color: '#ffffff',
+}
+
 const ViewCalendarConfiguration = () => {
+  const toast = useArpToast()
   const [academicCalendarId, setAcademicCalendarId] = useState('')
   const [semesterCategory, setSemesterCategory] = useState('')
   const [status, setStatus] = useState('Automatically Fetched')
@@ -37,7 +43,6 @@ const ViewCalendarConfiguration = () => {
   const [academicCalendars, setAcademicCalendars] = useState([])
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
 
   const [dayOrderFilter, setDayOrderFilter] = useState('')
   const [dayFilter, setDayFilter] = useState('')
@@ -51,44 +56,61 @@ const ViewCalendarConfiguration = () => {
       try {
         const [uploadRows, ayRes] = await Promise.all([
           lmsService.listCalendarUploads(),
-          api.get('/api/setup/academic-year'),
+          api.get('/api/setup/academic-year', { params: { view: 'annual' } }),
         ])
         setUploads(uploadRows)
         setAcademicCalendars(unwrapList(ayRes))
       } catch {
-        setError('Failed to load calendar data')
+        toast.show({
+          color: 'danger',
+          title: 'Calendar',
+          message: 'Failed to load calendar data',
+        })
       }
     })()
-  }, [])
+  }, [toast])
 
   const academicCalendarOptions = useMemo(
     () =>
       academicCalendars.map((ay) => ({
         id: ay.id,
-        label:
-          ay.academicYearLabel ||
-          `${ay.academicYear || ''}${ay.semesterCategory ? ` (${ay.semesterCategory})` : ''}`,
+        label: ay.academicYearLabel || ay.academicYear || '',
       })),
     [academicCalendars],
+  )
+
+  const selectedAcademicCalendar = useMemo(
+    () => academicCalendars.find((ay) => String(ay?.id) === String(academicCalendarId)) || null,
+    [academicCalendars, academicCalendarId],
   )
 
   const availableSemesterCategories = useMemo(() => {
     if (!academicCalendarId) return ['ODD', 'EVEN']
 
-    const selectedAy = academicCalendars.find((ay) => String(ay?.id) === String(academicCalendarId))
-    const ayCategory = String(selectedAy?.semesterCategory || '').toUpperCase().trim()
-    if (ayCategory === 'ODD' || ayCategory === 'EVEN') return [ayCategory]
+    const categories = []
+    if (Array.isArray(selectedAcademicCalendar?.oddChosenSemesters) && selectedAcademicCalendar.oddChosenSemesters.length) {
+      categories.push('ODD')
+    }
+    if (Array.isArray(selectedAcademicCalendar?.evenChosenSemesters) && selectedAcademicCalendar.evenChosenSemesters.length) {
+      categories.push('EVEN')
+    }
+    if (categories.length) return categories
 
     const fromUploads = Array.from(
       new Set(
         uploads
-          .filter((x) => String(x?.academicYearId) === String(academicCalendarId))
-          .map((x) => String(x?.semesterPattern || '').toUpperCase().trim())
+          .filter((x) =>
+            [selectedAcademicCalendar?.oddAcademicYearId, selectedAcademicCalendar?.evenAcademicYearId, selectedAcademicCalendar?.id]
+              .map((id) => String(id || '').trim())
+              .filter(Boolean)
+              .includes(String(x?.academicYearId || '').trim()),
+          )
+          .map((x) => normalizeSemesterCategory(x?.semesterPattern))
           .filter((x) => x === 'ODD' || x === 'EVEN'),
       ),
     )
     return fromUploads.length ? fromUploads : ['ODD', 'EVEN']
-  }, [academicCalendarId, academicCalendars, uploads])
+  }, [academicCalendarId, selectedAcademicCalendar, uploads])
 
   useEffect(() => {
     if (!academicCalendarId) {
@@ -104,13 +126,40 @@ const ViewCalendarConfiguration = () => {
     )
   }, [academicCalendarId, availableSemesterCategories])
 
+  const resolvedAcademicYearId = useMemo(() => {
+    if (semesterCategory === 'ODD') {
+      return selectedAcademicCalendar?.oddAcademicYearId || selectedAcademicCalendar?.id || ''
+    }
+    if (semesterCategory === 'EVEN') {
+      return selectedAcademicCalendar?.evenAcademicYearId || selectedAcademicCalendar?.id || ''
+    }
+    return selectedAcademicCalendar?.id || ''
+  }, [semesterCategory, selectedAcademicCalendar])
+
+  const uploadCandidates = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            resolvedAcademicYearId,
+            selectedAcademicCalendar?.oddAcademicYearId,
+            selectedAcademicCalendar?.evenAcademicYearId,
+            selectedAcademicCalendar?.id,
+          ]
+            .map((id) => String(id || '').trim())
+            .filter(Boolean),
+        ),
+      ),
+    [resolvedAcademicYearId, selectedAcademicCalendar],
+  )
+
   const scopedUploads = useMemo(() => {
     return uploads.filter((x) => {
-      if (academicCalendarId && String(x.academicYearId) !== String(academicCalendarId)) return false
-      if (semesterCategory && String(x.semesterPattern || '').toUpperCase() !== String(semesterCategory).toUpperCase()) return false
+      if (uploadCandidates.length && !uploadCandidates.includes(String(x.academicYearId || '').trim())) return false
+      if (semesterCategory && normalizeSemesterCategory(x.semesterPattern) !== normalizeSemesterCategory(semesterCategory)) return false
       return true
     })
-  }, [uploads, academicCalendarId, semesterCategory])
+  }, [uploads, uploadCandidates, semesterCategory])
 
   const dayOrderOptions = useMemo(() => {
     const set = new Set(
@@ -157,6 +206,11 @@ const ViewCalendarConfiguration = () => {
       setStatus('Select Academic Calendar and Semester Category')
       setRows([])
       setShowCalendar(true)
+      toast.show({
+        color: 'warning',
+        title: 'Calendar',
+        message: 'Select Academic Calendar and Semester Category',
+      })
       return
     }
 
@@ -164,13 +218,23 @@ const ViewCalendarConfiguration = () => {
       setStatus('No calendar found')
       setRows([])
       setShowCalendar(true)
+      toast.show({
+        color: 'warning',
+        title: 'Calendar',
+        message: 'No calendar found for the selected Academic Year and Semester Category',
+      })
       return
     }
 
     try {
       setLoading(true)
-      setError('')
-      const selected = scopedUploads[0]
+      const preferredUpload =
+        scopedUploads.find(
+          (item) =>
+            String(item?.academicYearId || '').trim() === String(resolvedAcademicYearId || '').trim() &&
+            normalizeSemesterCategory(item?.semesterPattern) === normalizeSemesterCategory(semesterCategory),
+        ) || scopedUploads[0]
+      const selected = preferredUpload
       const detail = await lmsService.getCalendarUploadById(selected.id)
       const mapped = (detail?.days || []).map((x, idx) => ({
         id: x.id || idx + 1,
@@ -187,8 +251,21 @@ const ViewCalendarConfiguration = () => {
       resetFilters()
       setStatus(mapped.length ? 'Calendar loaded' : 'No calendar days found')
       setShowCalendar(true)
+      toast.show({
+        color: mapped.length ? 'success' : 'warning',
+        title: 'Calendar',
+        message: mapped.length ? 'Calendar loaded successfully' : 'No calendar days found',
+      })
     } catch (e) {
-      setError(e?.response?.data?.error || 'Failed to load calendar details')
+      const message = e?.response?.data?.error || 'Failed to load calendar details'
+      setStatus('Unable to load calendar')
+      setRows([])
+      setShowCalendar(true)
+      toast.show({
+        color: 'danger',
+        title: 'Calendar',
+        message,
+      })
     } finally {
       setLoading(false)
     }
@@ -200,7 +277,6 @@ const ViewCalendarConfiguration = () => {
     setStatus('Automatically Fetched')
     setRows([])
     setShowCalendar(false)
-    setError('')
     resetFilters()
   }
 
@@ -218,7 +294,6 @@ const ViewCalendarConfiguration = () => {
             <strong>View Calendar</strong>
           </CCardHeader>
           <CCardBody>
-            {error ? <CAlert color="danger">{error}</CAlert> : null}
             <CForm>
               <CRow className="g-3">
                 <CCol md={3}><CFormLabel>Academic Calendar</CFormLabel></CCol>
@@ -350,13 +425,13 @@ const ViewCalendarConfiguration = () => {
                 <CTableBody>
                   {filteredRows.length ? filteredRows.map((r) => (
                     <CTableRow key={r.id}>
-                      <CTableDataCell>{r.date}</CTableDataCell>
-                      <CTableDataCell>{r.day}</CTableDataCell>
-                      <CTableDataCell>{r.dayOrder}</CTableDataCell>
-                      <CTableDataCell>{r.particulars}</CTableDataCell>
-                      <CTableDataCell>{r.workingDays}</CTableDataCell>
-                      <CTableDataCell>{r.event}</CTableDataCell>
-                      <CTableDataCell>{r.isHoliday ? 'Yes' : 'No'}</CTableDataCell>
+                      <CTableDataCell style={r.isHoliday ? holidayCellStyle : undefined}>{r.date}</CTableDataCell>
+                      <CTableDataCell style={r.isHoliday ? holidayCellStyle : undefined}>{r.day}</CTableDataCell>
+                      <CTableDataCell style={r.isHoliday ? holidayCellStyle : undefined}>{r.dayOrder}</CTableDataCell>
+                      <CTableDataCell style={r.isHoliday ? holidayCellStyle : undefined}>{r.particulars}</CTableDataCell>
+                      <CTableDataCell style={r.isHoliday ? holidayCellStyle : undefined}>{r.workingDays}</CTableDataCell>
+                      <CTableDataCell style={r.isHoliday ? holidayCellStyle : undefined}>{r.event}</CTableDataCell>
+                      <CTableDataCell style={r.isHoliday ? holidayCellStyle : undefined}>{r.isHoliday ? 'Yes' : 'No'}</CTableDataCell>
                     </CTableRow>
                   )) : (
                     <CTableRow>

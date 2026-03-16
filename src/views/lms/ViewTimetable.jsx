@@ -28,7 +28,7 @@ import {
 } from '@coreui/react-pro'
 import CIcon from '@coreui/icons-react'
 import { cilSearch } from '@coreui/icons'
-import { ArpButton, ArpDataTable } from '../../components/common'
+import { ArpButton, ArpDataTable, useArpToast } from '../../components/common'
 import { lmsService, semesterOptionsFromAcademicYear } from '../../services/lmsService'
 
 const initialForm = {
@@ -37,6 +37,7 @@ const initialForm = {
   programmeId: '',
   regulationId: '',
   academicYearId: '',
+  semesterCategory: '',
   batchId: '',
   semester: '',
   programmeName: '',
@@ -151,7 +152,7 @@ const buildPreviewHtml = ({ title, subtitle, columns, rows }) => {
 </html>`
 }
 
-const openPreviewDocument = (html, setError) => {
+const openPreviewDocument = (html, onError) => {
   const win = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=800')
   if (win) {
     win.document.open()
@@ -160,11 +161,11 @@ const openPreviewDocument = (html, setError) => {
     return true
   }
   try {
-    downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), 'Timetable_Preview.html')
-    setError('Popup blocked. Downloaded preview file instead. Open it and use Print/Save as PDF.')
+    const href = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+    window.location.assign(href)
     return true
   } catch {
-    setError('Unable to open preview. Please allow popups and try again.')
+    onError?.('Unable to open preview. Please allow popups and try again.')
     return false
   }
 }
@@ -177,7 +178,48 @@ const buildAdjustmentMap = (rows = []) => {
   })
   return map
 }
+
+const dedupeAcademicYears = (items = []) => {
+  const grouped = new Map()
+
+  items.forEach((row) => {
+    const key = `${row?.institutionId || ''}::${row?.academicYearLabel || row?.academicYear || ''}`
+    const current = grouped.get(key) || {
+      ...row,
+      oddChosenSemesters: Array.isArray(row?.oddChosenSemesters) ? row.oddChosenSemesters : [],
+      evenChosenSemesters: Array.isArray(row?.evenChosenSemesters) ? row.evenChosenSemesters : [],
+    }
+
+    if (!current.id && row?.id) current.id = row.id
+    if (!current.oddAcademicYearId && row?.oddAcademicYearId) current.oddAcademicYearId = row.oddAcademicYearId
+    if (!current.evenAcademicYearId && row?.evenAcademicYearId) current.evenAcademicYearId = row.evenAcademicYearId
+
+    const oddChosenSemesters = new Set([
+      ...(Array.isArray(current.oddChosenSemesters) ? current.oddChosenSemesters : []),
+      ...(Array.isArray(row?.oddChosenSemesters) ? row.oddChosenSemesters : []),
+    ])
+    const evenChosenSemesters = new Set([
+      ...(Array.isArray(current.evenChosenSemesters) ? current.evenChosenSemesters : []),
+      ...(Array.isArray(row?.evenChosenSemesters) ? row.evenChosenSemesters : []),
+    ])
+
+    current.oddChosenSemesters = Array.from(oddChosenSemesters).sort((a, b) => Number(a) - Number(b))
+    current.evenChosenSemesters = Array.from(evenChosenSemesters).sort((a, b) => Number(a) - Number(b))
+    grouped.set(key, current)
+  })
+
+  return Array.from(grouped.values())
+}
+
+const patternMatchesSemesterCategory = (row, semesterCategory) => {
+  const selected = String(semesterCategory || '').toUpperCase().trim()
+  if (!selected) return true
+  const rowPattern = String(row?.semesterPattern || row?.semesterCategory || '').toUpperCase().trim()
+  return !rowPattern || rowPattern === selected
+}
+
 const ViewTimetableConfiguration = () => {
+  const toast = useArpToast()
   const todayIso = useMemo(() => isoFromDate(new Date()), [])
   const [form, setForm] = useState(initialForm)
   const [viewType, setViewType] = useState(VIEW_TYPES.CLASS)
@@ -199,7 +241,6 @@ const ViewTimetableConfiguration = () => {
   const [downloadFormat, setDownloadFormat] = useState('XLSX')
   const [loading, setLoading] = useState(false)
   const [adjustmentLoading, setAdjustmentLoading] = useState(false)
-  const [error, setError] = useState('')
 
   const [showAdjustModal, setShowAdjustModal] = useState(false)
   const [adjustSource, setAdjustSource] = useState(null)
@@ -215,6 +256,11 @@ const ViewTimetableConfiguration = () => {
   const [regulations, setRegulations] = useState([])
   const [academicYears, setAcademicYears] = useState([])
   const [batches, setBatches] = useState([])
+
+  const showToast = (color, message, title = 'Attention') => {
+    if (!message) return
+    toast.show({ color, title, message, delay: 4500 })
+  }
 
   const scope = useMemo(
     () => ({
@@ -234,16 +280,54 @@ const ViewTimetableConfiguration = () => {
       try {
         setInstitutions(await lmsService.listInstitutions())
       } catch {
-        setError('Failed to load institutions')
+        showToast('danger', 'Failed to load institutions')
       }
     })()
-  }, [])
+  }, [toast])
 
   const selectedAcademicYear = useMemo(
     () => academicYears.find((x) => String(x.id) === String(form.academicYearId)) || null,
     [academicYears, form.academicYearId],
   )
-  const semesterOptions = useMemo(() => semesterOptionsFromAcademicYear(selectedAcademicYear), [selectedAcademicYear])
+  const allSemesterOptions = useMemo(
+    () => semesterOptionsFromAcademicYear(selectedAcademicYear),
+    [selectedAcademicYear],
+  )
+  const semesterCategoryOptions = useMemo(() => {
+    const oddSemesters = Array.isArray(selectedAcademicYear?.oddChosenSemesters)
+      ? selectedAcademicYear.oddChosenSemesters
+      : allSemesterOptions.map((x) => Number(x.value)).filter((x) => Number.isFinite(x) && x % 2 === 1)
+    const evenSemesters = Array.isArray(selectedAcademicYear?.evenChosenSemesters)
+      ? selectedAcademicYear.evenChosenSemesters
+      : allSemesterOptions.map((x) => Number(x.value)).filter((x) => Number.isFinite(x) && x % 2 === 0)
+
+    const out = []
+    if (oddSemesters.length) out.push({ value: 'ODD', label: 'ODD' })
+    if (evenSemesters.length) out.push({ value: 'EVEN', label: 'EVEN' })
+    return out
+  }, [allSemesterOptions, selectedAcademicYear])
+  const semesterOptions = useMemo(() => {
+    if (!form.semesterCategory) return []
+    const allowed = form.semesterCategory === 'EVEN'
+      ? Array.isArray(selectedAcademicYear?.evenChosenSemesters) && selectedAcademicYear.evenChosenSemesters.length
+        ? selectedAcademicYear.evenChosenSemesters
+        : allSemesterOptions.map((x) => Number(x.value)).filter((x) => Number.isFinite(x) && x % 2 === 0)
+      : Array.isArray(selectedAcademicYear?.oddChosenSemesters) && selectedAcademicYear.oddChosenSemesters.length
+        ? selectedAcademicYear.oddChosenSemesters
+        : allSemesterOptions.map((x) => Number(x.value)).filter((x) => Number.isFinite(x) && x % 2 === 1)
+
+    const allowedSet = new Set(allowed.map((x) => String(x)))
+    return allSemesterOptions.filter((x) => allowedSet.has(String(x.value)))
+  }, [allSemesterOptions, form.semesterCategory, selectedAcademicYear])
+  const resolvedAcademicYearId = useMemo(() => {
+    if (form.semesterCategory === 'EVEN') {
+      return selectedAcademicYear?.evenAcademicYearId || form.academicYearId
+    }
+    if (form.semesterCategory === 'ODD') {
+      return selectedAcademicYear?.oddAcademicYearId || form.academicYearId
+    }
+    return form.academicYearId
+  }, [form.academicYearId, form.semesterCategory, selectedAcademicYear])
 
   const timetable = useMemo(() => rows[0] || null, [rows])
   const classEntries = useMemo(() => classTimetable?.entries || [], [classTimetable])
@@ -298,7 +382,6 @@ const ViewTimetableConfiguration = () => {
   const adjustmentMap = useMemo(() => buildAdjustmentMap(adjustmentRows), [adjustmentRows])
   const onChange = (key) => async (e) => {
     const value = e.target.value
-    setError('')
 
     if (key === 'institutionId') {
       setForm((p) => ({
@@ -308,6 +391,7 @@ const ViewTimetableConfiguration = () => {
         programmeId: '',
         regulationId: '',
         academicYearId: '',
+        semesterCategory: '',
         batchId: '',
         semester: '',
         programmeName: '',
@@ -329,10 +413,10 @@ const ViewTimetableConfiguration = () => {
           lmsService.listBatches(value),
         ])
         setDepartments(d)
-        setAcademicYears(ay)
+        setAcademicYears(dedupeAcademicYears(ay))
         setBatches(b)
       } catch {
-        setError('Failed to load institution scope')
+        showToast('danger', 'Failed to load institution scope')
       }
       return
     }
@@ -346,7 +430,7 @@ const ViewTimetableConfiguration = () => {
       try {
         setProgrammes(await lmsService.listProgrammes(form.institutionId, value))
       } catch {
-        setError('Failed to load programmes')
+        showToast('danger', 'Failed to load programmes')
       }
       return
     }
@@ -359,8 +443,36 @@ const ViewTimetableConfiguration = () => {
       try {
         setRegulations(await lmsService.listRegulations(form.institutionId, value))
       } catch {
-        setError('Failed to load regulations')
+        showToast('danger', 'Failed to load regulations')
       }
+      return
+    }
+
+    if (key === 'academicYearId') {
+      const chosen = academicYears.find((x) => String(x.id) === String(value))
+      const oddSemesters = Array.isArray(chosen?.oddChosenSemesters) ? chosen.oddChosenSemesters : []
+      const evenSemesters = Array.isArray(chosen?.evenChosenSemesters) ? chosen.evenChosenSemesters : []
+      const semesterCategory =
+        oddSemesters.length ? 'ODD' : evenSemesters.length ? 'EVEN' : ''
+      setForm((p) => ({
+        ...p,
+        academicYearId: value,
+        semesterCategory,
+        semester: '',
+        classId: '',
+        facultyId: '',
+      }))
+      return
+    }
+
+    if (key === 'semesterCategory') {
+      setForm((p) => ({
+        ...p,
+        semesterCategory: value,
+        semester: '',
+        classId: '',
+        facultyId: '',
+      }))
       return
     }
 
@@ -369,12 +481,11 @@ const ViewTimetableConfiguration = () => {
 
   const onSearch = async () => {
     if (!form.institutionId || !form.academicYearId) {
-      setError('Select at least Institution and Academic Year')
+      showToast('danger', 'Select at least Institution and Academic Year')
       return
     }
     try {
       setLoading(true)
-      setError('')
       const [data, classRows, patterns, facultyList, allFacultyList] = await Promise.all([
         lmsService.listTimetables(scope),
         lmsService.listClassTimetableClasses(scope),
@@ -399,7 +510,25 @@ const ViewTimetableConfiguration = () => {
       const facultyId = facultyList.some((x) => String(x.id) === String(form.facultyId)) ? form.facultyId : facultyList[0]?.id || ''
       setForm((p) => ({ ...p, classId, facultyId }))
 
-      const ayPatterns = patterns.filter((x) => String(x?.academicYearId || '') === String(form.academicYearId))
+      const candidateAcademicYearIds = Array.from(
+        new Set(
+          [
+            form.academicYearId,
+            resolvedAcademicYearId,
+            selectedAcademicYear?.oddAcademicYearId,
+            selectedAcademicYear?.evenAcademicYearId,
+          ]
+            .map((x) => String(x || '').trim())
+            .filter(Boolean),
+        ),
+      )
+      const matchingPatterns = patterns.filter((x) =>
+        candidateAcademicYearIds.includes(String(x?.academicYearId || '').trim()),
+      )
+      const semesterPatterns = matchingPatterns.filter((x) =>
+        patternMatchesSemesterCategory(x, form.semesterCategory),
+      )
+      const ayPatterns = semesterPatterns.length ? semesterPatterns : matchingPatterns
       const sourcePatterns = ayPatterns.length ? ayPatterns : patterns
       const dayPatternRow = sourcePatterns.find((x) => normalizePattern(x?.calendarPattern).includes('DAY_PATTERN'))
       if (dayPatternRow) {
@@ -416,10 +545,12 @@ const ViewTimetableConfiguration = () => {
         setDayOptionsMap(mapped)
       }
 
-      if (!ayPatterns.length) setError('No Calendar Pattern found for selected Academic Year. Showing fallback Day Order mode.')
+      if (!ayPatterns.length) {
+        showToast('warning', 'No Calendar Pattern found for selected Academic Year. Showing fallback Day Order mode.')
+      }
       setShowTimetable(true)
     } catch (e) {
-      setError(e?.response?.data?.error || 'Failed to load timetable')
+      showToast('danger', e?.response?.data?.error || 'Failed to load timetable')
     } finally {
       setLoading(false)
     }
@@ -703,12 +834,11 @@ const ViewTimetableConfiguration = () => {
 
   const onSaveAdjustment = async () => {
     if (!adjustSource?.id || !adjustSource?.timetableSlotId || !adjustForm.replacementFacultyId || !dayDate) {
-      setError('Choose replacement faculty and valid day-wise class hour')
+      showToast('danger', 'Choose replacement faculty and valid day-wise class hour')
       return
     }
     try {
       setSavingAdjustment(true)
-      setError('')
       await lmsService.createClassAdjustment(scope, {
         classId: form.classId,
         classTimetableEntryId: adjustSource.id,
@@ -722,7 +852,7 @@ const ViewTimetableConfiguration = () => {
       const fresh = await lmsService.listClassAdjustments(scope, { classId: form.classId, dateFrom: dayDate, dateTo: dayDate })
       setAdjustmentRows(Array.isArray(fresh) ? fresh : [])
     } catch (e) {
-      setError(e?.response?.data?.error || 'Failed to save class adjustment')
+      showToast('danger', e?.response?.data?.error || 'Failed to save class adjustment')
     } finally {
       setSavingAdjustment(false)
     }
@@ -740,7 +870,7 @@ const ViewTimetableConfiguration = () => {
       })
       setAdjustmentRows(Array.isArray(fresh) ? fresh : [])
     } catch (e) {
-      setError(e?.response?.data?.error || 'Failed to remove class adjustment')
+      showToast('danger', e?.response?.data?.error || 'Failed to remove class adjustment')
     }
   }
 
@@ -770,27 +900,26 @@ const ViewTimetableConfiguration = () => {
         downloadBlob(new Blob([html], { type: 'application/msword;charset=utf-8' }), `${viewType}_Report.doc`)
         return
       }
-      openPreviewDocument(html, setError)
+      openPreviewDocument(html, (message) => showToast('danger', message))
     } catch {
-      setError('Failed to download data')
+      showToast('danger', 'Failed to download data')
     }
   }
 
   const onPrint = () => {
     const cols = activeColumns.filter((x) => x.exportable !== false)
     const html = buildPreviewHtml({ title: selectedViewLabel, subtitle: scopeSubtitle, columns: cols, rows: activeRows })
-    openPreviewDocument(html, setError)
+    openPreviewDocument(html, (message) => showToast('danger', message))
   }
   return (
     <CRow>
       <CCol xs={12}>
-        <CCard className="mb-3">
-          <CCardHeader>
-            <strong>View Timetable</strong>
-          </CCardHeader>
-          <CCardBody>
-            {error ? <CAlert color="danger">{error}</CAlert> : null}
-            <CForm>
+          <CCard className="mb-3">
+            <CCardHeader>
+              <strong>View Timetable</strong>
+            </CCardHeader>
+            <CCardBody>
+              <CForm>
               <CRow className="g-3">
                 <CCol md={3}><CFormLabel>Institution</CFormLabel></CCol>
                 <CCol md={3}><CFormSelect value={form.institutionId} onChange={onChange('institutionId')}><option value="">Select Institution</option>{institutions.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</CFormSelect></CCol>
@@ -807,11 +936,24 @@ const ViewTimetableConfiguration = () => {
                 <CCol md={3}><CFormLabel>Academic Year</CFormLabel></CCol>
                 <CCol md={3}><CFormSelect value={form.academicYearId} onChange={onChange('academicYearId')}><option value="">Select Academic Year</option>{academicYears.map((x) => <option key={x.id} value={x.id}>{x.academicYearLabel || `${x.academicYear}${x.semesterCategory ? ` (${x.semesterCategory})` : ''}`}</option>)}</CFormSelect></CCol>
 
-                <CCol md={3}><CFormLabel>Batch</CFormLabel></CCol>
+                <CCol md={3}><CFormLabel>Admission Batch</CFormLabel></CCol>
                 <CCol md={3}><CFormSelect value={form.batchId} onChange={onChange('batchId')}><option value="">All Batches</option>{batches.map((x) => <option key={x.id} value={x.id}>{x.batchName}</option>)}</CFormSelect></CCol>
 
+                <CCol md={3}><CFormLabel>Semester Category</CFormLabel></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.semesterCategory} onChange={onChange('semesterCategory')} disabled={!form.academicYearId}>
+                    <option value="">{form.academicYearId ? 'Select Semester Category' : 'Select Academic Year'}</option>
+                    {semesterCategoryOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+                  </CFormSelect>
+                </CCol>
+
                 <CCol md={3}><CFormLabel>Choose Semester</CFormLabel></CCol>
-                <CCol md={3}><CFormSelect value={form.semester} onChange={onChange('semester')}><option value="">All Semesters</option>{semesterOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}</CFormSelect></CCol>
+                <CCol md={3}>
+                  <CFormSelect value={form.semester} onChange={onChange('semester')} disabled={!form.semesterCategory}>
+                    <option value="">{form.semesterCategory ? 'All Semesters' : 'Select Semester Category'}</option>
+                    {semesterOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+                  </CFormSelect>
+                </CCol>
 
                 <CCol md={3}><CFormLabel>Programme Name</CFormLabel></CCol>
                 <CCol md={3}><CFormInput value={form.programmeName || '-'} disabled /></CCol>

@@ -24,7 +24,6 @@ const UploadPhotoConfiguration= React.lazy(() => import('./views/setup/UploadPho
 // Learning Management System (LMS) components can be added here similarly
 const CourseAllotment = React.lazy(() => import('./views/lms/CourseAllotment'))
 const StudentAllotment = React.lazy(() => import('./views/lms/StudentAllotment'))
-const UploadTimetable = React.lazy(() => import('./views/lms/UploadTimetable'))
 const ViewTimetable = React.lazy(() => import('./views/lms/ViewTimetable'))
 const ViewCalendar = React.lazy(() => import('./views/lms/ViewCalendar'))
 const CourseContents = React.lazy(() => import('./views/lms/CourseContents'))
@@ -201,7 +200,6 @@ const routes = [
   // ===== Phase 3 : Learning Management System =====
   { path: '/lms/course-allotment', name: 'Course Allotment', element: CourseAllotment },
   { path: '/lms/student-allotment', name: 'Student Allotment', element: StudentAllotment },
-  { path: '/lms/upload-timetable', name: 'Upload Timetable', element: UploadTimetable },
   { path: '/lms/class-timetable', name: 'Class Timetable', element: ClassTimetableConfiguration },
   { path: '/lms/view-timetable', name: 'View Timetable', element: ViewTimetable },
   { path: '/lms/view-calendar', name: 'View Calendar', element: ViewCalendar },

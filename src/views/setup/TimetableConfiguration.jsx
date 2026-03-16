@@ -56,6 +56,86 @@ const unwrapList = (res) => {
   return []
 }
 
+const normalizeSemesterList = (value) => {
+  const source = Array.isArray(value) ? value : String(value ?? '').match(/\d+/g) || []
+  return Array.from(
+    new Set(
+      source
+        .map((x) => Number(x))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  ).sort((a, b) => a - b)
+}
+
+const buildAnnualAcademicYears = (items = []) => {
+  const grouped = new Map()
+
+  items.forEach((row) => {
+    const key = `${row?.institutionId || ''}::${row?.academicYear || ''}`
+    const current = grouped.get(key) || {
+      id: row?.id || '',
+      institutionId: row?.institutionId || '',
+      academicYear: row?.academicYear || '',
+      academicYearLabel: row?.academicYear || '',
+      oddAcademicYearId: '',
+      evenAcademicYearId: '',
+      oddChosenSemesters: [],
+      evenChosenSemesters: [],
+    }
+
+    const category = String(row?.semesterCategory || '').toUpperCase().trim()
+    if (category === 'ODD') {
+      current.oddAcademicYearId = row?.id || ''
+      current.oddChosenSemesters = normalizeSemesterList(row?.chosenSemesters)
+      current.id = current.id || row?.id || ''
+    }
+    if (category === 'EVEN') {
+      current.evenAcademicYearId = row?.id || ''
+      current.evenChosenSemesters = normalizeSemesterList(row?.chosenSemesters)
+      if (!current.oddAcademicYearId) current.id = row?.id || current.id
+    }
+
+    grouped.set(key, current)
+  })
+
+  return Array.from(grouped.values()).sort((left, right) =>
+    String(right?.academicYear || '').localeCompare(String(left?.academicYear || '')),
+  )
+}
+
+const dedupeAnnualAcademicYears = (items = []) => {
+  const grouped = new Map()
+
+  items.forEach((row) => {
+    const key = `${row?.institutionId || ''}::${row?.academicYearLabel || row?.academicYear || ''}`
+    const current = grouped.get(key) || {
+      ...row,
+      oddChosenSemesters: normalizeSemesterList(row?.oddChosenSemesters),
+      evenChosenSemesters: normalizeSemesterList(row?.evenChosenSemesters),
+    }
+
+    if (!current.id && row?.id) current.id = row.id
+    if (!current.oddAcademicYearId && row?.oddAcademicYearId) current.oddAcademicYearId = row.oddAcademicYearId
+    if (!current.evenAcademicYearId && row?.evenAcademicYearId) current.evenAcademicYearId = row.evenAcademicYearId
+    current.oddChosenSemesters = normalizeSemesterList([
+      ...(Array.isArray(current.oddChosenSemesters) ? current.oddChosenSemesters : []),
+      ...(Array.isArray(row?.oddChosenSemesters) ? row.oddChosenSemesters : []),
+    ])
+    current.evenChosenSemesters = normalizeSemesterList([
+      ...(Array.isArray(current.evenChosenSemesters) ? current.evenChosenSemesters : []),
+      ...(Array.isArray(row?.evenChosenSemesters) ? row.evenChosenSemesters : []),
+    ])
+
+    grouped.set(key, current)
+  })
+
+  return Array.from(grouped.values()).sort((left, right) =>
+    String(right?.academicYearLabel || right?.academicYear || '').localeCompare(
+      String(left?.academicYearLabel || left?.academicYear || ''),
+    ),
+  )
+}
+
 const toScopeParams = (scope) => ({
   institutionId: scope.institutionId,
   departmentId: scope.departmentId,
@@ -111,6 +191,10 @@ export default function TimetableConfiguration() {
   const shiftTemplateOptions = useMemo(
     () => shiftTemplates.map((x) => ({ id: x.id, label: x.timetableName })),
     [shiftTemplates],
+  )
+  const selectedAcademicYear = useMemo(
+    () => academicYears.find((x) => String(x.id) === String(scope.academicYearId)) || null,
+    [academicYears, scope.academicYearId],
   )
 
   const mappingSummary = useMemo(() => {
@@ -193,11 +277,25 @@ export default function TimetableConfiguration() {
       try {
         const [depRes, ayRes, batchRes] = await Promise.all([
           api.get('/api/setup/department', { params: { institutionId: scope.institutionId } }),
-          api.get('/api/setup/academic-year', { headers: { 'x-institution-id': scope.institutionId } }),
+          api.get('/api/setup/academic-year', {
+            headers: { 'x-institution-id': scope.institutionId },
+            params: { institutionId: scope.institutionId, view: 'annual' },
+          }),
           api.get('/api/setup/batch', { params: { institutionId: scope.institutionId } }),
         ])
         setDepartments(unwrapList(depRes))
-        setAcademicYears(unwrapList(ayRes))
+        const annualRows = unwrapList(ayRes)
+        setAcademicYears(
+          annualRows.length
+            ? dedupeAnnualAcademicYears(annualRows)
+            : buildAnnualAcademicYears(
+                unwrapList(
+                  await api.get('/api/setup/academic-year', {
+                    headers: { 'x-institution-id': scope.institutionId },
+                  }),
+                ),
+              ),
+        )
         setBatches(unwrapList(batchRes))
       } catch {
         setDepartments([])
@@ -259,20 +357,26 @@ export default function TimetableConfiguration() {
             departmentId: scope.departmentId,
             programmeId: scope.programmeId,
             regulationId: scope.regulationId,
-            academicYearId: scope.academicYearId,
+            academicYearIds: [selectedAcademicYear?.oddAcademicYearId, selectedAcademicYear?.evenAcademicYearId].filter(Boolean).join(','),
             batchId: scope.batchId,
           },
         })
         const sems = unwrapList(res)
-          .filter((x) => String(x?.status || '').toLowerCase() === 'map done')
-          .map((x) => Number(x.semester))
+          .flatMap((x) => {
+            const status = String(x?.status || '').toLowerCase()
+            if (Array.isArray(x?.mappedSemesters) && ['mapped', 'partial', 'map done'].includes(status)) {
+              return x.mappedSemesters
+            }
+            return x?.semester ? [x.semester] : []
+          })
+          .map((x) => Number(x))
           .filter((x) => Number.isFinite(x))
         setMappedSemesters([...new Set(sems)].sort((a, b) => a - b))
       } catch {
         setMappedSemesters([])
       }
     })()
-  }, [scope.institutionId, scope.departmentId, scope.programmeId, scope.regulationId, scope.academicYearId, scope.batchId])
+  }, [scope.institutionId, scope.departmentId, scope.programmeId, scope.regulationId, scope.academicYearId, scope.batchId, selectedAcademicYear])
 
   useEffect(() => {
     loadTimetables(true)
